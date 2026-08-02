@@ -271,7 +271,7 @@ function Toast({ toast }) {
       alignItems: "center", gap: 8, animation: "riseIn .2s ease-out",
     }}>
       <Led status={toast.type === "ok" ? "ok" : toast.type === "err" ? "danger" : "warn"} size={8} />
-      {toast.msg}
+      {toast.text}
     </div>
   );
 }
@@ -283,7 +283,6 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // 1. XLSX 라이브러리 로드
   useEffect(() => {
     if (!window.XLSX) {
       const script = document.createElement("script");
@@ -300,15 +299,9 @@ export default function App() {
   };
 
   const notify = (msg, type = "ok") => {
-  setToast({
-    text: msg,
-    type,
-  });
-
-  setTimeout(() => {
-    setToast(null);
-  }, 2500);   // 2.5초 후 자동 닫기
-};
+    setToast({ text: msg, type });
+    setTimeout(() => { setToast(null); }, 2500);
+  };
 
   const alerts = useMemo(() => items.filter((i) => statusOf(i) === "danger"), [items]);
   const warns = useMemo(() => items.filter((i) => statusOf(i) === "warn"), [items]);
@@ -319,7 +312,7 @@ export default function App() {
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
-    { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true }, // 추가
+    { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
   ];
 
   const ready = itemsLoaded && txsLoaded;
@@ -368,24 +361,9 @@ export default function App() {
       {/* PC 전용 사이드바 */}
       <div className="pc-sidebar">
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 4px" }}>
-          <div style={{
-  width: 38,
-  height: 38,
-  borderRadius: 10,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-}}>
-  <img
-    src="/Luxco.png"
-    alt="Luxco"
-    style={{
-      width: "250%",
-      height: "300%",
-      objectFit: "contain"
-    }}
-  />
-</div>
+          <div style={{ width: 38, height: 38, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <img src="/Luxco.png" alt="Luxco" style={{ width: "250%", height: "300%", objectFit: "contain" }} />
+          </div>
           <div>
             <div style={{ fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.02em" }}>선박 생산부</div>
             <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5E86A3", letterSpacing: "0.08em" }}>부자재 관리 시스템</div>
@@ -458,31 +436,11 @@ export default function App() {
       <header className="mobile-header">
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-
-  <img
-    src="/Luxco.png"
-    alt="Luxco"
-    style={{
-      height: 34,
-    width: "auto",
-    objectFit: "contain",
-    display: "block"
-    }}
-  />
-
-  <span
-    style={{
-      fontFamily: "Rajdhani, Oswald, sans-serif",
-      fontWeight: 700,
-      fontSize: 18,
-      letterSpacing: "0.06em",
-      color: "#fff"
-    }}
-  >
-    선박 생산부
-  </span>
-
-</div>
+            <img src="/Luxco.png" alt="Luxco" style={{ height: 34, width: "auto", objectFit: "contain", display: "block" }} />
+            <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
+              선박 생산부
+            </span>
+          </div>
         </div>
         <button
           onClick={refreshAll}
@@ -505,21 +463,8 @@ export default function App() {
             {tab === "in" && <InForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
             {tab === "stock" && <StockView items={items} />}
-            {tab === "master" && (
-    <MasterView
-        items={items}
-        saveItems={saveItems}
-        notify={notify}
-    />
-)}
-
-{tab === "trash" && (
-    <TrashView
-        items={items}
-        saveItems={saveItems}
-        notify={notify}
-    />
-)}
+            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
           </>
         )}
       </main>
@@ -604,26 +549,18 @@ function Dashboard({ items, txs }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 20 }}>
-        
         <Card style={{ padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <SectionLabel>호선별 부자재 소모 현황</SectionLabel>
-            
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>호선 선택:</span>
               <select
                 value={selectedShip}
                 onChange={(e) => setSelectedShip(e.target.value)}
                 style={{
-                  background: "#0B1C2C",
-                  border: "1px solid #274460",
-                  color: "#38BDF8",
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: "bold",
-                  outline: "none",
-                  cursor: "pointer"
+                  background: "#0B1C2C", border: "1px solid #274460", color: "#38BDF8",
+                  padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
+                  outline: "none", cursor: "pointer"
                 }}
               >
                 {availableShips.map((ship) => (
@@ -837,13 +774,11 @@ function InForm({ items, saveItems, txs, saveTxs, notify }) {
 function OutForm({ items, saveItems, txs, saveTxs, notify }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
-  
   const [shipNo, setShipNo] = useState("");
   const [project, setProject] = useState("MSBD/LVSB");
   const [process, setProcess] = useState("배전반 결선");
   const [qty, setQty] = useState("");
   const [worker, setWorker] = useState("울산에이원");
-  
   const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
 
@@ -851,7 +786,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
   const processOptions = ["배전반 결선", "배전반 조립", "배전반 어렌지", "A/S"];
   const workerOptions = ["울산에이원", "부산에이원", "본사에이원", "수림기전", "생산팀"];
 
-  // 최근 출고 이력 목록 (최신 5개)
   const recentOutTxs = useMemo(() => {
     return txs.filter((t) => t.type === "out").slice(-5).reverse();
   }, [txs]);
@@ -976,49 +910,40 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
     setScan("");
   };
 
-  // 🔴 🔥 [핵심 기능] 잘못 등록한 출고 내역 삭제 및 재고 복원 함수
   const cancelOutTx = async (targetTx) => {
     if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 출고 내역을 취소하고 재고를 다시 원복하시겠습니까?`)) {
       return;
     }
 
-    // 1. 해당 자재 재고 복원 (+수량)
     const nextItems = items.map((i) => {
       if (String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()) {
         return { ...i, stock: Number(i.stock) + Number(targetTx.qty) };
       }
       return i;
     });
-    
 
-    // 2. 이력(Transaction)에서 삭제
     const nextTxs = txs.filter((t) => t.id !== targetTx.id);
 
     await saveItems(nextItems);
     await saveTxs(nextTxs);
     notify(`출고가 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 복원되었습니다.`, "info");
   };
+
   const deleteHistory = async (targetTx) => {
     if (!window.confirm(`[${targetTx.itemName}] 출고 이력을 완전히 삭제하시겠습니까?`)) {
         return;
     }
-
-    // 재고는 건드리지 않음
     const nextTxs = txs.filter((t) => t.id !== targetTx.id);
-
     await saveTxs(nextTxs);
-
     notify("출고 이력이 삭제되었습니다.", "info");
-};
+  };
 
   return (
     <div>
       <Header title="출고 (QR / 바코드 스캔)" subtitle="스캔으로 빠르게 불출 처리" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
-        
         <Card style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
-
           {!isScanning ? (
             <div style={{
               border: "2px dashed #274460", borderRadius: 10, padding: "22px 16px",
@@ -1060,7 +985,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
             <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 입력해주세요." color="#5E86A3" />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
                 <Led status={statusOf(found)} size={12} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1081,12 +1005,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <Field label="1. 호선">
-                  <input 
-                    style={inputStyle} 
-                    value={shipNo} 
-                    onChange={(e) => setShipNo(e.target.value)} 
-                    placeholder="예: H-2024" 
-                  />
+                  <input style={inputStyle} value={shipNo} onChange={(e) => setShipNo(e.target.value)} placeholder="예: H-2024" />
                 </Field>
                 <Field label="2. 프로젝트">
                   <Select value={project} onChange={(e) => setProject(e.target.value)} options={projectOptions} />
@@ -1100,12 +1019,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
                 <Field label={`4. 불출수량 (${found.unit})`}>
                   <input 
                     style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }} 
-                    type="number" 
-                    min="1" 
-                    max={found.stock} 
-                    value={qty} 
-                    onChange={(e) => setQty(e.target.value)} 
-                    placeholder="수량 입력"
+                    type="number" min="1" max={found.stock} value={qty} 
+                    onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
                   />
                 </Field>
               </div>
@@ -1118,25 +1033,19 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
                 onClick={submit} 
                 disabled={!qty || Number(qty) <= 0 || Number(qty) > found.stock} 
                 style={{ 
-                  marginTop: 8, 
-                  width: "100%", 
+                  marginTop: 8, width: "100%", 
                   background: (!qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#1F3B54" : "#F5A623",
                   color: (!qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#5E86A3" : "#0A1622",
-                  fontWeight: "bold",
-                  fontSize: 15
+                  fontWeight: "bold", fontSize: 15
                 }}
               >
                 <ArrowUpFromLine size={18} />출고 확정
               </Btn>
-
             </div>
           )}
         </Card>
-
       </div>
 
-      {/* 🔴 🔥 [신규 추가] 최근 등록된 출고 내역 및 바로 삭제/복원 영역 */}
-      {/* 🔴 🔥 [모바일 대응] 최근 등록된 출고 내역 및 바로 삭제/복원 영역 */}
       <Card style={{ padding: 16, marginTop: 20 }}>
         <SectionLabel>최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)</SectionLabel>
         {recentOutTxs.length === 0 ? (
@@ -1147,40 +1056,24 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
               <div
                 key={t.id}
                 style={{
-                  background: "#0B1C2C",
-                  border: "1px solid #1F3B54",
-                  borderRadius: 8,
-                  padding: "12px 14px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
+                  background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+                  padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8,
                 }}
               >
-                {/* 상단: 자재명 및 삭제 버튼 */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8" }}>{t.itemName}</div>
-                    <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
-                      {t.at}
-                    </div>
+                    <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 2 }}>{t.at}</div>
                   </div>
-                  
                 </div>
 
-                {/* 하단: 불출 상세 정보 (수량, 호선, 불출자) */}
                 <div style={{ 
-                  display: "grid", 
-                  gridTemplateColumns: "1fr 1fr 1fr", 
-                  gap: 8, 
-                  paddingTop: 8, 
-                  borderTop: "1px solid #14283A",
-                  fontSize: 12 
+                  display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, 
+                  paddingTop: 8, borderTop: "1px solid #14283A", fontSize: 12 
                 }}>
                   <div>
                     <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>수량</span>
-                    <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>
-                      {t.qty} {t.unit}
-                    </span>
+                    <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>{t.qty} {t.unit}</span>
                   </div>
                   <div>
                     <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>호선</span>
@@ -1190,54 +1083,28 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
                     <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>불출자</span>
                     <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
                   </div>
-                  </div>
-  <div style={{
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: 8,
-    marginTop: 14,
-    width: "100%",
-  }}
->
-  <button
-  onClick={() => cancelOutTx(t)}
-  style={{
-    background: "#123626",
-    border: "1px solid #2ECC71",
-    color: "#2ECC71",
-    padding: "6px 12px",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 600,
-  }}
->
-  원복
-</button>
-
-  <button
-  onClick={() => deleteHistory(t)}
-  style={{
-    background: "#3A1C1C",
-    border: "1px solid #EF5350",
-    color: "#EF5350",
-    padding: "6px 12px",
-    borderRadius: 6,
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 600,
-  }}
->
-  삭제
-</button>
-</div>
+                </div>
+                
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14, width: "100%" }}>
+                  <button
+                    onClick={() => cancelOutTx(t)}
+                    style={{ background: "#123626", border: "1px solid #2ECC71", color: "#2ECC71", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+                  >
+                    원복
+                  </button>
+                  <button
+                    onClick={() => deleteHistory(t)}
+                    style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+                  >
+                    삭제
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
       </Card>
-      </div>
+    </div>
   );
 }
 
@@ -1269,10 +1136,8 @@ function StockView({ items }) {
     <div>
       <Header title="재고 현황 조회" subtitle="전체 자재 실시간 재고 및 안전재고 파악" />
 
-      {/* 검색 및 필터 영역 (모바일 대응) */}
       <Card style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* 검색창 */}
           <div style={{ display: "flex", gap: 8 }}>
             <input
               style={{ ...inputStyle, flex: 1 }}
@@ -1281,14 +1146,11 @@ function StockView({ items }) {
               onChange={(e) => setSearch(e.target.value)}
             />
             {search && (
-              <Btn variant="subtle" onClick={() => setSearch("")}>
-                초기화
-              </Btn>
+              <Btn variant="subtle" onClick={() => setSearch("")}>초기화</Btn>
             )}
           </div>
 
-          {/* 상태 필터 버튼 그룹 */}
-          <div style={{ display: "flex", gap: 6, overflowX: "auto", pb: 2 }}>
+          <div style={{ display: "flex", gap: 6, overflowX: "auto" }}>
             {[
               { id: "all", label: "전체" },
               { id: "normal", label: "정상" },
@@ -1299,15 +1161,11 @@ function StockView({ items }) {
                 key={f.id}
                 onClick={() => setStatusFilter(f.id)}
                 style={{
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  fontSize: 12,
-                  fontWeight: "bold",
+                  padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: "bold",
                   border: statusFilter === f.id ? "1px solid #38BDF8" : "1px solid #1F3B54",
                   background: statusFilter === f.id ? "#1E3A5F" : "#0B1C2C",
                   color: statusFilter === f.id ? "#38BDF8" : "#7F97AC",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
+                  cursor: "pointer", whiteSpace: "nowrap",
                 }}
               >
                 {f.label}
@@ -1317,7 +1175,6 @@ function StockView({ items }) {
         </div>
       </Card>
 
-      {/* 모바일 최적화 자재 리스트 (카드뷰) */}
       {filteredItems.length === 0 ? (
         <Card style={{ padding: 20 }}>
           <EmptyState icon={Package} text="검색 결과가 없습니다." color="#5E86A3" />
@@ -1329,7 +1186,6 @@ function StockView({ items }) {
             return (
               <Card key={item.code} style={{ padding: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-                  {/* 자재 기본 정보 */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                       <Led status={st} size={10} />
@@ -1337,30 +1193,20 @@ function StockView({ items }) {
                         {item.name}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
-                      코드: {item.code}
-                    </div>
+                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>코드: {item.code}</div>
                     {item.manufacturer && (
-                      <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2 }}>
-                        제조사: {item.manufacturer}
-                      </div>
+                      <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2 }}>제조사: {item.manufacturer}</div>
                     )}
                   </div>
 
-                  {/* 재고 수량 현황 */}
                   <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flexShrink: 0 }}>
-                    <div
-                      style={{
-                        fontSize: 16,
-                        fontWeight: 700,
-                        color: st === "danger" ? "#EF5350" : st === "warning" ? "#F5A623" : "#35D08C",
-                      }}
-                    >
+                    <div style={{
+                      fontSize: 16, fontWeight: 700,
+                      color: st === "danger" ? "#EF5350" : st === "warning" ? "#F5A623" : "#35D08C",
+                    }}>
                       {item.stock} <span style={{ fontSize: 11 }}>{item.unit}</span>
                     </div>
-                    <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>
-                      안전재고: {item.safety} {item.unit}
-                    </div>
+                    <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>안전재고: {item.safety} {item.unit}</div>
                   </div>
                 </div>
               </Card>
@@ -1380,31 +1226,52 @@ function MasterView({ items, saveItems, notify }) {
   const [qrModalItem, setQrModalItem] = useState(null);
   const [masterQRInput, setMasterQRInput] = useState("");
 
- const removeItem = async (code) => {
-  if (!window.confirm("정말 삭제하시겠습니까?")) return;
-
-  if (supabase) {
-    const { error } = await supabase
-      .from("items")
-      .update({
-        deleted: true,
-        deleted_at: new Date().toISOString(),
-      })
-      .eq("code", code);
-
-    if (error) {
-      notify("삭제 실패", "err");
+  // 🔴 🔥 [추가된 신규 자재 등록 함수]
+  const addItem = async () => {
+    if (!form.code.trim() || !form.name.trim()) {
+      notify("자재코드와 품명은 필수 입력 항목입니다.", "err");
       return;
     }
-  }
 
-  // 화면에서도 즉시 제거
-  const updated = items.filter((i) => i.code !== code);
-  await saveItems(updated);
+    const exists = items.some((i) => i.code.trim() === form.code.trim());
+    if (exists) {
+      notify("이미 존재하는 자재 코드입니다.", "err");
+      return;
+    }
 
-  notify("삭제되었습니다.", "ok");
-};
+    const newItem = {
+      ...form,
+      stock: Number(form.stock) || 0,
+      safety: Number(form.safety) || 0,
+      deleted: false,
+    };
 
+    const nextItems = [newItem, ...items];
+    await saveItems(nextItems);
+    notify(`[${newItem.name}] 자재가 성공적으로 등록되었습니다.`, "ok");
+    setForm(blank);
+    setShowForm(false);
+  };
+
+  const removeItem = async (code) => {
+    if (!window.confirm("정말 삭제하시겠습니까?")) return;
+
+    if (supabase) {
+      const { error } = await supabase
+        .from("items")
+        .update({ deleted: true, deleted_at: new Date().toISOString() })
+        .eq("code", code);
+
+      if (error) {
+        notify("삭제 실패", "err");
+        return;
+      }
+    }
+
+    const updated = items.filter((i) => i.code !== code);
+    await saveItems(updated);
+    notify("삭제되었습니다.", "ok");
+  };
 
   const exportCSV = () => {
     const headers = ["code,name,spec,category,unit,stock,safety,location,manufacturer\n"];
@@ -1461,6 +1328,7 @@ function MasterView({ items, saveItems, notify }) {
               safety: safety,
               location: location,
               manufacturer: manufacturer,
+              deleted: false,
             };
           }).filter(Boolean);
 
@@ -1513,12 +1381,10 @@ function MasterView({ items, saveItems, notify }) {
             {showForm ? <X size={16} /> : <Plus size={16} />}
             {showForm ? "취소" : "신규 자재 등록"}
           </Btn>
-         
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
           <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업 다운로드</Btn>
-          
           <label style={{ display: "inline-block" }}>
             <input type="file" accept=".xlsx, .xls, .csv" onChange={importExcelFile} style={{ display: "none" }} />
             <span style={{
@@ -1655,123 +1521,105 @@ function MasterView({ items, saveItems, notify }) {
     </div>
   );
 }
+
 function TrashView({ items, saveItems, notify }) {
   const [trashItems, setTrashItems] = useState([]);
 
-useEffect(() => {
-  loadTrash();
-}, []);
+  useEffect(() => {
+    loadTrash();
+  }, []);
 
-async function loadTrash() {
-  if (!supabase) return;
+  async function loadTrash() {
+    if (!supabase) return;
 
-  const { data } = await supabase
-    .from("items")
-    .select("*")
-    .eq("deleted", true)
-    .order("deleted_at", { ascending: false });
+    const { data } = await supabase
+      .from("items")
+      .select("*")
+      .eq("deleted", true)
+      .order("deleted_at", { ascending: false });
 
-  setTrashItems(data || []);
-}
-const restoreItem = async (code) => {
-  const { error } = await supabase
-    .from("items")
-    .update({
-      deleted: false,
-      deleted_at: null,
-    })
-    .eq("code", code);
-
-  if (error) {
-    notify("복원 실패", "err");
-    return;
+    setTrashItems(data || []);
   }
 
-  notify("복원되었습니다.", "ok");
+  const restoreItem = async (code) => {
+    const { error } = await supabase
+      .from("items")
+      .update({ deleted: false, deleted_at: null })
+      .eq("code", code);
 
-  loadTrash();
+    if (error) {
+      notify("복원 실패", "err");
+      return;
+    }
 
-  const { data } = await supabase
-    .from("items")
-    .select("*")
-    .eq("deleted", false);
+    notify("복원되었습니다.", "ok");
+    loadTrash();
 
-  saveItems(data || []);
-};
-const deleteForever = async (code) => {
-  if (!window.confirm("영구 삭제하시겠습니까?")) return;
+    const { data } = await supabase
+      .from("items")
+      .select("*")
+      .eq("deleted", false);
 
-  const { error } = await supabase
-    .from("items")
-    .delete()
-    .eq("code", code);
+    saveItems(data || []);
+  };
 
-  if (error) {
-    notify("삭제 실패", "err");
-    return;
-  }
+  const deleteForever = async (code) => {
+    if (!window.confirm("영구 삭제하시겠습니까?")) return;
 
-  notify("영구삭제 완료", "ok");
+    const { error } = await supabase
+      .from("items")
+      .delete()
+      .eq("code", code);
 
-  loadTrash();
-  const { data } = await supabase
-  .from("items")
-  .select("*")
-  .eq("deleted", false);
+    if (error) {
+      notify("삭제 실패", "err");
+      return;
+    }
 
-saveItems(data || []);
-};
+    notify("영구삭제 완료", "ok");
+    loadTrash();
 
-   return (
-  <div style={{ padding: 20 }}>
-    <h2>🗑 삭제 복원</h2>
+    const { data } = await supabase
+      .from("items")
+      .select("*")
+      .eq("deleted", false);
 
-    {trashItems.length === 0 ? (
-      <div style={{ opacity: 0.6 }}>
-        휴지통이 비어 있습니다.
-      </div>
-    ) : (
-      <table className="table">
-        <thead>
-          <tr>
-            <th>코드</th>
-            <th>품명</th>
-            <th>삭제일</th>
-            <th></th>
-          </tr>
-        </thead>
+    saveItems(data || []);
+  };
 
-        <tbody>
-          {trashItems.map(item => (
-            <tr key={item.code}>
-              <td>{item.code}</td>
-              <td>{item.name}</td>
-              <td>
-                {item.deleted_at
-                  ? new Date(item.deleted_at).toLocaleString()
-                  : ""}
-              </td>
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>🗑 삭제 복원</h2>
 
-              <td>
-                <Btn
-                  onClick={() => restoreItem(item.code)}
-                >
-                  복원
-                </Btn>
-
-                <Btn
-                  variant="danger"
-                  onClick={() => deleteForever(item.code)}
-                  style={{ marginLeft: 8 }}
-                >
-                  영구삭제
-                </Btn>
-              </td>
+      {trashItems.length === 0 ? (
+        <div style={{ opacity: 0.6 }}>휴지통이 비어 있습니다.</div>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>코드</th>
+              <th>품명</th>
+              <th>삭제일</th>
+              <th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    )}
-  </div>
-);
+          </thead>
+          <tbody>
+            {trashItems.map(item => (
+              <tr key={item.code}>
+                <td>{item.code}</td>
+                <td>{item.name}</td>
+                <td>
+                  {item.deleted_at ? new Date(item.deleted_at).toLocaleString() : ""}
+                </td>
+                <td>
+                  <Btn onClick={() => restoreItem(item.code)}>복원</Btn>
+                  <Btn variant="danger" onClick={() => deleteForever(item.code)} style={{ marginLeft: 8 }}>영구삭제</Btn>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
 }

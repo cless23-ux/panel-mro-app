@@ -989,6 +989,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
       }
       return i;
     });
+    
 
     // 2. 이력(Transaction)에서 삭제
     const nextTxs = txs.filter((t) => t.id !== targetTx.id);
@@ -997,6 +998,18 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
     await saveTxs(nextTxs);
     notify(`출고가 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 복원되었습니다.`, "info");
   };
+  const deleteHistory = async (targetTx) => {
+    if (!window.confirm(`[${targetTx.itemName}] 출고 이력을 완전히 삭제하시겠습니까?`)) {
+        return;
+    }
+
+    // 재고는 건드리지 않음
+    const nextTxs = txs.filter((t) => t.id !== targetTx.id);
+
+    await saveTxs(nextTxs);
+
+    notify("출고 이력이 삭제되었습니다.", "info");
+};
 
   return (
     <div>
@@ -1151,24 +1164,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
                       {t.at}
                     </div>
                   </div>
-                  <button
-                    onClick={() => cancelOutTx(t)}
-                    style={{
-                      background: "#3A1C1C",
-                      border: "1px solid #EF5350",
-                      color: "#EF5350",
-                      padding: "6px 10px",
-                      borderRadius: 6,
-                      cursor: "pointer",
-                      fontSize: 11.5,
-                      fontFamily: "IBM Plex Mono",
-                      fontWeight: "bold",
-                      whiteSpace: "nowrap",
-                      flexShrink: 0
-                    }}
-                  >
-                    삭제(원복)
-                  </button>
+                  
                 </div>
 
                 {/* 하단: 불출 상세 정보 (수량, 호선, 불출자) */}
@@ -1194,6 +1190,47 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
                     <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>불출자</span>
                     <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
                   </div>
+                  </div>
+  <div style={{
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 14,
+    width: "100%",
+  }}
+>
+  <button
+  onClick={() => cancelOutTx(t)}
+  style={{
+    background: "#123626",
+    border: "1px solid #2ECC71",
+    color: "#2ECC71",
+    padding: "6px 12px",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
+  }}
+>
+  원복
+</button>
+
+  <button
+  onClick={() => deleteHistory(t)}
+  style={{
+    background: "#3A1C1C",
+    border: "1px solid #EF5350",
+    color: "#EF5350",
+    padding: "6px 12px",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600,
+  }}
+>
+  삭제
+</button>
+</div>
                 </div>
               </div>
             ))}

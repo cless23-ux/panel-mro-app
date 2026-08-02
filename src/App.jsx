@@ -778,6 +778,7 @@ function InForm({ items, saveItems, txs, saveTxs, notify }) {
 }
 
 /* ---------------- 출고 (스캔) ---------------- */
+/* ---------------- 출고 (스캔) ---------------- */
 function OutForm({ items, saveItems, txs, saveTxs, notify }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
@@ -795,10 +796,13 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
   const processOptions = ["배전반 결선", "배전반 조립", "배전반 어렌지", "A/S"];
   const workerOptions = ["울산에이원", "부산에이원", "본사에이원", "수림기전", "생산팀"];
 
-  // 🛠️ 버그 수정 및 개선된 findItemByCode 단일 함수
+  // 최근 출고 이력 목록 (최신 5개)
+  const recentOutTxs = useMemo(() => {
+    return txs.filter((t) => t.type === "out").slice(-5).reverse();
+  }, [txs]);
+
   const findItemByCode = (rawCode) => {
     if (!rawCode) return null;
-
     const cleanScan = String(rawCode).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
     const alphaNumScan = cleanScan.replace(/[^a-z0-9]/g, "");
 
@@ -806,25 +810,20 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
 
     return items.find((i) => {
       if (!i) return false;
-
       const itemCodeVal = i.code || i.Code || i.자재코드 || i.item_code || "";
       const rawItemCode = String(itemCodeVal).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
       const alphaNumItemCode = rawItemCode.replace(/[^a-z0-9]/g, "");
-
       const rawItemName = String(i.name || i.Name || i.품명 || "").replace(/[\r\n\t]+/g, "").trim().toLowerCase();
       const alphaNumItemName = rawItemName.replace(/[^a-z0-9]/g, "");
 
-      const isCodeMatch = 
+      return (
         rawItemCode === cleanScan || 
         (alphaNumItemCode && alphaNumItemCode === alphaNumScan) ||
         cleanScan.includes(rawItemCode) || 
-        rawItemCode.includes(cleanScan);
-
-      const isNameMatch = 
+        rawItemCode.includes(cleanScan) ||
         rawItemName === cleanScan || 
-        (alphaNumItemName && alphaNumItemName === alphaNumScan);
-
-      return isCodeMatch || isNameMatch;
+        (alphaNumItemName && alphaNumItemName === alphaNumScan)
+      );
     });
   };
 
@@ -922,6 +921,28 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
     setScan("");
   };
 
+  // 🔴 🔥 [핵심 기능] 잘못 등록한 출고 내역 삭제 및 재고 복원 함수
+  const cancelOutTx = async (targetTx) => {
+    if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 출고 내역을 취소하고 재고를 다시 원복하시겠습니까?`)) {
+      return;
+    }
+
+    // 1. 해당 자재 재고 복원 (+수량)
+    const nextItems = items.map((i) => {
+      if (String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()) {
+        return { ...i, stock: Number(i.stock) + Number(targetTx.qty) };
+      }
+      return i;
+    });
+
+    // 2. 이력(Transaction)에서 삭제
+    const nextTxs = txs.filter((t) => t.id !== targetTx.id);
+
+    await saveItems(nextItems);
+    await saveTxs(nextTxs);
+    notify(`출고가 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 복원되었습니다.`, "info");
+  };
+
   return (
     <div>
       <Header title="출고 (QR / 바코드 스캔)" subtitle="스캔으로 빠르게 불출 처리" />
@@ -937,7 +958,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
             }}>
               <Camera size={36} color="#5E86A3" style={{ marginBottom: 8 }} />
               <div style={{ fontSize: 13, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
-                버튼을 누르면 스마트폰 카메라가 크고 선명하게 실행됩니다
+                버튼을 누르면 스마트폰 카메라가 실행됩니다
               </div>
               <Btn onClick={startCamera} style={{ marginBottom: 16, width: "100%" }}><Camera size={18} />카메라 즉시 스캔</Btn>
               
@@ -1045,6 +1066,60 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
         </Card>
 
       </div>
+
+      {/* 🔴 🔥 [신규 추가] 최근 등록된 출고 내역 및 바로 삭제/복원 영역 */}
+      <Card style={{ padding: 20, marginTop: 20 }}>
+        <SectionLabel>최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)</SectionLabel>
+        {recentOutTxs.length === 0 ? (
+          <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
+                  <th>자재명</th>
+                  <th>수량</th>
+                  <th>호선</th>
+                  <th>불출자</th>
+                  <th>일시</th>
+                  <th>취소/원복</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentOutTxs.map((t) => (
+                  <tr key={t.id}>
+                    <td style={{ fontWeight: 600 }}>{t.itemName}</td>
+                    <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>
+                      {t.qty} {t.unit}
+                    </td>
+                    <td style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</td>
+                    <td style={{ color: "#9FB4C7" }}>{t.worker || "-"}</td>
+                    <td style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{t.at}</td>
+                    <td>
+                      <button
+                        onClick={() => cancelOutTx(t)}
+                        style={{
+                          background: "#3A1C1C",
+                          border: "1px solid #EF5350",
+                          color: "#EF5350",
+                          padding: "4px 8px",
+                          borderRadius: 6,
+                          cursor: "pointer",
+                          fontSize: 11.5,
+                          fontFamily: "IBM Plex Mono",
+                          fontWeight: "bold"
+                        }}
+                      >
+                        삭제(원복)
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

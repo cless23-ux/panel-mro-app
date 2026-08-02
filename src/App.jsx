@@ -643,7 +643,7 @@ function Dashboard({ items, txs }) {
           <EmptyState icon={ScanLine} text="입출고 이력이 아직 없습니다." color="#5E86A3" />
         ) : (
           <div style={{ overflowX: "auto" }}>
-            <table>
+            <table style={{ minWidth: "550px" }}>
               <thead>
                 <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
                   <th>구분</th><th>자재</th><th>수량</th><th>호선</th><th>공정</th><th>담당자</th><th>일시</th>
@@ -1051,22 +1051,24 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
         {recentOutTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 10 }}>
             {recentOutTxs.map((t) => (
               <div
                 key={t.id}
                 style={{
                   background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
-                  padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8,
+                  padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10,
                 }}
               >
+                {/* 상단 타이틀 및 날짜 */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8" }}>{t.itemName}</div>
-                    <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 2 }}>{t.at}</div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8" }}>{t.itemName}</div>
+                    <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>{t.at}</div>
                   </div>
                 </div>
 
+                {/* 중간 상세 정보 그리드 */}
                 <div style={{ 
                   display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, 
                   paddingTop: 8, borderTop: "1px solid #14283A", fontSize: 12 
@@ -1084,17 +1086,18 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
                     <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
                   </div>
                 </div>
-                
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14, width: "100%" }}>
+
+                {/* 하단 버튼 (PC/모바일 동일하게 정렬된 원복 및 삭제 버튼) */}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 4, borderTop: "1px solid #14283A" }}>
                   <button
                     onClick={() => cancelOutTx(t)}
-                    style={{ background: "#123626", border: "1px solid #2ECC71", color: "#2ECC71", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+                    style={{ background: "#123626", border: "1px solid #2ECC71", color: "#2ECC71", padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
                   >
                     원복
                   </button>
                   <button
                     onClick={() => deleteHistory(t)}
-                    style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+                    style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "6px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
                   >
                     삭제
                   </button>
@@ -1226,7 +1229,6 @@ function MasterView({ items, saveItems, notify }) {
   const [qrModalItem, setQrModalItem] = useState(null);
   const [masterQRInput, setMasterQRInput] = useState("");
 
-  // 🔴 🔥 [추가된 신규 자재 등록 함수]
   const addItem = async () => {
     if (!form.code.trim() || !form.name.trim()) {
       notify("자재코드와 품명은 필수 입력 항목입니다.", "err");

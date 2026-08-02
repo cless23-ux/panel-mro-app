@@ -17,9 +17,6 @@ const seedItems = [
   { code: "CG-M20-BR", name: "케이블 글랜드", spec: "Brass Gland M20", unit: "EA", stock: 260, safety: 200, location: "B-07", manufacturer: "동아베스텍", category: "케이블 글랜드" },
 ];
 
-const seedProjects = ["H-2024 (컨테이너선)", "H-2025 (LNG 운반선)", "H-2026 (탱커선)", "H-2027 (벌크선)"];
-const processes = ["배전판 조립", "부스바 가공", "배선", "검사"];
-
 function uid(p = "T") {
   return `${p}-${Date.now().toString(36)}${Math.floor(Math.random() * 900 + 100)}`;
 }
@@ -31,23 +28,33 @@ function nowStr() {
 
 const POLL_MS = 8000;
 
+/* ---------------- Supabase 연동 useStorage Hook ---------------- */
 function useStorage(key, initial) {
   const [value, setValue] = useState(initial);
   const [loaded, setLoaded] = useState(false);
+  const tableName = key === "panel:items" ? "items" : "transactions";
 
   const load = useCallback(async (silent = false) => {
     try {
+      if (supabase) {
+        const { data, error } = await supabase.from(tableName).select("*");
+        if (!error && data && data.length > 0) {
+          setValue(data);
+          localStorage.setItem(key, JSON.stringify(data));
+          if (!silent) setLoaded(true);
+          return;
+        }
+      }
       const res = localStorage.getItem(key);
       if (res !== null) {
-        let parsed = JSON.parse(res);
-        setValue(parsed);
+        setValue(JSON.parse(res));
       }
     } catch (e) {
-      /* ignore */
+      console.error("Storage load error:", e);
     } finally {
       if (!silent) setLoaded(true);
     }
-  }, [key]);
+  }, [key, tableName]);
 
   useEffect(() => {
     load();
@@ -59,10 +66,17 @@ function useStorage(key, initial) {
     setValue(next);
     try {
       localStorage.setItem(key, JSON.stringify(next));
+      if (supabase) {
+        if (tableName === "items") {
+          await supabase.from("items").upsert(next, { onConflict: "code" });
+        } else if (tableName === "transactions") {
+          await supabase.from("transactions").upsert(next, { onConflict: "id" });
+        }
+      }
     } catch (e) {
-      console.error("storage save failed", e);
+      console.error("Storage save error:", e);
     }
-  }, [key]);
+  }, [key, tableName]);
 
   return [value, save, loaded, load];
 }
@@ -370,7 +384,7 @@ export default function App() {
         >
           <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#35D08C" }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#35D08C" }} />
-            로컬 저장됨
+            Supabase 연동됨
           </span>
           <span style={{ fontSize: 11, color: refreshing ? "#F5A623" : "#7F97AC" }}>
             {refreshing ? "동기화..." : "↻ 새로고침"}
@@ -447,7 +461,7 @@ export default function App() {
       {/* 메인 컨텐츠 영역 */}
       <main className="main-content">
         {!ready ? (
-          <div style={{ color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", textAlign: "center", padding: 40 }}>불러오는 중...</div>
+          <div style={{ color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", textAlign: "center", padding: 40 }}>Supabase 불러오는 중...</div>
         ) : (
           <>
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
@@ -459,7 +473,7 @@ export default function App() {
         )}
       </main>
 
-      {/* 모바일 하단 탭 바 (자재마스터 제외) */}
+      {/* 모바일 하단 탭 바 */}
       <nav className="mobile-bottom-nav">
         {NAV.filter(n => !n.pcOnly).map((n) => {
           const active = tab === n.id;
@@ -488,26 +502,22 @@ export default function App() {
   );
 }
 
-/* ---------------- Dashboard (호선별 부자재 소모량 그래픽 개선) ---------------- */
+/* ---------------- Dashboard ---------------- */
 function Dashboard({ items, txs }) {
-  // 출고 이력(txs)에서 등록된 '호선(shipNo)' 목록 중복 없이 추출
   const availableShips = useMemo(() => {
     const outTxs = txs.filter((t) => t.type === "out" && t.shipNo && t.shipNo !== "미입력");
     const uniqueShips = Array.from(new Set(outTxs.map((t) => t.shipNo)));
     return uniqueShips.length > 0 ? uniqueShips : ["등록된 호선 없음"];
   }, [txs]);
 
-  // 선택된 호선 상태 관리
   const [selectedShip, setSelectedShip] = useState(availableShips[0] || "");
 
-  // availableShips가 변경될 때 선택된 호선 자동 업데이트
   useEffect(() => {
     if (availableShips.length > 0 && !availableShips.includes(selectedShip)) {
       setSelectedShip(availableShips[0]);
     }
   }, [availableShips, selectedShip]);
 
-  // 선택된 호선의 자재별 소모량 집계
   const shipMaterialConsumption = useMemo(() => {
     if (!selectedShip || selectedShip === "등록된 호선 없음") return [];
 
@@ -535,7 +545,6 @@ function Dashboard({ items, txs }) {
     <div>
       <Header title="대시보드" subtitle="실시간 재고 · 호선별 소모 현황" />
 
-      {/* 요약 카드리스트 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 20 }}>
         <StatCard label="관리 품목 수" value={items.length} unit="종" icon={Package} color="#5EC8FF" />
         <StatCard label="누적 입고" value={totalInQty.toLocaleString()} unit="" icon={ArrowDownToLine} color="#35D08C" />
@@ -545,12 +554,10 @@ function Dashboard({ items, txs }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 20 }}>
         
-        {/* 호선별 부자재 소모량 그래픽 카드 */}
         <Card style={{ padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <SectionLabel>호선별 부자재 소모 현황</SectionLabel>
             
-            {/* 호선 선택 드롭다운 */}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>호선 선택:</span>
               <select
@@ -579,7 +586,6 @@ function Dashboard({ items, txs }) {
             <EmptyState icon={ScanLine} text={`[${selectedShip}] 호선에 출고된 자재 이력이 없습니다.`} color="#5E86A3" />
           ) : (
             <div>
-              {/* 소모량 막대그래프 */}
               <div style={{ height: 200, marginBottom: 16 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={shipMaterialConsumption} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -600,7 +606,6 @@ function Dashboard({ items, txs }) {
                 </ResponsiveContainer>
               </div>
 
-              {/* 자재 소모 목록 리스트 */}
               <div style={{ background: "#0B1C2C", borderRadius: 8, padding: 10, maxHeight: 120, overflowY: "auto", border: "1px solid #1F3B54" }}>
                 <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 6, fontWeight: 600 }}>사용 자재 상세 목록</div>
                 {shipMaterialConsumption.map((item) => (
@@ -614,7 +619,6 @@ function Dashboard({ items, txs }) {
           )}
         </Card>
 
-        {/* 재고부족 경보 카드 */}
         <Card style={{ padding: 20 }}>
           <SectionLabel>재고부족 경보</SectionLabel>
           {alertItems.length === 0 ? (
@@ -645,7 +649,6 @@ function Dashboard({ items, txs }) {
         </Card>
       </div>
 
-      {/* 최근 입출고 이력 카드 */}
       <Card style={{ padding: 20 }}>
         <SectionLabel>최근 입출고 이력</SectionLabel>
         {recent.length === 0 ? (
@@ -784,79 +787,51 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
   
-  // 변경된 5가지 입력 항목 상태
-  const [shipNo, setShipNo] = useState(""); // 1. 호선 (작성)
-  const [project, setProject] = useState("MSBD/LVSB"); // 2. 프로젝트 (드롭다운)
-  const [process, setProcess] = useState("배전반 결선"); // 3. 공정구분 (드롭다운)
-  const [qty, setQty] = useState(""); // 4. 불출수량 (작성)
-  const [worker, setWorker] = useState("울산에이원"); // 5. 불출자 (드롭다운)
+  const [shipNo, setShipNo] = useState("");
+  const [project, setProject] = useState("MSBD/LVSB");
+  const [process, setProcess] = useState("배전반 결선");
+  const [qty, setQty] = useState("");
+  const [worker, setWorker] = useState("울산에이원");
   
   const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
 
-  // 드롭다운 옵션 목록
   const projectOptions = ["MSBD/LVSB", "GSP", "DIST", "LGSP", "TEST", "BCD", "선박기타"];
   const processOptions = ["배전반 결선", "배전반 조립", "배전반 어렌지", "A/S"];
   const workerOptions = ["울산에이원", "부산에이원", "본사에이원", "수림기전", "생산팀"];
 
-// 🛠️ 완벽 개선된 findItemByCode 함수 (OutForm 내부에 적용)
-const findItemByCode = (rawCode) => {
-  if (!rawCode) return null;
+  // 🛠️ 버그 수정 및 개선된 findItemByCode 단일 함수
   const findItemByCode = (rawCode) => {
-  if (!rawCode) return null;
+    if (!rawCode) return null;
 
-  // 🔴 [디버깅 코드] 스캔값과 현재 items 상태를 알림창으로 확인
-  console.log("1. 스캔된 원본 값:", JSON.stringify(rawCode));
-  console.log("2. 현재 로드된 자재 목록(items):", items);
+    const cleanScan = String(rawCode).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+    const alphaNumScan = cleanScan.replace(/[^a-z0-9]/g, "");
 
-  const cleanScan = String(rawCode).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+    if (!cleanScan) return null;
 
-  const matched = items.find((i) => {
-    // 🔴 [디버깅 코드] 저장된 자재의 모든 키/값 출력
-    console.log("비교 중인 자재 객체:", i);
-    
-    const itemCodeVal = i.code || i.Code || i.자재코드 || i.item_code || "";
-    return String(itemCodeVal).trim().toLowerCase() === cleanScan;
-  });
+    return items.find((i) => {
+      if (!i) return false;
 
-  return matched;
-};
+      const itemCodeVal = i.code || i.Code || i.자재코드 || i.item_code || "";
+      const rawItemCode = String(itemCodeVal).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+      const alphaNumItemCode = rawItemCode.replace(/[^a-z0-9]/g, "");
 
-  // 1. 스캔받은 텍스트 정형화 (줄바꿈/공백/하이픈 제거 후 소문자화)
-  const cleanScan = String(rawCode)
-    .replace(/[\r\n\t]+/g, "")
-    .trim()
-    .toLowerCase();
+      const rawItemName = String(i.name || i.Name || i.품명 || "").replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+      const alphaNumItemName = rawItemName.replace(/[^a-z0-9]/g, "");
 
-  // 2. 비교용 알파벳+숫자 전용 텍스트 (특수문자 제거)
-  const alphaNumScan = cleanScan.replace(/[^a-z0-9]/g, "");
+      const isCodeMatch = 
+        rawItemCode === cleanScan || 
+        (alphaNumItemCode && alphaNumItemCode === alphaNumScan) ||
+        cleanScan.includes(rawItemCode) || 
+        rawItemCode.includes(cleanScan);
 
-  if (!cleanScan) return null;
+      const isNameMatch = 
+        rawItemName === cleanScan || 
+        (alphaNumItemName && alphaNumItemName === alphaNumScan);
 
-  return items.find((i) => {
-    if (!i || !i.code) return false;
-
-    // 자재 마스터 데이터 정형화
-    const rawItemCode = String(i.code).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
-    const alphaNumItemCode = rawItemCode.replace(/[^a-z0-9]/g, "");
-
-    const rawItemName = String(i.name || "").replace(/[\r\n\t]+/g, "").trim().toLowerCase();
-    const alphaNumItemName = rawItemName.replace(/[^a-z0-9]/g, "");
-
-    // 3. 다각도 비교 (완전일치 OR 특수문자제외일치 OR 포함관계)
-    const isCodeMatch = 
-      rawItemCode === cleanScan || 
-      alphaNumItemCode === alphaNumScan ||
-      cleanScan.includes(rawItemCode) || 
-      rawItemCode.includes(cleanScan);
-
-    const isNameMatch = 
-      rawItemName === cleanScan || 
-      (alphaNumItemName && alphaNumItemName === alphaNumScan);
-
-    return isCodeMatch || isNameMatch;
-  });
-};
+      return isCodeMatch || isNameMatch;
+    });
+  };
 
   const doScan = (val) => {
     const codeVal = val ?? scan;
@@ -934,10 +909,10 @@ const findItemByCode = (rawCode) => {
       itemName: found.name,
       unit: found.unit,
       qty: Number(qty),
-      shipNo: shipNo || "미입력", // 1. 호선
-      project: project,          // 2. 프로젝트
-      process: process,          // 3. 공정구분
-      worker: worker,            // 5. 불출자
+      shipNo: shipNo || "미입력",
+      project: project,
+      process: process,
+      worker: worker,
       at: nowStr(),
     };
 
@@ -946,7 +921,6 @@ const findItemByCode = (rawCode) => {
     const remain = found.stock - Number(qty);
     notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
     
-    // 입력 필드 초기화
     setQty(""); 
     setShipNo("");
     setFound(null); 
@@ -958,7 +932,6 @@ const findItemByCode = (rawCode) => {
       <Header title="출고 (QR / 바코드 스캔)" subtitle="스캔으로 빠르게 불출 처리" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
         
-        {/* 1. 스캔 영역 */}
         <Card style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
 
@@ -997,7 +970,6 @@ const findItemByCode = (rawCode) => {
           )}
         </Card>
 
-        {/* 2. 불출 정보 입력 영역 */}
         <Card style={{ padding: 22 }}>
           <SectionLabel>2. 불출 정보 입력</SectionLabel>
           {!found ? (
@@ -1005,7 +977,6 @@ const findItemByCode = (rawCode) => {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               
-              {/* 자재 정보 카드 */}
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
                 <Led status={statusOf(found)} size={12} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1024,7 +995,6 @@ const findItemByCode = (rawCode) => {
                 </div>
               </div>
 
-              {/* 1. 호선 (작성) & 2. 프로젝트 (드롭다운) */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <Field label="1. 호선">
                   <input 
@@ -1039,7 +1009,6 @@ const findItemByCode = (rawCode) => {
                 </Field>
               </div>
 
-              {/* 3. 공정구분 (드롭다운) & 4. 불출수량 (작성) */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <Field label="3. 공정구분">
                   <Select value={process} onChange={(e) => setProcess(e.target.value)} options={processOptions} />
@@ -1057,12 +1026,10 @@ const findItemByCode = (rawCode) => {
                 </Field>
               </div>
 
-              {/* 5. 불출자 (드롭다운) */}
               <Field label="5. 불출자">
                 <Select value={worker} onChange={(e) => setWorker(e.target.value)} options={workerOptions} />
               </Field>
 
-              {/* 출고 확정 버튼 */}
               <Btn 
                 onClick={submit} 
                 disabled={!qty || Number(qty) <= 0 || Number(qty) > found.stock} 
@@ -1157,7 +1124,7 @@ function StockView({ items }) {
   );
 }
 
-/* ---------------- 자재 마스터 관리 & QR 모달 & 엑셀/CSV 업로드 ---------------- */
+/* ---------------- 자재 마스터 관리 ---------------- */
 function MasterView({ items, saveItems, notify }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "" };
   const [form, setForm] = useState(blank);
@@ -1173,19 +1140,7 @@ function MasterView({ items, saveItems, notify }) {
     setForm(blank);
     setShowForm(false);
   };
-// 엑셀/CSV 데이터를 받아와서 저장할 때 정규화 함수 예시
-const normalizeItems = (rawList) => {
-  return rawList.map((row) => ({
-    ...row,
-    // 키 이름이 무엇이든 code로 통합
-    code: String(row.code || row.Code || row.자재코드 || row.item_code || row.ITEM_CODE || "").trim(),
-    // 키 이름이 무엇이든 name으로 통합
-    name: String(row.name || row.Name || row.품명 || row.item_name || "").trim(),
-    // 수량 및 재고 처리
-    stock: Number(row.stock || row.Stock || row.현재고 || row.qty || 0),
-    unit: String(row.unit || row.Unit || row.단위 || "EA").trim(),
-  }));
-};
+
   const removeItem = async (code) => {
     if (window.confirm("정말 이 자재를 삭제하시겠습니까?")) {
       const updated = items.filter((i) => String(i.code).replace(/[\r\n]+/g, "").trim() !== String(code).replace(/[\r\n]+/g, "").trim());
@@ -1272,40 +1227,6 @@ const normalizeItems = (rawList) => {
         }
       };
       reader.readAsArrayBuffer(file);
-    } else {
-      reader.onload = (evt) => {
-        try {
-          const text = new TextDecoder("utf-8").decode(evt.target.result);
-          const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-          const parsed = lines.slice(1).map(line => {
-            const cols = line.split(",").map(c => c.replace(/^"|"$/g, "").trim());
-            if (cols.length < 2) return null;
-            return {
-              code: cols[0] || uid("ITEM"),
-              name: cols[1] || "",
-              spec: cols[2] || "",
-              category: cols[3] || "",
-              unit: cols[4] || "EA",
-              stock: Number(cols[5]) || 0,
-              safety: Number(cols[6]) || 0,
-              location: cols[7] || "",
-              manufacturer: cols[8] || ""
-            };
-          }).filter(Boolean);
-
-          if (parsed.length > 0) {
-            saveItems(parsed);
-            notify(`총 ${parsed.length}개 자재 데이터를 성공적으로 불러왔습니다!`, "ok");
-          } else {
-            notify("CSV 데이터를 파싱할 수 없습니다.", "err");
-          }
-        } catch (err) {
-          notify("파일 파싱 중 오류가 발생했습니다.", "err");
-        } finally {
-          e.target.value = "";
-        }
-      };
-      reader.readAsArrayBuffer(file);
     }
   };
 
@@ -1325,18 +1246,8 @@ const normalizeItems = (rawList) => {
         notify(`[QR 스캔 성공] ${matched.name} (${matched.code})`, "ok");
         setQrModalItem(matched);
       } else {
-  // 🔴 원인 진단용 Alert 추가
-  const sampleItem = items && items.length > 0 ? JSON.stringify(items[0]) : "자재 데이터 없음(0개)";
-  
-  alert(
-    `[자재 마스터 스캔 진단]\n` +
-    `1. 스캔된 값: "${cleanQuery}"\n` +
-    `2. 전체 자재 수: ${items ? items.length : 0}개\n` +
-    `3. 첫번째 자재 데이터:\n${sampleItem}`
-  );
-
-  notify(`[미등록 자재] "${cleanQuery}" 코드를 찾을 수 없습니다.`, "err");
-}
+        notify(`[미등록 자재] "${cleanQuery}" 코드를 찾을 수 없습니다.`, "err");
+      }
       setMasterQRInput("");
     }
   };

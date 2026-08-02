@@ -29,10 +29,14 @@ function nowStr() {
 const POLL_MS = 8000;
 
 /* ---------------- Supabase 연동 useStorage Hook ---------------- */
+// ★ 수정: remove 함수를 추가해서 로컬 상태뿐 아니라 Supabase 테이블에서도 실제로 행을 삭제하도록 함.
+//    upsert는 추가/수정만 하고 "빠진 항목"을 지워주지 않기 때문에, 삭제 시에는 반드시
+//    supabase.from(table).delete()를 명시적으로 호출해야 폴링 시 되살아나지 않음.
 function useStorage(key, initial) {
   const [value, setValue] = useState(initial);
   const [loaded, setLoaded] = useState(false);
   const tableName = key === "panel:items" ? "items" : "transactions";
+  const matchColumn = tableName === "items" ? "code" : "id";
 
   const load = useCallback(async (silent = false) => {
     try {
@@ -78,7 +82,20 @@ function useStorage(key, initial) {
     }
   }, [key, tableName]);
 
-  return [value, save, loaded, load];
+  // ★ 신규: Supabase 테이블에서 실제로 행을 삭제하는 함수
+  const remove = useCallback(async (values) => {
+    if (!values || values.length === 0) return;
+    try {
+      if (supabase) {
+        const { error } = await supabase.from(tableName).delete().in(matchColumn, values);
+        if (error) console.error("Storage remove error:", error);
+      }
+    } catch (e) {
+      console.error("Storage remove error:", e);
+    }
+  }, [tableName, matchColumn]);
+
+  return [value, save, loaded, load, remove];
 }
 
 function statusOf(item) {
@@ -276,8 +293,9 @@ function Toast({ toast }) {
 }
 
 export default function App() {
-  const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
-  const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
+  // ★ 수정: removeItemsFromDB, removeTxsFromDB 를 추가로 꺼내옴
+  const [items, saveItems, itemsLoaded, reloadItems, removeItemsFromDB] = useStorage("panel:items", seedItems);
+  const [txs, saveTxs, txsLoaded, reloadTxs, removeTxsFromDB] = useStorage("panel:transactions", []);
   const [tab, setTab] = useState("out");
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -461,9 +479,25 @@ export default function App() {
           <>
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
-            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
+            {tab === "out" && (
+              <OutForm
+                items={items}
+                saveItems={saveItems}
+                txs={txs}
+                saveTxs={saveTxs}
+                removeTxsFromDB={removeTxsFromDB}
+                notify={notify}
+              />
+            )}
             {tab === "stock" && <StockView items={items} />}
-            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "master" && (
+              <MasterView
+                items={items}
+                saveItems={saveItems}
+                removeItemsFromDB={removeItemsFromDB}
+                notify={notify}
+              />
+            )}
           </>
         )}
       </main>
@@ -778,7 +812,7 @@ function InForm({ items, saveItems, txs, saveTxs, notify }) {
 }
 
 /* ---------------- 출고 (스캔) ---------------- */
-function OutForm({ items, saveItems, txs, saveTxs, notify }) {
+function OutForm({ items, saveItems, txs, saveTxs, removeTxsFromDB, notify }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
   
@@ -920,7 +954,9 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
     setScan("");
   };
 
-  // 🔴 🔥 [핵심 기능] 잘못 등록한 출고 내역 삭제 및 재고 복원 함수
+  // ★ 수정: Supabase에서도 실제로 트랜잭션 행을 삭제하도록 removeTxsFromDB 호출 추가.
+  //    기존에는 로컬 배열에서만 빼고 saveTxs(upsert)만 호출해서, 8초 폴링 시 DB에 남아있던
+  //    삭제된 이력이 다시 나타났었음.
   const cancelOutTx = async (targetTx) => {
     if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 출고 내역을 취소하고 재고를 다시 원복하시겠습니까?`)) {
       return;
@@ -934,9 +970,10 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
       return i;
     });
 
-    // 2. 이력(Transaction)에서 삭제
+    // 2. 이력(Transaction)에서 삭제 - DB에서 먼저 지우고 로컬 상태 저장
     const nextTxs = txs.filter((t) => t.id !== targetTx.id);
 
+    await removeTxsFromDB([targetTx.id]);
     await saveItems(nextItems);
     await saveTxs(nextTxs);
     notify(`출고가 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 복원되었습니다.`, "info");
@@ -1066,8 +1103,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
 
       </div>
 
-      {/* 🔴 🔥 [신규 추가] 최근 등록된 출고 내역 및 바로 삭제/복원 영역 */}
-      {/* 🔴 🔥 [모바일 대응] 최근 등록된 출고 내역 및 바로 삭제/복원 영역 */}
+      {/* 최근 등록된 출고 내역 및 바로 삭제/복원 영역 */}
       <Card style={{ padding: 16, marginTop: 20 }}>
         <SectionLabel>최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)</SectionLabel>
         {recentOutTxs.length === 0 ? (
@@ -1280,7 +1316,7 @@ function StockView({ items }) {
 }
 
 /* ---------------- 자재 마스터 관리 ---------------- */
-function MasterView({ items, saveItems, notify }) {
+function MasterView({ items, saveItems, removeItemsFromDB, notify }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "" };
   const [form, setForm] = useState(blank);
   const [showForm, setShowForm] = useState(false);
@@ -1296,16 +1332,21 @@ function MasterView({ items, saveItems, notify }) {
     setShowForm(false);
   };
 
+  // ★ 수정: Supabase에서도 실제로 행을 삭제하도록 removeItemsFromDB 호출 추가
   const removeItem = async (code) => {
     if (window.confirm("정말 이 자재를 삭제하시겠습니까?")) {
+      await removeItemsFromDB([code]);
       const updated = items.filter((i) => String(i.code).replace(/[\r\n]+/g, "").trim() !== String(code).replace(/[\r\n]+/g, "").trim());
       await saveItems(updated);
       notify("자재가 삭제되었습니다.", "info");
     }
   };
 
+  // ★ 수정: 전체 삭제 시에도 DB에서 모든 행을 실제로 지움
   const clearAllItems = async () => {
     if (window.confirm("모든 자재 항목을 삭제하시겠습니까?")) {
+      const allCodes = items.map((i) => i.code);
+      await removeItemsFromDB(allCodes);
       await saveItems([]);
       notify("모든 자재 데이터가 삭제되었습니다.", "info");
     }
@@ -1322,6 +1363,8 @@ function MasterView({ items, saveItems, notify }) {
     notify("자재 데이터가 엑셀(CSV)로 다운로드 되었습니다.", "ok");
   };
 
+  // ★ 수정: 엑셀로 새 목록을 통째로 불러올 때, 기존 DB에 남아있던 항목이
+  //    새 목록에 없으면 고아 행으로 남아 되살아날 수 있으므로 먼저 기존 항목을 모두 지움.
   const importExcelFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1329,7 +1372,7 @@ function MasterView({ items, saveItems, notify }) {
     const reader = new FileReader();
 
     if (window.XLSX) {
-      reader.onload = (evt) => {
+      reader.onload = async (evt) => {
         try {
           const data = new Uint8Array(evt.target.result);
           const workbook = window.XLSX.read(data, { type: 'array' });
@@ -1370,7 +1413,9 @@ function MasterView({ items, saveItems, notify }) {
           }).filter(Boolean);
 
           if (parsed.length > 0) {
-            saveItems(parsed);
+            const oldCodes = items.map((i) => i.code);
+            await removeItemsFromDB(oldCodes);
+            await saveItems(parsed);
             notify(`총 ${parsed.length}개의 자재 목록을 성공적으로 불러왔습니다!`, "ok");
           } else {
             notify("엑셀 파일에서 유효한 자재 데이터를 찾을 수 없습니다.", "err");

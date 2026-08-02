@@ -460,7 +460,7 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
 
   <img
-    src="/luxco.png"
+    src="/Luxco.png"
     alt="Luxco"
     style={{
       height: 34,

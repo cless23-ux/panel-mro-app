@@ -37,7 +37,7 @@ function useStorage(key, initial) {
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
-        const { data, error } = await supabase.from(tableName).select("*");
+        const { data, error } = await supabase.from(tableName).select("*").eq("deleted", false);
         if (!error && data && data.length > 0) {
           setValue(data);
           localStorage.setItem(key, JSON.stringify(data));
@@ -309,6 +309,7 @@ export default function App() {
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
+    { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true }, // 추가
   ];
 
   const ready = itemsLoaded && txsLoaded;
@@ -463,7 +464,21 @@ export default function App() {
             {tab === "in" && <InForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
             {tab === "stock" && <StockView items={items} />}
-            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "master" && (
+    <MasterView
+        items={items}
+        saveItems={saveItems}
+        notify={notify}
+    />
+)}
+
+{tab === "trash" && (
+    <TrashView
+        items={items}
+        saveItems={saveItems}
+        notify={notify}
+    />
+)}
           </>
         )}
       </main>
@@ -1287,29 +1302,31 @@ function MasterView({ items, saveItems, notify }) {
   const [qrModalItem, setQrModalItem] = useState(null);
   const [masterQRInput, setMasterQRInput] = useState("");
 
-  const addItem = async () => {
-    if (!form.code || !form.name) { notify("자재코드와 품명은 필수입니다.", "err"); return; }
-    if (items.some((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(form.code).replace(/[\r\n]+/g, "").trim())) { notify("이미 존재하는 자재코드입니다.", "err"); return; }
-    await saveItems([...items, { ...form, stock: Number(form.stock) || 0, safety: Number(form.safety) || 0 }]);
-    notify(`${form.name} 자재가 등록되었습니다.`, "ok");
-    setForm(blank);
-    setShowForm(false);
-  };
+ const removeItem = async (code) => {
+  if (!window.confirm("정말 삭제하시겠습니까?")) return;
 
-  const removeItem = async (code) => {
-    if (window.confirm("정말 이 자재를 삭제하시겠습니까?")) {
-      const updated = items.filter((i) => String(i.code).replace(/[\r\n]+/g, "").trim() !== String(code).replace(/[\r\n]+/g, "").trim());
-      await saveItems(updated);
-      notify("자재가 삭제되었습니다.", "info");
-    }
-  };
+  if (supabase) {
+    const { error } = await supabase
+      .from("items")
+      .update({
+        deleted: true,
+        deleted_at: new Date().toISOString(),
+      })
+      .eq("code", code);
 
-  const clearAllItems = async () => {
-    if (window.confirm("모든 자재 항목을 삭제하시겠습니까?")) {
-      await saveItems([]);
-      notify("모든 자재 데이터가 삭제되었습니다.", "info");
+    if (error) {
+      notify("삭제 실패", "err");
+      return;
     }
-  };
+  }
+
+  // 화면에서도 즉시 제거
+  const updated = items.filter((i) => i.code !== code);
+  await saveItems(updated);
+
+  notify("삭제되었습니다.", "ok");
+};
+
 
   const exportCSV = () => {
     const headers = ["code,name,spec,category,unit,stock,safety,location,manufacturer\n"];
@@ -1564,3 +1581,145 @@ function MasterView({ items, saveItems, notify }) {
     </div>
   );
 }
+function TrashView({ items, saveItems, notify }) {
+  const [trashItems, setTrashItems] = useState([]);
+
+useEffect(() => {
+  loadTrash();
+}, []);
+
+async function loadTrash() {
+  if (!supabase) return;
+
+  const { data } = await supabase
+    .from("items")
+    .select("*")
+    .eq("deleted", true)
+    .order("deleted_at", { ascending: false });
+
+  setTrashItems(data || []);
+}
+const restoreItem = async (code) => {
+  const { error } = await supabase
+    .from("items")
+    .update({
+      deleted: false,
+      deleted_at: null,
+    })
+    .eq("code", code);
+
+  if (error) {
+    notify("복원 실패", "err");
+    return;
+  }
+
+  notify("복원되었습니다.", "ok");
+
+  loadTrash();
+
+  const { data } = await supabase
+    .from("items")
+    .select("*")
+    .eq("deleted", false);
+
+  saveItems(data || []);
+};
+const deleteForever = async (code) => {
+  if (!window.confirm("영구 삭제하시겠습니까?")) return;
+
+  const { error } = await supabase
+    .from("items")
+    .delete()
+    .eq("code", code);
+
+  if (error) {
+    notify("삭제 실패", "err");
+    return;
+  }
+
+  notify("영구삭제 완료", "ok");
+
+  loadTrash();
+  const { data } = await supabase
+  .from("items")
+  .select("*")
+  .eq("deleted", false);
+
+saveItems(data || []);
+};
+
+   return (
+  <div style={{ padding: 20 }}>
+
+    <h2>🗑 삭제 복원</h2>
+
+    {trashItems.length === 0 ? (
+      <div>휴지통이 비어 있습니다.</div>
+    ) : (
+
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+
+        <thead>
+          <tr>
+            <th>코드</th>
+            <th>품명</th>
+            <th>규격</th>
+            <th>현재고</th>
+            <th>삭제일</th>
+            <th>복원</th>
+            <th>영구삭제</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          {trashItems.map(item => (
+
+            <tr key={item.code}>
+
+              <td>{item.code}</td>
+
+              <td>{item.name}</td>
+
+              <td>{item.spec}</td>
+
+              <td>{item.stock}</td>
+
+              <td>
+                {item.deleted_at
+                  ? new Date(item.deleted_at).toLocaleString()
+                  : "-"}
+              </td>
+
+              <td>
+
+                <button
+                  onClick={() => restoreItem(item.code)}
+                >
+                  ♻ 복원
+                </button>
+
+              </td>
+
+              <td>
+
+                <button
+                  onClick={() => deleteForever(item.code)}
+                >
+                  ❌ 영구삭제
+                </button>
+
+              </td>
+
+            </tr>
+
+          ))}
+
+        </tbody>
+
+      </table>
+
+    )}
+
+  </div>
+);

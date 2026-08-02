@@ -9,7 +9,8 @@ import {
 import { supabase } from './supabaseClient';
 
 /* ---------------- 폰트 및 초기 데이터 ---------------- */
-const FONT_LINK = "Oswald:wght@500;600;700|IBM+Plex+Mono:wght@400;500;600|Inter:wght@400;500;600;700";
+const FONT_LINK =
+"Rajdhani:wght@500;600;700|Oswald:wght@500;600;700|IBM+Plex+Mono:wght@400;500;600|Inter:wght@400;500;600;700";
 
 const seedItems = [
   { code: "BB-C1100-T3", name: "부스바 (동바)", spec: "C1100 T3 x 20mm", unit: "m", stock: 62, safety: 50, location: "A-01", manufacturer: "대한전선", category: "부스바" },
@@ -386,7 +387,7 @@ export default function App() {
   />
 </div>
           <div>
-            <div style={{ fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.02em" }}>PANEL·MRO</div>
+            <div style={{ fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.02em" }}>선박 생산부</div>
             <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5E86A3", letterSpacing: "0.08em" }}>부자재 관리 시스템</div>
           </div>
         </div>
@@ -456,13 +457,31 @@ export default function App() {
       {/* 모바일 헤더 */}
       <header className="mobile-header">
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{
-            width: 28, height: 28, borderRadius: 6, background: "linear-gradient(135deg,#F5A623,#c97e13)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <Zap size={16} color="#0A1622" strokeWidth={2.5} />
-          </div>
-          <span style={{ fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "0.02em" }}>PANEL·MRO</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+
+  <img
+    src="/luxco_logo.png"
+    alt="Luxco"
+    style={{
+      width: 34,
+      height: 34,
+      objectFit: "contain"
+    }}
+  />
+
+  <span
+    style={{
+      fontFamily: "Rajdhani, Oswald, sans-serif",
+      fontWeight: 700,
+      fontSize: 18,
+      letterSpacing: "0.06em",
+      color: "#fff"
+    }}
+  >
+    선박 생산부
+  </span>
+
+</div>
         </div>
         <button
           onClick={refreshAll}

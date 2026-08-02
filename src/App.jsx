@@ -778,7 +778,6 @@ function InForm({ items, saveItems, txs, saveTxs, notify }) {
 }
 
 /* ---------------- 출고 (스캔) ---------------- */
-/* ---------------- 출고 (스캔) ---------------- */
 function OutForm({ items, saveItems, txs, saveTxs, notify }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
@@ -1352,6 +1351,7 @@ function MasterView({ items, saveItems, notify }) {
             const manufacturer = getCol('생산업체', '제조사', 'manufacturer');
             const unit = getCol('단위', 'unit') || 'EA';
             const stock = Number(getCol('현재고', '재고', 'stock')) || 0;
+            const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
             const location = getCol('위치', 'location');
 
             if (!code && !fullName) return null;
@@ -1363,7 +1363,7 @@ function MasterView({ items, saveItems, notify }) {
               category: "",
               unit: unit,
               stock: stock,
-              safety: 0,
+              safety: safety,
               location: location,
               manufacturer: manufacturer,
             };
@@ -1492,11 +1492,13 @@ function MasterView({ items, saveItems, notify }) {
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>코드</th><th>품명 / 규격</th><th>생산업체</th><th>단위</th><th>현재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                <th>코드</th><th>품명 / 규격</th><th>생산업체</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((i) => (
+              {items.map((i) => {
+                const st = statusOf(i);
+                return (
                 <tr key={i.code}>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
                   <td>
@@ -1505,7 +1507,8 @@ function MasterView({ items, saveItems, notify }) {
                   </td>
                   <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{i.manufacturer || "-"}</td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.unit}</td>
-                  <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600, fontSize: 13.5 }}>{i.stock}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600, fontSize: 13.5, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#E7EEF5" }}>{i.stock}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", color: "#7F97AC", fontSize: 13 }}>{i.safety}</td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.location || "-"}</td>
                   <td>
                     <button
@@ -1521,10 +1524,11 @@ function MasterView({ items, saveItems, notify }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: 30, color: "#7F97AC" }}>
+                  <td colSpan={9} style={{ textAlign: "center", padding: 30, color: "#7F97AC" }}>
                     등록된 자재가 없습니다. '신규 자재 등록' 또는 '엑셀/CSV 불러오기'를 진행하세요.
                   </td>
                 </tr>

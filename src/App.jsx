@@ -463,9 +463,10 @@ export default function App() {
     src="/luxco_logo.png"
     alt="Luxco"
     style={{
-      width: 34,
       height: 34,
-      objectFit: "contain"
+    width: "auto",
+    objectFit: "contain",
+    display: "block"
     }}
   />
 

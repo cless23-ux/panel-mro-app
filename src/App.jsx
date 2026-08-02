@@ -292,16 +292,11 @@ export default function App() {
     }
   }, []);
 
-  // 2. 👇 html5-qrcode 스크립트 자동 로드 (이 부분을 추가해 주세요!)
-  useEffect(() => {
-    if (!window.Html5Qrcode) {
-      const script = document.createElement("script");
-      script.src = "https://unpkg.com/html5-qrcode";
-      script.type = "text/javascript";
-      script.async = true;
-      document.body.appendChild(script);
-    }
-  }, []);
+  const refreshAll = async () => {
+    setRefreshing(true);
+    await Promise.all([reloadItems(), reloadTxs()]);
+    setRefreshing(false);
+  };
 
   const notify = (msg, type = "info") => setToast({ msg, type });
 

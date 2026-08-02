@@ -298,7 +298,16 @@ export default function App() {
     setRefreshing(false);
   };
 
-  const notify = (msg, type = "info") => setToast({ msg, type });
+  const notify = (msg, type = "ok") => {
+  setToast({
+    text: msg,
+    type,
+  });
+
+  setTimeout(() => {
+    setToast(null);
+  }, 2500);   // 2.5초 후 자동 닫기
+};
 
   const alerts = useMemo(() => items.filter((i) => statusOf(i) === "danger"), [items]);
   const warns = useMemo(() => items.filter((i) => statusOf(i) === "warn"), [items]);
@@ -359,11 +368,23 @@ export default function App() {
       <div className="pc-sidebar">
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 4px" }}>
           <div style={{
-            width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#F5A623,#c97e13)",
-            display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 14px #F5A62344",
-          }}>
-            <Zap size={22} color="#0A1622" strokeWidth={2.5} />
-          </div>
+  width: 38,
+  height: 38,
+  borderRadius: 10,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+}}>
+  <img
+    src="/Luxco.png"
+    alt="Luxco"
+    style={{
+      width: "100%",
+      height: "100%",
+      objectFit: "contain"
+    }}
+  />
+</div>
           <div>
             <div style={{ fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.02em" }}>PANEL·MRO</div>
             <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5E86A3", letterSpacing: "0.08em" }}>부자재 관리 시스템</div>
@@ -1435,11 +1456,7 @@ function MasterView({ items, saveItems, notify }) {
             {showForm ? <X size={16} /> : <Plus size={16} />}
             {showForm ? "취소" : "신규 자재 등록"}
           </Btn>
-          {items.length > 0 && (
-            <Btn onClick={clearAllItems} variant="danger">
-              <Trash2 size={16} />전체 삭제
-            </Btn>
-          )}
+         
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
@@ -1650,76 +1667,54 @@ saveItems(data || []);
 
    return (
   <div style={{ padding: 20 }}>
-
     <h2>🗑 삭제 복원</h2>
 
     {trashItems.length === 0 ? (
-      <div>휴지통이 비어 있습니다.</div>
+      <div style={{ opacity: 0.6 }}>
+        휴지통이 비어 있습니다.
+      </div>
     ) : (
-
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-
+      <table className="table">
         <thead>
           <tr>
             <th>코드</th>
             <th>품명</th>
-            <th>규격</th>
-            <th>현재고</th>
             <th>삭제일</th>
-            <th>복원</th>
-            <th>영구삭제</th>
+            <th></th>
           </tr>
         </thead>
 
         <tbody>
-
           {trashItems.map(item => (
-
             <tr key={item.code}>
-
               <td>{item.code}</td>
-
               <td>{item.name}</td>
-
-              <td>{item.spec}</td>
-
-              <td>{item.stock}</td>
-
               <td>
                 {item.deleted_at
                   ? new Date(item.deleted_at).toLocaleString()
-                  : "-"}
+                  : ""}
               </td>
 
               <td>
-
-                <button
+                <Btn
                   onClick={() => restoreItem(item.code)}
                 >
-                  ♻ 복원
-                </button>
+                  복원
+                </Btn>
 
-              </td>
-
-              <td>
-
-                <button
+                <Btn
+                  variant="danger"
                   onClick={() => deleteForever(item.code)}
+                  style={{ marginLeft: 8 }}
                 >
-                  ❌ 영구삭제
-                </button>
-
+                  영구삭제
+                </Btn>
               </td>
-
             </tr>
-
           ))}
-
         </tbody>
-
       </table>
-
     )}
-
   </div>
 );
+}

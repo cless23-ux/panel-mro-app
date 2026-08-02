@@ -282,6 +282,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // 1. XLSX 라이브러리 로드
   useEffect(() => {
     if (!window.XLSX) {
       const script = document.createElement("script");
@@ -291,17 +292,16 @@ export default function App() {
     }
   }, []);
 
-  const refreshAll = useCallback(async () => {
-    setRefreshing(true);
-    await Promise.all([reloadItems(true), reloadTxs(true)]);
-    setRefreshing(false);
-  }, [reloadItems, reloadTxs]);
-
+  // 2. 👇 html5-qrcode 스크립트 자동 로드 (이 부분을 추가해 주세요!)
   useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2400);
-    return () => clearTimeout(t);
-  }, [toast]);
+    if (!window.Html5Qrcode) {
+      const script = document.createElement("script");
+      script.src = "https://unpkg.com/html5-qrcode";
+      script.type = "text/javascript";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
 
   const notify = (msg, type = "info") => setToast({ msg, type });
 

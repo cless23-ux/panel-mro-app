@@ -1,0 +1,1495 @@
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+} from "recharts";
+import {
+  Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera
+} from "lucide-react";
+import { supabase } from './supabaseClient';
+
+/* ---------------- 폰트 및 초기 데이터 ---------------- */
+const FONT_LINK = "Oswald:wght@500;600;700|IBM+Plex+Mono:wght@400;500;600|Inter:wght@400;500;600;700";
+
+const seedItems = [
+  { code: "BB-C1100-T3", name: "부스바 (동바)", spec: "C1100 T3 x 20mm", unit: "m", stock: 62, safety: 50, location: "A-01", manufacturer: "대한전선", category: "부스바" },
+  { code: "RT-2.5SQ", name: "압착단자", spec: "Ring Terminal 2.5 sq", unit: "EA", stock: 840, safety: 1000, location: "B-04", manufacturer: "KEC", category: "압착단자" },
+  { code: "CG-M20-BR", name: "케이블 글랜드", spec: "Brass Gland M20", unit: "EA", stock: 260, safety: 200, location: "B-07", manufacturer: "동아베스텍", category: "케이블 글랜드" },
+];
+
+const seedProjects = ["H-2024 (컨테이너선)", "H-2025 (LNG 운반선)", "H-2026 (탱커선)", "H-2027 (벌크선)"];
+const processes = ["배전판 조립", "부스바 가공", "배선", "검사"];
+
+function uid(p = "T") {
+  return `${p}-${Date.now().toString(36)}${Math.floor(Math.random() * 900 + 100)}`;
+}
+function nowStr() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+const POLL_MS = 8000;
+
+function useStorage(key, initial) {
+  const [value, setValue] = useState(initial);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async (silent = false) => {
+    try {
+      const res = localStorage.getItem(key);
+      if (res !== null) {
+        let parsed = JSON.parse(res);
+        setValue(parsed);
+      }
+    } catch (e) {
+      /* ignore */
+    } finally {
+      if (!silent) setLoaded(true);
+    }
+  }, [key]);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(() => load(true), POLL_MS);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const save = useCallback(async (next) => {
+    setValue(next);
+    try {
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch (e) {
+      console.error("storage save failed", e);
+    }
+  }, [key]);
+
+  return [value, save, loaded, load];
+}
+
+function statusOf(item) {
+  const safety = Number(item.safety) || 0;
+  const stock = Number(item.stock) || 0;
+  if (stock < safety) return "danger";
+  if (stock < safety * 1.2) return "warn";
+  return "ok";
+}
+
+const STATUS_META = {
+  ok: { label: "정상", color: "#35D08C" },
+  warn: { label: "주의", color: "#F5A623" },
+  danger: { label: "부족", color: "#EF5350" },
+};
+
+function Led({ status, size = 10 }) {
+  const c = STATUS_META[status]?.color || "#35D08C";
+  return (
+    <span
+      style={{
+        display: "inline-block", width: size, height: size, borderRadius: "50%",
+        background: c, boxShadow: `0 0 6px 1px ${c}99`, flexShrink: 0,
+      }}
+    />
+  );
+}
+
+function Card({ children, style, className = "" }) {
+  return (
+    <div
+      className={className}
+      style={{
+        background: "linear-gradient(180deg, #122A3F 0%, #0F2233 100%)",
+        border: "1px solid #1F3B54",
+        borderRadius: 12,
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SectionLabel({ children }) {
+  return (
+    <div style={{
+      fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
+      color: "#5E86A3", textTransform: "uppercase", marginBottom: 12, display: "flex",
+      alignItems: "center", gap: 8,
+    }}>
+      <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
+      {children}
+    </div>
+  );
+}
+
+function Btn({ children, onClick, variant = "primary", style, disabled, type = "button" }) {
+  const variants = {
+    primary: { background: "#F5A623", color: "#0A1622", border: "1px solid #F5A623" },
+    ghost: { background: "transparent", color: "#C9DAE8", border: "1px solid #274460" },
+    danger: { background: "transparent", color: "#EF5350", border: "1px solid #4A2A2A" },
+    subtle: { background: "#16324A", color: "#C9DAE8", border: "1px solid #274460" },
+  };
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        ...variants[variant],
+        fontFamily: "'IBM Plex Mono', monospace",
+        fontWeight: 600, fontSize: 14, padding: "12px 20px", borderRadius: 8,
+        cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.45 : 1,
+        display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all .15s",
+        ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: "Inter, sans-serif" }}>
+      <span style={{ fontSize: 13, color: "#9FB4C7", fontWeight: 600 }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const inputStyle = {
+  background: "#0B1C2C", border: "1px solid #26445F", borderRadius: 8, color: "#E7EEF5",
+  padding: "12px 14px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", outline: "none", width: "100%",
+};
+
+function Select({ value, onChange, options, style }) {
+  return (
+    <select value={value} onChange={onChange} style={{ ...inputStyle, ...style }}>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+function SearchableSelect({ items, value, onChange }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const selectedItem = useMemo(() => items.find((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(value).replace(/[\r\n]+/g, "").trim()), [items, value]);
+
+  const filtered = useMemo(() => {
+    if (!query) return items.slice(0, 50);
+    const q = query.toLowerCase().trim();
+    return items.filter((i) =>
+      String(i.code).toLowerCase().includes(q) ||
+      String(i.name).toLowerCase().includes(q) ||
+      String(i.spec).toLowerCase().includes(q) ||
+      (i.manufacturer && String(i.manufacturer).toLowerCase().includes(q))
+    ).slice(0, 50);
+  }, [items, query]);
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          ...inputStyle, cursor: "pointer", display: "flex", justifyContent: "space-between",
+          alignItems: "center", background: "#0B1C2C",
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {selectedItem ? `[${selectedItem.code}] ${selectedItem.name} (${selectedItem.spec || ""})` : "자재를 검색하여 선택하세요"}
+        </span>
+        <span style={{ fontSize: 10, color: "#7F97AC", marginLeft: 8 }}>▼</span>
+      </div>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+          background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
+          marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: 8,
+        }}>
+          <input
+            style={{ ...inputStyle, marginBottom: 8 }}
+            placeholder="자재명, 코드, 규격 검색..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoFocus
+          />
+          <div style={{ maxHeight: 200, overflowY: "auto" }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: 12, color: "#7F97AC", fontSize: 13, textAlign: "center" }}>검색 결과가 없습니다.</div>
+            ) : (
+              filtered.map((item) => (
+                <div
+                  key={item.code}
+                  onClick={() => {
+                    onChange(item.code);
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                  style={{
+                    padding: "10px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13,
+                    borderBottom: "1px solid #16293C",
+                    background: item.code === value ? "#1F3B54" : "transparent",
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: "#E7EEF5" }}>{item.name} <span style={{ fontSize: 11, color: "#F5A623" }}>[{item.code}]</span></div>
+                  <div style={{ fontSize: 11.5, color: "#7F97AC" }}>{item.spec} | 재고: {item.stock}{item.unit}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Toast({ toast }) {
+  if (!toast) return null;
+  const colors = { ok: "#35D08C", err: "#EF5350", info: "#F5A623" };
+  return (
+    <div className="toast-box" style={{
+      position: "fixed", background: "#0F2233", border: `1px solid ${colors[toast.type] || colors.info}`,
+      color: "#E7EEF5", padding: "12px 20px", borderRadius: 20, fontFamily: "'IBM Plex Mono', monospace",
+      fontSize: 13, zIndex: 999, boxShadow: "0 8px 24px rgba(0,0,0,0.6)", display: "flex",
+      alignItems: "center", gap: 8, animation: "riseIn .2s ease-out",
+    }}>
+      <Led status={toast.type === "ok" ? "ok" : toast.type === "err" ? "danger" : "warn"} size={8} />
+      {toast.msg}
+    </div>
+  );
+}
+
+export default function App() {
+  const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
+  const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
+  const [tab, setTab] = useState("out");
+  const [toast, setToast] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (!window.XLSX) {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([reloadItems(true), reloadTxs(true)]);
+    setRefreshing(false);
+  }, [reloadItems, reloadTxs]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2400);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const notify = (msg, type = "info") => setToast({ msg, type });
+
+  const alerts = useMemo(() => items.filter((i) => statusOf(i) === "danger"), [items]);
+  const warns = useMemo(() => items.filter((i) => statusOf(i) === "warn"), [items]);
+
+  const NAV = [
+    { id: "dashboard", label: "대시보드", icon: LayoutGrid },
+    { id: "in", label: "입고등록", icon: ArrowDownToLine },
+    { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
+    { id: "stock", label: "재고조회", icon: Boxes },
+    { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
+  ];
+
+  const ready = itemsLoaded && txsLoaded;
+
+  return (
+    <div className="app-container" style={{
+      background: "#0A1622", color: "#E7EEF5", fontFamily: "Inter, sans-serif",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=${FONT_LINK}&display=swap');
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        ::selection { background: #F5A62355; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { text-align: left; padding: 10px 12px; font-size: 13.5px; }
+        tbody tr { border-top: 1px solid #17293B; }
+        tbody tr:hover { background: #0F2030; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #21405B; border-radius: 4px; }
+        @keyframes riseIn { from { opacity:0; transform: translate(-50%,12px);} to {opacity:1; transform: translate(-50%,0);} }
+        input:focus, select:focus { border-color: #F5A623 !important; }
+        button:active { transform: scale(0.98); }
+
+        .app-container { display: flex; min-height: 100vh; width: 100%; }
+        .pc-sidebar { width: 250px; flex-shrink: 0; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; }
+        .mobile-header { display: none; }
+        .mobile-bottom-nav { display: none; }
+        .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; min-width: 0; }
+        .toast-box { bottom: 26px; left: 50%; transform: translateX(-50%); }
+
+        @media (max-width: 768px) {
+          .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
+          .pc-sidebar { display: none; }
+          .mobile-header {
+            height: 52px; padding: 0 16px; border-bottom: 1px solid #16293C; background: #0F2233;
+            display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10;
+          }
+          .mobile-bottom-nav {
+            height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
+            grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
+          }
+          .main-content { flex: 1; padding: 16px 14px; overflow-y: auto; }
+          .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
+        }
+      `}</style>
+
+      {/* PC 전용 사이드바 */}
+      <div className="pc-sidebar">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 4px" }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 10, background: "linear-gradient(135deg,#F5A623,#c97e13)",
+            display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 14px #F5A62344",
+          }}>
+            <Zap size={22} color="#0A1622" strokeWidth={2.5} />
+          </div>
+          <div>
+            <div style={{ fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.02em" }}>PANEL·MRO</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5E86A3", letterSpacing: "0.08em" }}>부자재 관리 시스템</div>
+          </div>
+        </div>
+
+        <button
+          onClick={refreshAll}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+            padding: "10px 14px", borderRadius: 8, border: "1px solid #1F3B54", background: "#0F2233",
+            cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
+          }}
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#35D08C" }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#35D08C" }} />
+            로컬 저장됨
+          </span>
+          <span style={{ fontSize: 11, color: refreshing ? "#F5A623" : "#7F97AC" }}>
+            {refreshing ? "동기화..." : "↻ 새로고침"}
+          </span>
+        </button>
+
+        <nav style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {NAV.map((n) => {
+            const active = tab === n.id;
+            const Icon = n.icon;
+            return (
+              <button
+                key={n.id}
+                onClick={() => setTab(n.id)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 8,
+                  border: "1px solid " + (active ? "#F5A62355" : "transparent"),
+                  background: active ? "linear-gradient(90deg, #F5A62322, transparent)" : "transparent",
+                  color: active ? "#F5A623" : "#9FB4C7", cursor: "pointer", fontSize: 15,
+                  fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, textAlign: "left",
+                  borderLeft: active ? "3px solid #F5A623" : "3px solid transparent",
+                }}
+              >
+                <Icon size={18} />
+                {n.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div style={{ marginTop: "auto" }}>
+          <Card style={{ padding: 16 }}>
+            <SectionLabel>재고 요약</SectionLabel>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 7, color: "#9FB4C7" }}><Led status="danger" />부족</span>
+                <b style={{ color: "#EF5350" }}>{alerts.length}</b>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 7, color: "#9FB4C7" }}><Led status="warn" />주의</span>
+                <b style={{ color: "#F5A623" }}>{warns.length}</b>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 7, color: "#9FB4C7" }}><Led status="ok" />정상</span>
+                <b style={{ color: "#35D08C" }}>{items.length - alerts.length - warns.length}</b>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {/* 모바일 헤더 */}
+      <header className="mobile-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 6, background: "linear-gradient(135deg,#F5A623,#c97e13)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Zap size={16} color="#0A1622" strokeWidth={2.5} />
+          </div>
+          <span style={{ fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "0.02em" }}>PANEL·MRO</span>
+        </div>
+        <button
+          onClick={refreshAll}
+          style={{
+            background: "transparent", border: "none", color: refreshing ? "#F5A623" : "#7F97AC",
+            fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
+          }}
+        >
+          {refreshing ? "동기화..." : "↻ 동기화"}
+        </button>
+      </header>
+
+      {/* 메인 컨텐츠 영역 */}
+      <main className="main-content">
+        {!ready ? (
+          <div style={{ color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", textAlign: "center", padding: 40 }}>불러오는 중...</div>
+        ) : (
+          <>
+            {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
+            {tab === "in" && <InForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
+            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
+            {tab === "stock" && <StockView items={items} />}
+            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
+          </>
+        )}
+      </main>
+
+      {/* 모바일 하단 탭 바 (자재마스터 제외) */}
+      <nav className="mobile-bottom-nav">
+        {NAV.filter(n => !n.pcOnly).map((n) => {
+          const active = tab === n.id;
+          const Icon = n.icon;
+          return (
+            <button
+              key={n.id}
+              onClick={() => setTab(n.id)}
+              style={{
+                background: "transparent", border: "none", color: active ? "#F5A623" : "#7F97AC",
+                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+                gap: 4, cursor: "pointer", padding: 0,
+              }}
+            >
+              <Icon size={19} color={active ? "#F5A623" : "#7F97AC"} />
+              <span style={{ fontSize: 10.5, fontFamily: "Inter, sans-serif", fontWeight: active ? 700 : 500 }}>
+                {n.label}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      <Toast toast={toast} />
+    </div>
+  );
+}
+
+/* ---------------- Dashboard (호선별 부자재 소모량 그래픽 개선) ---------------- */
+function Dashboard({ items, txs }) {
+  // 출고 이력(txs)에서 등록된 '호선(shipNo)' 목록 중복 없이 추출
+  const availableShips = useMemo(() => {
+    const outTxs = txs.filter((t) => t.type === "out" && t.shipNo && t.shipNo !== "미입력");
+    const uniqueShips = Array.from(new Set(outTxs.map((t) => t.shipNo)));
+    return uniqueShips.length > 0 ? uniqueShips : ["등록된 호선 없음"];
+  }, [txs]);
+
+  // 선택된 호선 상태 관리
+  const [selectedShip, setSelectedShip] = useState(availableShips[0] || "");
+
+  // availableShips가 변경될 때 선택된 호선 자동 업데이트
+  useEffect(() => {
+    if (availableShips.length > 0 && !availableShips.includes(selectedShip)) {
+      setSelectedShip(availableShips[0]);
+    }
+  }, [availableShips, selectedShip]);
+
+  // 선택된 호선의 자재별 소모량 집계
+  const shipMaterialConsumption = useMemo(() => {
+    if (!selectedShip || selectedShip === "등록된 호선 없음") return [];
+
+    const map = {};
+    txs
+      .filter((t) => t.type === "out" && t.shipNo === selectedShip)
+      .forEach((t) => {
+        const key = t.itemName || t.itemCode;
+        if (!map[key]) {
+          map[key] = { name: key, code: t.itemCode, qty: 0, unit: t.unit || "EA" };
+        }
+        map[key].qty += Number(t.qty) || 0;
+      });
+
+    return Object.values(map);
+  }, [txs, selectedShip]);
+
+  const recent = [...txs].slice(-6).reverse();
+  const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
+
+  const totalOutQty = txs.filter((t) => t.type === "out").reduce((s, t) => s + Number(t.qty), 0);
+  const totalInQty = txs.filter((t) => t.type === "in").reduce((s, t) => s + Number(t.qty), 0);
+
+  return (
+    <div>
+      <Header title="대시보드" subtitle="실시간 재고 · 호선별 소모 현황" />
+
+      {/* 요약 카드리스트 */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 20 }}>
+        <StatCard label="관리 품목 수" value={items.length} unit="종" icon={Package} color="#5EC8FF" />
+        <StatCard label="누적 입고" value={totalInQty.toLocaleString()} unit="" icon={ArrowDownToLine} color="#35D08C" />
+        <StatCard label="누적 출고" value={totalOutQty.toLocaleString()} unit="" icon={ArrowUpFromLine} color="#F5A623" />
+        <StatCard label="안전재고 미달" value={items.filter((i) => statusOf(i) === "danger").length} unit="종" icon={AlertTriangle} color="#EF5350" />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 20 }}>
+        
+        {/* 호선별 부자재 소모량 그래픽 카드 */}
+        <Card style={{ padding: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <SectionLabel>호선별 부자재 소모 현황</SectionLabel>
+            
+            {/* 호선 선택 드롭다운 */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>호선 선택:</span>
+              <select
+                value={selectedShip}
+                onChange={(e) => setSelectedShip(e.target.value)}
+                style={{
+                  background: "#0B1C2C",
+                  border: "1px solid #274460",
+                  color: "#38BDF8",
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: "bold",
+                  outline: "none",
+                  cursor: "pointer"
+                }}
+              >
+                {availableShips.map((ship) => (
+                  <option key={ship} value={ship}>{ship}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {shipMaterialConsumption.length === 0 ? (
+            <EmptyState icon={ScanLine} text={`[${selectedShip}] 호선에 출고된 자재 이력이 없습니다.`} color="#5E86A3" />
+          ) : (
+            <div>
+              {/* 소모량 막대그래프 */}
+              <div style={{ height: 200, marginBottom: 16 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={shipMaterialConsumption} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid stroke="#17293B" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={{ stroke: "#1F3B54" }} tickLine={false} />
+                    <YAxis tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      cursor={{ fill: "#F5A62311" }}
+                      contentStyle={{ background: "#0F2233", border: "1px solid #274460", borderRadius: 8, fontSize: 12 }}
+                      formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
+                    />
+                    <Bar dataKey="qty" radius={[6, 6, 0, 0]}>
+                      {shipMaterialConsumption.map((_, idx) => (
+                        <Cell key={idx} fill={["#F5A623", "#38BDF8", "#35D08C", "#EF5350", "#A855F7"][idx % 5]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* 자재 소모 목록 리스트 */}
+              <div style={{ background: "#0B1C2C", borderRadius: 8, padding: 10, maxHeight: 120, overflowY: "auto", border: "1px solid #1F3B54" }}>
+                <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 6, fontWeight: 600 }}>사용 자재 상세 목록</div>
+                {shipMaterialConsumption.map((item) => (
+                  <div key={item.code} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0", borderBottom: "1px solid #16293C" }}>
+                    <span style={{ color: "#E7EEF5", fontWeight: 500 }}>{item.name} <span style={{ fontSize: 10, color: "#7F97AC" }}>({item.code})</span></span>
+                    <span style={{ color: "#F5A623", fontWeight: 700, fontFamily: "IBM Plex Mono" }}>{item.qty} {item.unit}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* 재고부족 경보 카드 */}
+        <Card style={{ padding: 20 }}>
+          <SectionLabel>재고부족 경보</SectionLabel>
+          {alertItems.length === 0 ? (
+            <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 280, overflowY: "auto" }}>
+              {alertItems.map((i) => {
+                const st = statusOf(i);
+                return (
+                  <div key={i.code} style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                    background: "#0B1C2C", border: `1px solid ${STATUS_META[st].color}33`, borderRadius: 8,
+                  }}>
+                    <Led status={st} size={10} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, color: "#E7EEF5" }}>{i.name}</div>
+                      <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>
+                    </div>
+                    <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontSize: 12.5 }}>
+                      <div style={{ color: STATUS_META[st].color, fontWeight: 700 }}>{i.stock}{i.unit}</div>
+                      <div style={{ color: "#5E86A3", fontSize: 10.5 }}>기준 {i.safety}{i.unit}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* 최근 입출고 이력 카드 */}
+      <Card style={{ padding: 20 }}>
+        <SectionLabel>최근 입출고 이력</SectionLabel>
+        {recent.length === 0 ? (
+          <EmptyState icon={ScanLine} text="입출고 이력이 아직 없습니다." color="#5E86A3" />
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead>
+                <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
+                  <th>구분</th><th>자재</th><th>수량</th><th>호선</th><th>공정</th><th>담당자</th><th>일시</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map((t) => (
+                  <tr key={t.id}>
+                    <td>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "IBM Plex Mono", fontSize: 11,
+                        padding: "3px 8px", borderRadius: 10, fontWeight: 600,
+                        color: t.type === "in" ? "#35D08C" : "#F5A623",
+                        background: t.type === "in" ? "#35D08C1a" : "#F5A6231a",
+                      }}>
+                        {t.type === "in" ? "입고" : "출고"}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 600 }}>{t.itemName}</td>
+                    <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600 }}>{t.qty}{t.unit}</td>
+                    <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.shipNo || t.project || "-"}</td>
+                    <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.process || "-"}</td>
+                    <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.worker || "-"}</td>
+                    <td style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>{t.at}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function StatCard({ label, value, unit, icon: Icon, color }) {
+  return (
+    <Card style={{ padding: "16px 18px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 6 }}>{label}</div>
+          <div style={{ fontFamily: "Oswald, sans-serif", fontSize: 26, fontWeight: 700, color: "#E7EEF5" }}>
+            {value}<span style={{ fontSize: 13, color: "#7F97AC", marginLeft: 4 }}>{unit}</span>
+          </div>
+        </div>
+        {Icon && (
+          <div style={{
+            width: 36, height: 36, borderRadius: 8, background: `${color}1f`, display: "flex",
+            alignItems: "center", justifyContent: "center", flexShrink: 0,
+          }}>
+            <Icon size={18} color={color} />
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function EmptyState({ icon: Icon, text, color }) {
+  return (
+    <div style={{ padding: "28px 10px", textAlign: "center" }}>
+      {Icon && <Icon size={26} color={color} style={{ marginBottom: 8, opacity: 0.85 }} />}
+      <div style={{ fontSize: 12.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{text}</div>
+    </div>
+  );
+}
+
+function Header({ title, subtitle }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 26, fontWeight: 700, margin: 0 }}>{title}</h1>
+      <div style={{ color: "#7F97AC", fontSize: 13, marginTop: 2, fontFamily: "IBM Plex Mono" }}>{subtitle}</div>
+    </div>
+  );
+}
+
+/* ---------------- 입고 등록 ---------------- */
+function InForm({ items, saveItems, txs, saveTxs, notify }) {
+  const [code, setCode] = useState(items[0]?.code || "");
+  const [qty, setQty] = useState("");
+  const [worker, setWorker] = useState("");
+
+  const item = items.find((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(code).replace(/[\r\n]+/g, "").trim());
+
+  const submit = async () => {
+    if (!item || !qty || Number(qty) <= 0) { notify("자재와 수량을 확인해주세요.", "err"); return; }
+    const nextItems = items.map((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(code).replace(/[\r\n]+/g, "").trim() ? { ...i, stock: i.stock + Number(qty) } : i);
+    const tx = { id: uid("IN"), type: "in", itemCode: code, itemName: item.name, unit: item.unit, qty: Number(qty), worker: worker || "미지정", at: nowStr() };
+    await saveItems(nextItems);
+    await saveTxs([...txs, tx]);
+    notify(`${item.name} ${qty}${item.unit} 입고 완료 · 현재고 ${item.stock + Number(qty)}${item.unit}`, "ok");
+    setQty("");
+  };
+
+  return (
+    <div>
+      <Header title="입고 등록" subtitle="자재 마스터 재고가 실시간으로 재계산됩니다" />
+      <Card style={{ padding: 24, maxWidth: 600 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <Field label="자재 검색 선택">
+            <SearchableSelect items={items} value={code} onChange={setCode} />
+            {item && (
+              <div style={{ fontSize: 12, color: "#5E86A3", marginTop: 4, fontFamily: "IBM Plex Mono" }}>
+                규격: {item.spec} | 업체: {item.manufacturer || "미지정"} | 위치: {item.location}
+              </div>
+            )}
+          </Field>
+          <Field label="입고 수량">
+            <input style={inputStyle} type="number" min="0" value={qty} onChange={(e) => setQty(e.target.value)} placeholder={item ? `단위: ${item.unit}` : ""} />
+          </Field>
+          <Field label="담당자">
+            <input style={inputStyle} value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="이름 입력" />
+          </Field>
+          {item && (
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 14px", background: "#0B1C2C", borderRadius: 8, fontFamily: "IBM Plex Mono", fontSize: 13 }}>
+              <span style={{ color: "#7F97AC" }}>현재고 → 입고 후</span>
+              <span><b style={{ color: "#9FB4C7" }}>{item.stock}{item.unit}</b> → <b style={{ color: "#35D08C" }}>{item.stock + (Number(qty) || 0)}{item.unit}</b></span>
+            </div>
+          )}
+          <Btn onClick={submit} style={{ marginTop: 6 }}><ArrowDownToLine size={18} />입고 확정</Btn>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- 출고 (스캔) ---------------- */
+function OutForm({ items, saveItems, txs, saveTxs, notify }) {
+  const [scan, setScan] = useState("");
+  const [found, setFound] = useState(null);
+  
+  // 변경된 5가지 입력 항목 상태
+  const [shipNo, setShipNo] = useState(""); // 1. 호선 (작성)
+  const [project, setProject] = useState("MSBD/LVSB"); // 2. 프로젝트 (드롭다운)
+  const [process, setProcess] = useState("배전반 결선"); // 3. 공정구분 (드롭다운)
+  const [qty, setQty] = useState(""); // 4. 불출수량 (작성)
+  const [worker, setWorker] = useState("울산에이원"); // 5. 불출자 (드롭다운)
+  
+  const [isScanning, setIsScanning] = useState(false);
+  const qrScannerRef = useRef(null);
+
+  // 드롭다운 옵션 목록
+  const projectOptions = ["MSBD/LVSB", "GSP", "DIST", "LGSP", "TEST", "BCD", "선박기타"];
+  const processOptions = ["배전반 결선", "배전반 조립", "배전반 어렌지", "A/S"];
+  const workerOptions = ["울산에이원", "부산에이원", "본사에이원", "수림기전", "생산팀"];
+
+// 🛠️ 완벽 개선된 findItemByCode 함수 (OutForm 내부에 적용)
+const findItemByCode = (rawCode) => {
+  if (!rawCode) return null;
+  const findItemByCode = (rawCode) => {
+  if (!rawCode) return null;
+
+  // 🔴 [디버깅 코드] 스캔값과 현재 items 상태를 알림창으로 확인
+  console.log("1. 스캔된 원본 값:", JSON.stringify(rawCode));
+  console.log("2. 현재 로드된 자재 목록(items):", items);
+
+  const cleanScan = String(rawCode).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+
+  const matched = items.find((i) => {
+    // 🔴 [디버깅 코드] 저장된 자재의 모든 키/값 출력
+    console.log("비교 중인 자재 객체:", i);
+    
+    const itemCodeVal = i.code || i.Code || i.자재코드 || i.item_code || "";
+    return String(itemCodeVal).trim().toLowerCase() === cleanScan;
+  });
+
+  return matched;
+};
+
+  // 1. 스캔받은 텍스트 정형화 (줄바꿈/공백/하이픈 제거 후 소문자화)
+  const cleanScan = String(rawCode)
+    .replace(/[\r\n\t]+/g, "")
+    .trim()
+    .toLowerCase();
+
+  // 2. 비교용 알파벳+숫자 전용 텍스트 (특수문자 제거)
+  const alphaNumScan = cleanScan.replace(/[^a-z0-9]/g, "");
+
+  if (!cleanScan) return null;
+
+  return items.find((i) => {
+    if (!i || !i.code) return false;
+
+    // 자재 마스터 데이터 정형화
+    const rawItemCode = String(i.code).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+    const alphaNumItemCode = rawItemCode.replace(/[^a-z0-9]/g, "");
+
+    const rawItemName = String(i.name || "").replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+    const alphaNumItemName = rawItemName.replace(/[^a-z0-9]/g, "");
+
+    // 3. 다각도 비교 (완전일치 OR 특수문자제외일치 OR 포함관계)
+    const isCodeMatch = 
+      rawItemCode === cleanScan || 
+      alphaNumItemCode === alphaNumScan ||
+      cleanScan.includes(rawItemCode) || 
+      rawItemCode.includes(cleanScan);
+
+    const isNameMatch = 
+      rawItemName === cleanScan || 
+      (alphaNumItemName && alphaNumItemName === alphaNumScan);
+
+    return isCodeMatch || isNameMatch;
+  });
+};
+
+  const doScan = (val) => {
+    const codeVal = val ?? scan;
+    const hit = findItemByCode(codeVal);
+    if (hit) { setFound(hit); notify(`자재 선택됨: ${hit.name}`, "ok"); }
+    else { setFound(null); notify(`등록되지 않은 자재입니다. (인식값: ${String(codeVal).trim()})`, "err"); }
+  };
+
+  const startCamera = async () => {
+    if (!window.Html5Qrcode) {
+      notify("카메라 모듈을 로딩 중입니다. 잠시 후 다시 시도해주세요.", "err");
+      return;
+    }
+    setIsScanning(true);
+  };
+
+  useEffect(() => {
+    if (isScanning && window.Html5Qrcode) {
+      const html5QrCode = new window.Html5Qrcode("reader");
+      qrScannerRef.current = html5QrCode;
+
+      html5QrCode.start(
+        { facingMode: "environment" },
+        { 
+          fps: 15, 
+          qrbox: (viewfinderWidth, viewfinderHeight) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const qrboxSize = Math.floor(minEdge * 0.85);
+            return { width: qrboxSize, height: qrboxSize };
+          }
+        },
+        (decodedText) => {
+          const hit = findItemByCode(decodedText);
+          if (hit) {
+            setFound(hit);
+            notify(`스캔 성공: ${hit.name}`, "ok");
+            html5QrCode.stop().catch(() => {});
+            setIsScanning(false);
+          } else {
+            notify(`미등록 자재 코드: ${decodedText.replace(/[\r\n]+/g, "").trim()}`, "err");
+          }
+        },
+        () => {}
+      ).catch(() => {
+        notify("카메라 접근 권한이 없거나 지원되지 않습니다.", "err");
+        setIsScanning(false);
+      });
+    }
+
+    return () => {
+      if (qrScannerRef.current && qrScannerRef.current.isScanning) {
+        qrScannerRef.current.stop().catch(() => {});
+      }
+    };
+  }, [isScanning, items]);
+
+  const stopCamera = () => {
+    if (qrScannerRef.current && qrScannerRef.current.isScanning) {
+      qrScannerRef.current.stop().then(() => setIsScanning(false)).catch(() => setIsScanning(false));
+    } else {
+      setIsScanning(false);
+    }
+  };
+
+  const submit = async () => {
+    if (!found || !qty || Number(qty) <= 0) { notify("자재를 스캔하고 수량을 입력해주세요.", "err"); return; }
+    if (Number(qty) > found.stock) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
+    
+    const nextItems = items.map((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(found.code).replace(/[\r\n]+/g, "").trim() ? { ...i, stock: i.stock - Number(qty) } : i);
+    
+    const tx = {
+      id: uid("OUT"),
+      type: "out",
+      itemCode: found.code,
+      itemName: found.name,
+      unit: found.unit,
+      qty: Number(qty),
+      shipNo: shipNo || "미입력", // 1. 호선
+      project: project,          // 2. 프로젝트
+      process: process,          // 3. 공정구분
+      worker: worker,            // 5. 불출자
+      at: nowStr(),
+    };
+
+    await saveItems(nextItems);
+    await saveTxs([...txs, tx]);
+    const remain = found.stock - Number(qty);
+    notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
+    
+    // 입력 필드 초기화
+    setQty(""); 
+    setShipNo("");
+    setFound(null); 
+    setScan("");
+  };
+
+  return (
+    <div>
+      <Header title="출고 (QR / 바코드 스캔)" subtitle="스캔으로 빠르게 불출 처리" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
+        
+        {/* 1. 스캔 영역 */}
+        <Card style={{ padding: 22 }}>
+          <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
+
+          {!isScanning ? (
+            <div style={{
+              border: "2px dashed #274460", borderRadius: 10, padding: "22px 16px",
+              textAlign: "center", marginBottom: 16, background: "#0B1C2C",
+            }}>
+              <Camera size={36} color="#5E86A3" style={{ marginBottom: 8 }} />
+              <div style={{ fontSize: 13, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
+                버튼을 누르면 스마트폰 카메라가 크고 선명하게 실행됩니다
+              </div>
+              <Btn onClick={startCamera} style={{ marginBottom: 16, width: "100%" }}><Camera size={18} />카메라 즉시 스캔</Btn>
+              
+              <div style={{ borderTop: "1px solid #1F3B54", paddingTop: 14, marginTop: 10 }}>
+                <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>또는 코드 수동 입력</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    style={{ ...inputStyle, flex: 1 }}
+                    value={scan}
+                    onChange={(e) => setScan(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && doScan()}
+                    placeholder="예: 2-BOLT-HEX10-206"
+                  />
+                  <Btn onClick={() => doScan()} variant="subtle"><ScanLine size={16} />검색</Btn>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: 10, background: "#0B1C2C", borderRadius: 10, textAlign: "center" }}>
+              <div id="reader" style={{ width: "100%", height: 350, background: "#000", borderRadius: 8, overflow: "hidden" }} />
+              <Btn onClick={stopCamera} variant="ghost" style={{ marginTop: 12, width: "100%" }}>
+                카메라 끄기
+              </Btn>
+            </div>
+          )}
+        </Card>
+
+        {/* 2. 불출 정보 입력 영역 */}
+        <Card style={{ padding: 22 }}>
+          <SectionLabel>2. 불출 정보 입력</SectionLabel>
+          {!found ? (
+            <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 입력해주세요." color="#5E86A3" />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              
+              {/* 자재 정보 카드 */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
+                <Led status={statusOf(found)} size={12} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {found.name}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
+                    코드: {found.code} | {found.manufacturer || "업체 미지정"}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", paddingLeft: 8, borderLeft: "1px solid #1F3B54" }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: found.stock > 0 ? "#35D08C" : "#EF5350" }}>
+                    {found.stock} <span style={{ fontSize: 12 }}>{found.unit}</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
+                </div>
+              </div>
+
+              {/* 1. 호선 (작성) & 2. 프로젝트 (드롭다운) */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label="1. 호선">
+                  <input 
+                    style={inputStyle} 
+                    value={shipNo} 
+                    onChange={(e) => setShipNo(e.target.value)} 
+                    placeholder="예: H-2024" 
+                  />
+                </Field>
+                <Field label="2. 프로젝트">
+                  <Select value={project} onChange={(e) => setProject(e.target.value)} options={projectOptions} />
+                </Field>
+              </div>
+
+              {/* 3. 공정구분 (드롭다운) & 4. 불출수량 (작성) */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label="3. 공정구분">
+                  <Select value={process} onChange={(e) => setProcess(e.target.value)} options={processOptions} />
+                </Field>
+                <Field label={`4. 불출수량 (${found.unit})`}>
+                  <input 
+                    style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }} 
+                    type="number" 
+                    min="1" 
+                    max={found.stock} 
+                    value={qty} 
+                    onChange={(e) => setQty(e.target.value)} 
+                    placeholder="수량 입력"
+                  />
+                </Field>
+              </div>
+
+              {/* 5. 불출자 (드롭다운) */}
+              <Field label="5. 불출자">
+                <Select value={worker} onChange={(e) => setWorker(e.target.value)} options={workerOptions} />
+              </Field>
+
+              {/* 출고 확정 버튼 */}
+              <Btn 
+                onClick={submit} 
+                disabled={!qty || Number(qty) <= 0 || Number(qty) > found.stock} 
+                style={{ 
+                  marginTop: 8, 
+                  width: "100%", 
+                  background: (!qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#1F3B54" : "#F5A623",
+                  color: (!qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#5E86A3" : "#0A1622",
+                  fontWeight: "bold",
+                  fontSize: 15
+                }}
+              >
+                <ArrowUpFromLine size={18} />출고 확정
+              </Btn>
+
+            </div>
+          )}
+        </Card>
+
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- 재고 조회 ---------------- */
+function StockView({ items }) {
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState("전체");
+
+  const filtered = items.filter((i) => {
+    const matchQ = (String(i.name) + String(i.code) + String(i.spec) + String(i.manufacturer || "") + String(i.location || "")).toLowerCase().includes(q.toLowerCase().trim());
+    const matchF = filter === "전체" || statusOf(i) === filter;
+    return matchQ && matchF;
+  });
+
+  return (
+    <div>
+      <Header title="재고 조회" subtitle="전체 품목 실시간 재고 현황" />
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: 1, minWidth: 240 }}>
+          <Search size={16} color="#5E86A3" style={{ position: "absolute", left: 12, top: 13 }} />
+          <input style={{ ...inputStyle, paddingLeft: 38 }} placeholder="품명, 코드, 규격, 위치, 생산업체 검색..." value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {["전체", "danger", "warn", "ok"].map((f) => (
+            <button key={f} onClick={() => setFilter(f)} style={{
+              fontSize: 12, fontFamily: "IBM Plex Mono", padding: "8px 12px", borderRadius: 6, cursor: "pointer",
+              border: `1px solid ${filter === f ? "#F5A623" : "#274460"}`,
+              background: filter === f ? "#F5A62322" : "transparent",
+              color: filter === f ? "#F5A623" : "#9FB4C7", fontWeight: 600,
+            }}>
+              {f === "전체" ? "전체" : STATUS_META[f].label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Card style={{ padding: 8 }}>
+        <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
+          <table>
+            <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
+              <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
+                <th></th><th>코드</th><th>품명 / 규격</th><th>생산업체</th><th>위치</th><th>현재고</th><th>안전재고</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((i) => {
+                const st = statusOf(i);
+                return (
+                  <tr key={i.code}>
+                    <td style={{ width: 24 }}><Led status={st} size={10} /></td>
+                    <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
+                    <td>
+                      <div style={{ fontWeight: 600, fontSize: 14 }}>{i.name}</div>
+                      <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>
+                    </td>
+                    <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{i.manufacturer || "-"}</td>
+                    <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.location || "-"}</td>
+                    <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 14, color: STATUS_META[st].color }}>{i.stock}{i.unit}</td>
+                    <td style={{ fontFamily: "IBM Plex Mono", color: "#7F97AC" }}>{i.safety}{i.unit}</td>
+                  </tr>
+                );
+              })}
+              {filtered.length === 0 && (
+                <tr><td colSpan={7}><EmptyState icon={Search} text="검색 결과가 없습니다." color="#5E86A3" /></td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------- 자재 마스터 관리 & QR 모달 & 엑셀/CSV 업로드 ---------------- */
+function MasterView({ items, saveItems, notify }) {
+  const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "" };
+  const [form, setForm] = useState(blank);
+  const [showForm, setShowForm] = useState(false);
+  const [qrModalItem, setQrModalItem] = useState(null);
+  const [masterQRInput, setMasterQRInput] = useState("");
+
+  const addItem = async () => {
+    if (!form.code || !form.name) { notify("자재코드와 품명은 필수입니다.", "err"); return; }
+    if (items.some((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(form.code).replace(/[\r\n]+/g, "").trim())) { notify("이미 존재하는 자재코드입니다.", "err"); return; }
+    await saveItems([...items, { ...form, stock: Number(form.stock) || 0, safety: Number(form.safety) || 0 }]);
+    notify(`${form.name} 자재가 등록되었습니다.`, "ok");
+    setForm(blank);
+    setShowForm(false);
+  };
+// 엑셀/CSV 데이터를 받아와서 저장할 때 정규화 함수 예시
+const normalizeItems = (rawList) => {
+  return rawList.map((row) => ({
+    ...row,
+    // 키 이름이 무엇이든 code로 통합
+    code: String(row.code || row.Code || row.자재코드 || row.item_code || row.ITEM_CODE || "").trim(),
+    // 키 이름이 무엇이든 name으로 통합
+    name: String(row.name || row.Name || row.품명 || row.item_name || "").trim(),
+    // 수량 및 재고 처리
+    stock: Number(row.stock || row.Stock || row.현재고 || row.qty || 0),
+    unit: String(row.unit || row.Unit || row.단위 || "EA").trim(),
+  }));
+};
+  const removeItem = async (code) => {
+    if (window.confirm("정말 이 자재를 삭제하시겠습니까?")) {
+      const updated = items.filter((i) => String(i.code).replace(/[\r\n]+/g, "").trim() !== String(code).replace(/[\r\n]+/g, "").trim());
+      await saveItems(updated);
+      notify("자재가 삭제되었습니다.", "info");
+    }
+  };
+
+  const clearAllItems = async () => {
+    if (window.confirm("모든 자재 항목을 삭제하시겠습니까?")) {
+      await saveItems([]);
+      notify("모든 자재 데이터가 삭제되었습니다.", "info");
+    }
+  };
+
+  const exportCSV = () => {
+    const headers = ["code,name,spec,category,unit,stock,safety,location,manufacturer\n"];
+    const rows = items.map(i => `"${i.code}","${i.name}","${i.spec}","${i.category || ""}","${i.unit}",${i.stock},${i.safety},"${i.location || ""}","${i.manufacturer || ""}"\n`);
+    const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `MRO_자재마스터_${nowStr().split(" ")[0]}.csv`;
+    link.click();
+    notify("자재 데이터가 엑셀(CSV)로 다운로드 되었습니다.", "ok");
+  };
+
+  const importExcelFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    if (window.XLSX) {
+      reader.onload = (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = window.XLSX.read(data, { type: 'array' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const rawData = window.XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+          const parsed = rawData.map(row => {
+            const getCol = (...keys) => {
+              for (let k of keys) {
+                const foundKey = Object.keys(row).find(rk => rk.trim().toLowerCase() === k.toLowerCase());
+                if (foundKey && row[foundKey] !== undefined) return String(row[foundKey]).trim();
+              }
+              return "";
+            };
+
+            const code = getCol('코드', 'code', '자재코드');
+            const fullName = getCol('품명 / 규격', '품명/규격', '품명', 'name');
+            const spec = getCol('규격', 'spec');
+            const manufacturer = getCol('생산업체', '제조사', 'manufacturer');
+            const unit = getCol('단위', 'unit') || 'EA';
+            const stock = Number(getCol('현재고', '재고', 'stock')) || 0;
+            const location = getCol('위치', 'location');
+
+            if (!code && !fullName) return null;
+
+            return {
+              code: code || uid("ITEM"),
+              name: fullName || "미지정 품명",
+              spec: spec || "",
+              category: "",
+              unit: unit,
+              stock: stock,
+              safety: 0,
+              location: location,
+              manufacturer: manufacturer,
+            };
+          }).filter(Boolean);
+
+          if (parsed.length > 0) {
+            saveItems(parsed);
+            notify(`총 ${parsed.length}개의 자재 목록을 성공적으로 불러왔습니다!`, "ok");
+          } else {
+            notify("엑셀 파일에서 유효한 자재 데이터를 찾을 수 없습니다.", "err");
+          }
+        } catch (err) {
+          console.error(err);
+          notify("엑셀 파일을 처리하는 중 오류가 발생했습니다.", "err");
+        } finally {
+          e.target.value = "";
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload = (evt) => {
+        try {
+          const text = new TextDecoder("utf-8").decode(evt.target.result);
+          const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+          const parsed = lines.slice(1).map(line => {
+            const cols = line.split(",").map(c => c.replace(/^"|"$/g, "").trim());
+            if (cols.length < 2) return null;
+            return {
+              code: cols[0] || uid("ITEM"),
+              name: cols[1] || "",
+              spec: cols[2] || "",
+              category: cols[3] || "",
+              unit: cols[4] || "EA",
+              stock: Number(cols[5]) || 0,
+              safety: Number(cols[6]) || 0,
+              location: cols[7] || "",
+              manufacturer: cols[8] || ""
+            };
+          }).filter(Boolean);
+
+          if (parsed.length > 0) {
+            saveItems(parsed);
+            notify(`총 ${parsed.length}개 자재 데이터를 성공적으로 불러왔습니다!`, "ok");
+          } else {
+            notify("CSV 데이터를 파싱할 수 없습니다.", "err");
+          }
+        } catch (err) {
+          notify("파일 파싱 중 오류가 발생했습니다.", "err");
+        } finally {
+          e.target.value = "";
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  };
+
+  const handleMasterQRKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const rawVal = e.target.value;
+      if (!rawVal) return;
+      const cleanQuery = rawVal.trim().replace(/[\r\n]+/g, "").toLowerCase();
+
+      const matched = items.find(i => {
+        const cCode = String(i.code).replace(/[\r\n]+/g, "").trim().toLowerCase();
+        return cCode === cleanQuery || cleanQuery.includes(cCode);
+      });
+
+      if (matched) {
+        notify(`[QR 스캔 성공] ${matched.name} (${matched.code})`, "ok");
+        setQrModalItem(matched);
+      } else {
+  // 🔴 원인 진단용 Alert 추가
+  const sampleItem = items && items.length > 0 ? JSON.stringify(items[0]) : "자재 데이터 없음(0개)";
+  
+  alert(
+    `[자재 마스터 스캔 진단]\n` +
+    `1. 스캔된 값: "${cleanQuery}"\n` +
+    `2. 전체 자재 수: ${items ? items.length : 0}개\n` +
+    `3. 첫번째 자재 데이터:\n${sampleItem}`
+  );
+
+  notify(`[미등록 자재] "${cleanQuery}" 코드를 찾을 수 없습니다.`, "err");
+}
+      setMasterQRInput("");
+    }
+  };
+
+  return (
+    <div>
+      <Header title="자재 마스터" subtitle="신규 자재 등록 · QR 생성 · 엑셀/CSV 백업 및 복원" />
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn onClick={() => setShowForm((s) => !s)} variant={showForm ? "ghost" : "primary"}>
+            {showForm ? <X size={16} /> : <Plus size={16} />}
+            {showForm ? "취소" : "신규 자재 등록"}
+          </Btn>
+          {items.length > 0 && (
+            <Btn onClick={clearAllItems} variant="danger">
+              <Trash2 size={16} />전체 삭제
+            </Btn>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업 다운로드</Btn>
+          
+          <label style={{ display: "inline-block" }}>
+            <input type="file" accept=".xlsx, .xls, .csv" onChange={importExcelFile} style={{ display: "none" }} />
+            <span style={{
+              background: "#16324A", color: "#C9DAE8", border: "1px solid #274460",
+              fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 13.5,
+              padding: "10px 16px", borderRadius: 8, cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center"
+            }}>
+              <Upload size={15} />엑셀/CSV 불러오기
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div style={{
+        background: "#111c38", border: "1px solid #1e293b", padding: "16px 20px",
+        borderRadius: 12, marginBottom: 20, display: "flex", alignItems: "center",
+        justifyContent: "space-between", gap: 16, flexWrap: "wrap"
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "1.05rem", fontWeight: 600, color: "#38bdf8", fontFamily: "'IBM Plex Mono', monospace" }}>
+          <QrCode size={22} />
+          <span>QR 스캔 / 코드 입력:</span>
+        </div>
+        <input 
+          type="text" 
+          value={masterQRInput}
+          onChange={(e) => setMasterQRInput(e.target.value)}
+          onKeyDown={handleMasterQRKeyDown}
+          placeholder="스캐너로 QR을 스캔하세요..." 
+          style={{
+            flex: 1, minWidth: 200, height: 48, fontSize: "1.1rem", fontWeight: "bold",
+            padding: "0 16px", border: "2px solid #38bdf8", borderRadius: 8,
+            backgroundColor: "#0b1329", color: "#ffffff", outline: "none",
+            fontFamily: "'IBM Plex Mono', monospace"
+          }}
+          autoComplete="off"
+        />
+      </div>
+
+      {showForm && (
+        <Card style={{ padding: 22, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
+            <Field label="자재코드 *"><input style={inputStyle} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="예: CG-M32-BR" /></Field>
+            <Field label="품명 *"><input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="예: 케이블 글랜드" /></Field>
+            <Field label="규격"><input style={inputStyle} value={form.spec} onChange={(e) => setForm({ ...form, spec: e.target.value })} placeholder="예: Brass Gland M32" /></Field>
+            <Field label="생산업체 (제조사)"><input style={inputStyle} value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="예: 동아베스텍" /></Field>
+            <Field label="카테고리"><input style={inputStyle} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="예: 글랜드" /></Field>
+            <Field label="단위">
+              <Select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} options={["EA", "m", "kg", "roll", "set"]} />
+            </Field>
+            <Field label="초기 재고"><input style={inputStyle} type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} /></Field>
+            <Field label="안전재고 기준"><input style={inputStyle} type="number" value={form.safety} onChange={(e) => setForm({ ...form, safety: e.target.value })} /></Field>
+            <Field label="저장 위치"><input style={inputStyle} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="예: A-03" /></Field>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <Btn onClick={addItem}><Plus size={16} />등록 완료</Btn>
+          </div>
+        </Card>
+      )}
+
+      <Card style={{ padding: 8 }}>
+        <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
+          <table>
+            <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
+              <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
+                <th>코드</th><th>품명 / 규격</th><th>생산업체</th><th>단위</th><th>현재고</th><th>위치</th><th>QR</th><th>삭제</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((i) => (
+                <tr key={i.code}>
+                  <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
+                  <td>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{i.name}</div>
+                    {i.spec && <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>}
+                  </td>
+                  <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{i.manufacturer || "-"}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.unit}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600, fontSize: 13.5 }}>{i.stock}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.location || "-"}</td>
+                  <td>
+                    <button
+                      onClick={() => setQrModalItem(i)}
+                      style={{ background: "#16324A", border: "1px solid #274460", color: "#F5A623", padding: "5px 8px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, fontFamily: "IBM Plex Mono" }}
+                    >
+                      <QrCode size={13} /> QR
+                    </button>
+                  </td>
+                  <td>
+                    <button onClick={() => removeItem(i.code)} style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 4 }}>
+                      <Trash2 size={15} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={8} style={{ textAlign: "center", padding: 30, color: "#7F97AC" }}>
+                    등록된 자재가 없습니다. '신규 자재 등록' 또는 '엑셀/CSV 불러오기'를 진행하세요.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {qrModalItem && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.75)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20,
+        }}>
+          <div style={{ background: "#0F2233", border: "1px solid #274460", borderRadius: 12, padding: 22, textAlign: "center", maxWidth: 280, width: "100%" }}>
+            <h3 style={{ margin: "0 0 6px 0", fontSize: 15, color: "#E7EEF5" }}>{qrModalItem.name}</h3>
+            <div style={{ fontSize: 11.5, color: "#7F97AC", marginBottom: 14, fontFamily: "IBM Plex Mono" }}>{qrModalItem.code}</div>
+            
+            <div style={{ background: "#FFF", padding: 12, borderRadius: 8, display: "inline-block" }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(qrModalItem.code)}`}
+                alt="QR Code"
+                style={{ width: 160, height: 160, display: "block" }}
+              />
+            </div>
+
+            <div style={{ marginTop: 18 }}>
+              <Btn onClick={() => setQrModalItem(null)} variant="ghost" style={{ padding: "8px 16px", fontSize: 13 }}>닫기</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

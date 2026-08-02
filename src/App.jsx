@@ -380,8 +380,8 @@ export default function App() {
     src="/Luxco.png"
     alt="Luxco"
     style={{
-      width: "100%",
-      height: "100%",
+      width: "250%",
+      height: "300%",
       objectFit: "contain"
     }}
   />

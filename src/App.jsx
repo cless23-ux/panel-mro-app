@@ -1068,61 +1068,83 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
       </div>
 
       {/* 🔴 🔥 [신규 추가] 최근 등록된 출고 내역 및 바로 삭제/복원 영역 */}
-      <Card style={{ padding: 20, marginTop: 20 }}>
+      {/* 🔴 🔥 [모바일 대응] 최근 등록된 출고 내역 및 바로 삭제/복원 영역 */}
+      <Card style={{ padding: 16, marginTop: 20 }}>
         <SectionLabel>최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)</SectionLabel>
         {recentOutTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table>
-              <thead>
-                <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                  <th>자재명</th>
-                  <th>수량</th>
-                  <th>호선</th>
-                  <th>불출자</th>
-                  <th>일시</th>
-                  <th>취소/원복</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentOutTxs.map((t) => (
-                  <tr key={t.id}>
-                    <td style={{ fontWeight: 600 }}>{t.itemName}</td>
-                    <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+            {recentOutTxs.map((t) => (
+              <div
+                key={t.id}
+                style={{
+                  background: "#0B1C2C",
+                  border: "1px solid #1F3B54",
+                  borderRadius: 8,
+                  padding: "12px 14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                {/* 상단: 자재명 및 삭제 버튼 */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8" }}>{t.itemName}</div>
+                    <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
+                      {t.at}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => cancelOutTx(t)}
+                    style={{
+                      background: "#3A1C1C",
+                      border: "1px solid #EF5350",
+                      color: "#EF5350",
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      fontSize: 11.5,
+                      fontFamily: "IBM Plex Mono",
+                      fontWeight: "bold",
+                      whiteSpace: "nowrap",
+                      flexShrink: 0
+                    }}
+                  >
+                    삭제(원복)
+                  </button>
+                </div>
+
+                {/* 하단: 불출 상세 정보 (수량, 호선, 불출자) */}
+                <div style={{ 
+                  display: "grid", 
+                  gridTemplateColumns: "1fr 1fr 1fr", 
+                  gap: 8, 
+                  paddingTop: 8, 
+                  borderTop: "1px solid #14283A",
+                  fontSize: 12 
+                }}>
+                  <div>
+                    <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>수량</span>
+                    <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>
                       {t.qty} {t.unit}
-                    </td>
-                    <td style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</td>
-                    <td style={{ color: "#9FB4C7" }}>{t.worker || "-"}</td>
-                    <td style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{t.at}</td>
-                    <td>
-                      <button
-                        onClick={() => cancelOutTx(t)}
-                        style={{
-                          background: "#3A1C1C",
-                          border: "1px solid #EF5350",
-                          color: "#EF5350",
-                          padding: "4px 8px",
-                          borderRadius: 6,
-                          cursor: "pointer",
-                          fontSize: 11.5,
-                          fontFamily: "IBM Plex Mono",
-                          fontWeight: "bold"
-                        }}
-                      >
-                        삭제(원복)
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>호선</span>
+                    <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>불출자</span>
+                    <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </Card>
-    </div>
-  );
-}
 
 /* ---------------- 재고 조회 ---------------- */
 function StockView({ items }) {

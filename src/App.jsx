@@ -1151,70 +1151,131 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
 
 /* ---------------- 재고 조회 ---------------- */
 function StockView({ items }) {
-  const [q, setQ] = useState("");
-  const [filter, setFilter] = useState("전체");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
-  const filtered = items.filter((i) => {
-    const matchQ = (String(i.name) + String(i.code) + String(i.spec) + String(i.manufacturer || "") + String(i.location || "")).toLowerCase().includes(q.toLowerCase().trim());
-    const matchF = filter === "전체" || statusOf(i) === filter;
-    return matchQ && matchF;
-  });
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      const matchSearch =
+        !search ||
+        item.name.toLowerCase().includes(search.toLowerCase()) ||
+        item.code.toLowerCase().includes(search.toLowerCase()) ||
+        (item.manufacturer && item.manufacturer.toLowerCase().includes(search.toLowerCase()));
+
+      const st = statusOf(item);
+      const matchStatus =
+        statusFilter === "all" ||
+        (statusFilter === "normal" && st === "normal") ||
+        (statusFilter === "warning" && st === "warning") ||
+        (statusFilter === "danger" && st === "danger");
+
+      return matchSearch && matchStatus;
+    });
+  }, [items, search, statusFilter]);
 
   return (
     <div>
-      <Header title="재고 조회" subtitle="전체 품목 실시간 재고 현황" />
-      <div style={{ display: "flex", gap: 10, marginBottom: 18, alignItems: "center", flexWrap: "wrap" }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 240 }}>
-          <Search size={16} color="#5E86A3" style={{ position: "absolute", left: 12, top: 13 }} />
-          <input style={{ ...inputStyle, paddingLeft: 38 }} placeholder="품명, 코드, 규격, 위치, 생산업체 검색..." value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          {["전체", "danger", "warn", "ok"].map((f) => (
-            <button key={f} onClick={() => setFilter(f)} style={{
-              fontSize: 12, fontFamily: "IBM Plex Mono", padding: "8px 12px", borderRadius: 6, cursor: "pointer",
-              border: `1px solid ${filter === f ? "#F5A623" : "#274460"}`,
-              background: filter === f ? "#F5A62322" : "transparent",
-              color: filter === f ? "#F5A623" : "#9FB4C7", fontWeight: 600,
-            }}>
-              {f === "전체" ? "전체" : STATUS_META[f].label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <Header title="재고 현황 조회" subtitle="전체 자재 실시간 재고 및 안전재고 파악" />
 
-      <Card style={{ padding: 8 }}>
-        <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
-          <table>
-            <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
-              <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th></th><th>코드</th><th>품명 / 규격</th><th>생산업체</th><th>위치</th><th>현재고</th><th>안전재고</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((i) => {
-                const st = statusOf(i);
-                return (
-                  <tr key={i.code}>
-                    <td style={{ width: 24 }}><Led status={st} size={10} /></td>
-                    <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
-                    <td>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{i.name}</div>
-                      <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>
-                    </td>
-                    <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{i.manufacturer || "-"}</td>
-                    <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.location || "-"}</td>
-                    <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 14, color: STATUS_META[st].color }}>{i.stock}{i.unit}</td>
-                    <td style={{ fontFamily: "IBM Plex Mono", color: "#7F97AC" }}>{i.safety}{i.unit}</td>
-                  </tr>
-                );
-              })}
-              {filtered.length === 0 && (
-                <tr><td colSpan={7}><EmptyState icon={Search} text="검색 결과가 없습니다." color="#5E86A3" /></td></tr>
-              )}
-            </tbody>
-          </table>
+      {/* 검색 및 필터 영역 (모바일 대응) */}
+      <Card style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* 검색창 */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              style={{ ...inputStyle, flex: 1 }}
+              placeholder="자재명, 코드, 제조사 검색..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && (
+              <Btn variant="subtle" onClick={() => setSearch("")}>
+                초기화
+              </Btn>
+            )}
+          </div>
+
+          {/* 상태 필터 버튼 그룹 */}
+          <div style={{ display: "flex", gap: 6, overflowX: "auto", pb: 2 }}>
+            {[
+              { id: "all", label: "전체" },
+              { id: "normal", label: "정상" },
+              { id: "warning", label: "부족위험" },
+              { id: "danger", label: "품절" },
+            ].map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setStatusFilter(f.id)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: "bold",
+                  border: statusFilter === f.id ? "1px solid #38BDF8" : "1px solid #1F3B54",
+                  background: statusFilter === f.id ? "#1E3A5F" : "#0B1C2C",
+                  color: statusFilter === f.id ? "#38BDF8" : "#7F97AC",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
       </Card>
+
+      {/* 모바일 최적화 자재 리스트 (카드뷰) */}
+      {filteredItems.length === 0 ? (
+        <Card style={{ padding: 20 }}>
+          <EmptyState icon={Package} text="검색 결과가 없습니다." color="#5E86A3" />
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filteredItems.map((item) => {
+            const st = statusOf(item);
+            return (
+              <Card key={item.code} style={{ padding: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                  {/* 자재 기본 정보 */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <Led status={st} size={10} />
+                      <span style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {item.name}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                      코드: {item.code}
+                    </div>
+                    {item.manufacturer && (
+                      <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2 }}>
+                        제조사: {item.manufacturer}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 재고 수량 현황 */}
+                  <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flexShrink: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 700,
+                        color: st === "danger" ? "#EF5350" : st === "warning" ? "#F5A623" : "#35D08C",
+                      }}
+                    >
+                      {item.stock} <span style={{ fontSize: 11 }}>{item.unit}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>
+                      안전재고: {item.safety} {item.unit}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

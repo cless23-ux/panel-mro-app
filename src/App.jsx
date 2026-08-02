@@ -1145,6 +1145,9 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
           </div>
         )}
       </Card>
+      </div>
+  );
+}
 
 /* ---------------- 재고 조회 ---------------- */
 function StockView({ items }) {

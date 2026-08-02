@@ -30,6 +30,19 @@ function nowStr() {
 const POLL_MS = 8000;
 
 /* ---------------- Supabase 연동 useStorage Hook ---------------- */
+/*
+  [수정됨] 기존 코드는 `data && data.length > 0` 조건 때문에
+  Supabase가 정상 응답을 했지만 실제로 행이 0개(빈 배열)인 경우에도
+  "실패"로 간주하고 localStorage에 남아있던 예전 캐시 데이터로 폴백했습니다.
+
+  이 때문에 PC(캐시 없음)에서는 실제 빈 상태가 그대로 보이지만,
+  모바일(예전 캐시가 남아있는 브라우저/기기)에서는 이미 삭제된
+  옛날 자재 데이터가 계속 표시되는 문제가 발생했습니다.
+
+  수정: Supabase 요청 자체가 에러 없이 성공했다면(행이 0개여도)
+  그 결과를 신뢰하고 localStorage도 최신 상태로 덮어씁니다.
+  localStorage 폴백은 Supabase 요청 자체가 실패했을 때만 사용합니다.
+*/
 function useStorage(key, initial) {
   const [value, setValue] = useState(initial);
   const [loaded, setLoaded] = useState(false);
@@ -39,13 +52,15 @@ function useStorage(key, initial) {
     try {
       if (supabase) {
         const { data, error } = await supabase.from(tableName).select("*").eq("deleted", false);
-        if (!error && data && data.length > 0) {
+        if (!error && data) {
+          // data.length > 0 조건 제거: 빈 배열(0건)도 유효한 최신 상태로 인정
           setValue(data);
           localStorage.setItem(key, JSON.stringify(data));
           if (!silent) setLoaded(true);
           return;
         }
       }
+      // Supabase 요청 자체가 실패(에러)했거나 supabase 객체가 없을 때만 캐시 사용
       const res = localStorage.getItem(key);
       if (res !== null) {
         setValue(JSON.parse(res));

@@ -107,8 +107,21 @@ function useStorage(key, initial) {
       if (supabase) {
         const { data, error } = await supabase.from(tableName).select("*").eq("deleted", false);
         if (!error && data) {
-          setValue(data);
-          localStorage.setItem(key, JSON.stringify(data));
+          if (tableName === "transactions") {
+            // 이력 데이터는 기존 state와 Supabase 데이터를 id 기준으로 병합하여 유실 방지
+            setValue(prev => {
+              const map = new Map();
+              [...data, ...prev].forEach(item => {
+                if (item && item.id) map.set(item.id, item);
+              });
+              const merged = Array.from(map.values());
+              localStorage.setItem(key, JSON.stringify(merged));
+              return merged;
+            });
+          } else {
+            setValue(data);
+            localStorage.setItem(key, JSON.stringify(data));
+          }
           if (!silent) setLoaded(true);
           return;
         }
@@ -138,6 +151,8 @@ function useStorage(key, initial) {
         if (tableName === "items") {
           await supabase.from("items").upsert(next, { onConflict: "code" });
         } else if (tableName === "transactions") {
+          // 트랜잭션은 전체를 덮어쓰기보다 개별 레코드 안전 저장을 위해 최신 항목 위주로 처리
+          // 혹은 누락 방지를 위해 upsert 수행
           await supabase.from("transactions").upsert(next, { onConflict: "id" });
         }
       }
@@ -148,6 +163,12 @@ function useStorage(key, initial) {
 
   return [value, save, loaded, load];
 }
+await saveTxs(prevTxs => {
+  const exists = prevTxs.some(t => t.id === tx.id);
+  if (exists) return prevTxs;
+  const updated = [...prevTxs, tx];
+  return updated;
+});
 
 const OUT_FORM_SETTINGS_ROW_ID = 1;
 const DEFAULT_OUT_FORM_SETTINGS = {

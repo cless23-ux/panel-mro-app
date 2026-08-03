@@ -602,12 +602,35 @@ function Dashboard({ items, txs }) {
     }
   }, [availableShips, selectedShip]);
 
+  const ALL_PROJECTS = "전체";
+
+  const availableProjects = useMemo(() => {
+    const outTxs = txs.filter(
+      (t) => t.type === "out" && t.shipNo === selectedShip && t.project && t.project !== "미입력"
+    );
+    const uniqueProjects = Array.from(new Set(outTxs.map((t) => t.project)));
+    return [ALL_PROJECTS, ...uniqueProjects];
+  }, [txs, selectedShip]);
+
+  const [selectedProject, setSelectedProject] = useState(ALL_PROJECTS);
+
+  useEffect(() => {
+    if (!availableProjects.includes(selectedProject)) {
+      setSelectedProject(ALL_PROJECTS);
+    }
+  }, [availableProjects, selectedProject]);
+
   const shipMaterialConsumption = useMemo(() => {
     if (!selectedShip || selectedShip === "등록된 호선 없음") return [];
 
     const map = {};
     txs
-      .filter((t) => t.type === "out" && t.shipNo === selectedShip)
+      .filter(
+        (t) =>
+          t.type === "out" &&
+          t.shipNo === selectedShip &&
+          (selectedProject === ALL_PROJECTS || t.project === selectedProject)
+      )
       .forEach((t) => {
         const key = t.itemName || t.itemCode;
         if (!map[key]) {
@@ -617,7 +640,7 @@ function Dashboard({ items, txs }) {
       });
 
     return Object.values(map);
-  }, [txs, selectedShip]);
+  }, [txs, selectedShip, selectedProject]);
 
   const recent = [...txs].slice(-6).reverse();
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
@@ -640,7 +663,7 @@ function Dashboard({ items, txs }) {
         <Card style={{ padding: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <SectionLabel>호선별 부자재 소모 현황</SectionLabel>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>호선 선택:</span>
               <select
                 value={selectedShip}
@@ -655,11 +678,33 @@ function Dashboard({ items, txs }) {
                   <option key={ship} value={ship}>{ship}</option>
                 ))}
               </select>
+              <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>프로젝트:</span>
+              <select
+                value={selectedProject}
+                onChange={(e) => setSelectedProject(e.target.value)}
+                style={{
+                  background: "#0B1C2C", border: "1px solid #274460", color: "#F5A623",
+                  padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
+                  outline: "none", cursor: "pointer"
+                }}
+              >
+                {availableProjects.map((proj) => (
+                  <option key={proj} value={proj}>{proj}</option>
+                ))}
+              </select>
             </div>
           </div>
 
           {shipMaterialConsumption.length === 0 ? (
-            <EmptyState icon={ScanLine} text={`[${selectedShip}] 호선에 출고된 자재 이력이 없습니다.`} color="#5E86A3" />
+            <EmptyState
+              icon={ScanLine}
+              text={
+                selectedProject === ALL_PROJECTS
+                  ? `[${selectedShip}] 호선에 출고된 자재 이력이 없습니다.`
+                  : `[${selectedShip} / ${selectedProject}] 조건에 출고된 자재 이력이 없습니다.`
+              }
+              color="#5E86A3"
+            />
           ) : (
             <div>
               <div style={{ height: 200, marginBottom: 16 }}>

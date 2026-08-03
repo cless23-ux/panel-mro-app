@@ -512,7 +512,7 @@ export default function App() {
             height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
             grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
           }
-          .main-content { flex: 1; padding: 14px 10px; overflow-y: auto; }
+          .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         }
@@ -2253,7 +2253,7 @@ function MasterView({ items, saveItems, notify }) {
   );
 }
 
-/* ---------------- 입고 등록 ---------------- */
+/* ---------------- 입고 등록 (모바일 화면 최적화 적용) ---------------- */
 function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
   const [selectedCode, setSelectedCode] = useState("");
   const [qty, setQty] = useState(1);
@@ -2269,6 +2269,32 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
   const [quickName, setQuickName] = useState("");
   const [quickSpec, setQuickSpec] = useState("");
   const [quickUnit, setQuickUnit] = useState("EA");
+
+  // 모바일 사용성을 위한 자재 검색어 자동완성/텍스트 선택 상태
+  const [itemSearchText, setItemSearchText] = useState("");
+  const [itemDropdownOpen, setItemDropdownOpen] = useState(false);
+  const itemInputWrapRef = useRef(null);
+
+  const filteredItemsForInbound = useMemo(() => {
+    const list = items || [];
+    if (!itemSearchText.trim()) return list.slice(0, 30);
+    const q = itemSearchText.toLowerCase().trim();
+    return list.filter((i) => 
+      String(i.name).toLowerCase().includes(q) || 
+      String(i.code).toLowerCase().includes(q) ||
+      String(i.spec || "").toLowerCase().includes(q)
+    ).slice(0, 30);
+  }, [items, itemSearchText]);
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (itemInputWrapRef.current && !itemInputWrapRef.current.contains(e.target)) {
+        setItemDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
 
   const selectedItem = items.find((i) => i.code === selectedCode);
 
@@ -2828,25 +2854,55 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
         </div>
       )}
 
-      {/* 개별 자재 수동 입고 영역 (사진을 입력 폼 우측에 크게 배치) */}
+      {/* 개별 자재 수동 입고 영역 (모바일 화면 최적화: 드롭다운 및 텍스트 직접 입력/자동완성 지원) */}
       <Card style={{ maxWidth: 760, margin: "0 auto", padding: 22 }}>
         <h3 style={{ margin: "0 0 16px 0", color: "#94a3b8", fontSize: 14 }}>개별 자재 수동 입고</h3>
         
         <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 20, alignItems: "start" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Field label="자재 검색 선택">
-              <select
-                value={selectedCode}
-                onChange={(e) => setSelectedCode(e.target.value)}
-                style={{ ...inputStyle, width: "100%", color: selectedCode ? "#E7EEF5" : "#7F97AC" }}
-              >
-                <option value="" disabled>-- 자재를 선택하세요 --</option>
-                {items.map((i) => (
-                  <option key={i.code} value={i.code}>
-                    [{i.code}] {i.name}
-                  </option>
-                ))}
-              </select>
+            
+            {/* 자재 선택창 드롭다운 및 텍스트 작성 가능하도록 변경된 입력부 */}
+            <Field label="자재 검색 및 선택">
+              <div ref={itemInputWrapRef} style={{ position: "relative" }}>
+                <input
+                  type="text"
+                  style={inputStyle}
+                  value={itemSearchText}
+                  onChange={(e) => {
+                    setItemSearchText(e.target.value);
+                    setItemDropdownOpen(true);
+                  }}
+                  onFocus={() => setItemDropdownOpen(true)}
+                  placeholder="자재명 또는 코드를 입력/선택하세요"
+                  autoComplete="off"
+                />
+                {itemDropdownOpen && filteredItemsForInbound.length > 0 && (
+                  <div style={{
+                    position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+                    background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
+                    marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", maxHeight: 220, overflowY: "auto",
+                  }}>
+                    {filteredItemsForInbound.map((i) => (
+                      <div
+                        key={i.code}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setSelectedCode(i.code);
+                          setItemSearchText(`[${i.code}] ${i.name}`);
+                          setItemDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: "10px 12px", borderBottom: "1px solid #16293C", cursor: "pointer",
+                          fontSize: 13, color: "#E7EEF5", background: selectedCode === i.code ? "#1E3A5F" : "transparent"
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, color: "#38BDF8" }}>{i.name}</div>
+                        <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.code} {i.spec ? `| ${i.spec}` : ""}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </Field>
 
             {selectedItem && (
@@ -2891,19 +2947,19 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
             </div>
           </div>
 
-          {/* 자재 선택 시 우측에 크게 띄워지는 등록된 사진 영역 */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10, padding: 16, height: "100%", minHeight: 280 }}>
-            <span style={{ fontSize: 12, color: "#5E86A3", marginBottom: 12, fontFamily: "IBM Plex Mono", fontWeight: "bold" }}>자재 등록 사진</span>
+          {/* 자재 선택 시 우측에 띄워지는 등록된 사진 영역 (컴팩트하게 정돈) */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10, padding: 16, height: "100%", minHeight: 240 }}>
+            <span style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 10, fontFamily: "IBM Plex Mono", fontWeight: "bold" }}>자재 사진</span>
             {selectedItem && selectedItem.image_url ? (
               <img 
                 src={selectedItem.image_url} 
                 alt={selectedItem.name} 
-                style={{ width: "100%", maxWidth: 200, height: 200, borderRadius: 8, objectFit: "cover", border: "1px solid #38BDF8" }} 
+                style={{ width: "100%", maxWidth: 160, height: 160, borderRadius: 8, objectFit: "cover", border: "1px solid #38BDF8" }} 
               />
             ) : (
-              <div style={{ width: "100%", maxWidth: 200, height: 200, borderRadius: 8, background: "#0F2233", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 12, border: "1px dashed #274460" }}>
-                <ImageIcon size={36} color="#5E86A3" style={{ marginBottom: 8 }} />
-                <span style={{ fontSize: 12, color: "#7F97AC" }}>{selectedItem ? "등록된 사진이 없습니다" : "자재를 선택해주세요"}</span>
+              <div style={{ width: "100%", maxWidth: 160, height: 160, borderRadius: 8, background: "#0F2233", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 10, border: "1px dashed #274460" }}>
+                <ImageIcon size={30} color="#5E86A3" style={{ marginBottom: 6 }} />
+                <span style={{ fontSize: 11, color: "#7F97AC" }}>{selectedItem ? "사진 없음" : "자재 선택 시 표시"}</span>
               </div>
             )}
           </div>

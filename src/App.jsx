@@ -2670,10 +2670,10 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
           <div style={{ marginTop: 16, background: "#0f172a", padding: 12, borderRadius: 8, border: "1px solid #1e293b" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
               <div>
-                <span style={{ fontSize: 15, fontWeight: "bold", color: "#f59e0b" }}>
+                <span style={{ fontSize: 14, fontWeight: "bold", color: "#f59e0b" }}>
                   명세서 KEY: {invoiceData.key_code}
                 </span>
-                <span style={{ marginLeft: 8, fontSize: 12, color: "#94a3b8" }}>
+                <span style={{ display: "block", fontSize: 11.5, color: "#94a3b8", marginTop: 2 }}>
                   공급자: {invoiceData.supplier}
                 </span>
               </div>
@@ -2682,40 +2682,58 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
               </Btn>
             </div>
 
-            <div style={{ overflowX: "auto", width: "100%", marginBottom: 14 }}>
-              <table style={{ width: "100%", minWidth: 540, textAlign: "left" }}>
-                <thead>
-                  <tr style={{ color: "#64748b", borderBottom: "1px solid #334155", fontSize: 12 }}>
-                    <th style={{ padding: "8px 4px", width: 36, textAlign: "center" }}>
-                      <input type="checkbox" checked={isAllChecked} onChange={toggleAllCheck} />
-                    </th>
-                    <th style={{ padding: "8px 6px" }}>자재코드</th>
-                    <th style={{ padding: "8px 6px" }}>품명 / 규격</th>
-                    <th style={{ padding: "8px 6px", width: 80 }}>명세수량</th>
-                    <th style={{ padding: "8px 6px", width: 80 }}>실입고</th>
-                    <th style={{ padding: "8px 6px" }}>상태</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoiceData.list.map(({ code, masterItem, docQty, inputQty, checked }, idx) => {
-                    return (
-                      <tr key={idx} style={{ borderBottom: "1px solid #1e293b", fontSize: 12.5, opacity: checked ? 1 : 0.4 }}>
-                        <td style={{ padding: "8px 4px", textAlign: "center" }}>
-                          <input type="checkbox" checked={checked} onChange={() => toggleItemCheck(idx)} />
-                        </td>
-                        <td style={{ padding: "8px 6px", fontFamily: "IBM Plex Mono", color: "#38bdf8", fontWeight: "bold" }}>{code}</td>
-                        <td style={{ padding: "8px 6px" }}>
-                          {masterItem ? (
-                            <div>
-                              <div style={{ fontWeight: 600, color: "#E7EEF5" }}>{masterItem.name}</div>
-                              {masterItem.spec && <div style={{ fontSize: 11, color: "#7F97AC" }}>{masterItem.spec}</div>}
-                            </div>
-                          ) : (
-                            <span style={{ color: "#ef4444" }}>미등록 자재</span>
-                          )}
-                        </td>
-                        <td style={{ padding: "8px 6px", color: "#94a3b8", fontFamily: "IBM Plex Mono" }}>{docQty} EA</td>
-                        <td style={{ padding: "8px 6px" }}>
+            {/* 전체 선택 및 개수 표시 바 */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0b1329", padding: "8px 12px", borderRadius: 6, marginBottom: 10, fontSize: 12, border: "1px solid #1e293b" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: "#38bdf8", fontWeight: 600 }}>
+                <input type="checkbox" checked={isAllChecked} onChange={toggleAllCheck} style={{ width: 16, height: 16 }} />
+                전체 선택
+              </label>
+              <span style={{ color: "#94a3b8" }}>
+                총 <b>{invoiceData.list.length}</b>개 품목
+              </span>
+            </div>
+
+            {/* 모바일 카드 형식 리스트 뷰 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto", marginBottom: 14 }}>
+              {invoiceData.list.map(({ code, masterItem, docQty, inputQty, checked }, idx) => {
+                return (
+                  <div 
+                    key={idx} 
+                    style={{ 
+                      background: "#0b1329", 
+                      border: `1px solid ${checked ? "#38bdf855" : "#1e293b"}`, 
+                      borderRadius: 8, 
+                      padding: "10px 12px", 
+                      opacity: checked ? 1 : 0.5,
+                      transition: "all 0.2s"
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <input 
+                        type="checkbox" 
+                        checked={checked} 
+                        onChange={() => toggleItemCheck(idx)} 
+                        style={{ width: 18, height: 18, marginTop: 3, cursor: "pointer" }} 
+                      />
+                      
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: "IBM Plex Mono", fontSize: 12, color: "#38bdf8", fontWeight: "bold" }}>
+                          {code}
+                        </div>
+                        <div style={{ fontSize: 13.5, fontWeight: 600, color: "#E7EEF5", marginTop: 2, wordBreak: "break-all" }}>
+                          {masterItem ? masterItem.name : <span style={{ color: "#ef4444" }}>미등록 자재</span>}
+                        </div>
+                        {masterItem?.spec && (
+                          <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 1 }}>
+                            {masterItem.spec}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontSize: 11, color: "#94a3b8" }}>명세: {docQty} EA</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
+                          <span style={{ fontSize: 11, color: "#38bdf8" }}>실입고:</span>
                           <input
                             type="number"
                             min="0"
@@ -2724,53 +2742,53 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
                             onChange={(e) => handleQtyChange(idx, e.target.value)}
                             style={{
                               ...inputStyle,
-                              width: 65,
-                              padding: "4px 6px",
-                              fontSize: 12.5,
+                              width: 58,
+                              height: 30,
+                              padding: "2px 4px",
+                              fontSize: 12,
                               textAlign: "center",
                               borderColor: checked ? "#38bdf8" : "#334155",
                             }}
                           />
-                        </td>
-                        <td style={{ padding: "8px 6px" }}>
-                          {masterItem ? (
-                            <span style={{ color: "#10b981", fontSize: 11.5, fontWeight: "bold" }}>✓ 정상</span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenQuickReg(code)}
-                              style={{
-                                background: "#f59e0b", color: "#000", border: "none",
-                                borderRadius: 4, padding: "4px 8px", fontSize: 11, fontWeight: "bold",
-                                cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 2
-                              }}
-                            >
-                              <Plus size={12} /> 마스터 등록
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        </div>
+                      </div>
+                    </div>
+
+                    {!masterItem && (
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #1e293b", display: "flex", justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenQuickReg(code)}
+                          style={{
+                            background: "#f59e0b", color: "#000", border: "none",
+                            borderRadius: 4, padding: "4px 10px", fontSize: 11, fontWeight: "bold",
+                            cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4
+                          }}
+                        >
+                          <Plus size={12} /> 마스터 등록 바로가기
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between", borderTop: "1px solid #1e293b", paddingTop: 12 }}>
               <input
                 type="text"
                 value={invoicePerson}
                 onChange={(e) => setInvoicePerson(e.target.value)}
                 placeholder="담당자 이름 입력 *"
-                style={{ ...inputStyle, width: "100%", maxWidth: 180, padding: "8px 12px" }}
+                style={{ ...inputStyle, width: "100%", maxWidth: 160, padding: "8px 12px" }}
               />
 
-              <div style={{ display: "flex", gap: 8, width: "100%", justifyContent: "flex-end" }}>
-                <Btn onClick={handleSelectedInbound} style={{ flex: 1, backgroundColor: "#0284c7", color: "#ffffff", fontWeight: "bold", padding: "10px", fontSize: 13 }}>
+              <div style={{ display: "flex", gap: 8, flex: 1, minWidth: 180 }}>
+                <Btn onClick={handleSelectedInbound} style={{ flex: 1, backgroundColor: "#0284c7", color: "#ffffff", fontWeight: "bold", padding: "10px 8px", fontSize: 12.5, justifyContent: "center" }}>
                   선택 입고
                 </Btn>
-                <Btn onClick={handleBatchInbound} style={{ flex: 1, backgroundColor: "#f59e0b", color: "#000000", fontWeight: "bold", padding: "10px", fontSize: 13 }}>
-                  전체 일괄 입고
+                <Btn onClick={handleBatchInbound} style={{ flex: 1, backgroundColor: "#f59e0b", color: "#000000", fontWeight: "bold", padding: "10px 8px", fontSize: 12.5, justifyContent: "center" }}>
+                  전체 일괄
                 </Btn>
               </div>
             </div>

@@ -132,8 +132,9 @@ function useStorage(key, initial) {
       }
     } catch (e) {
       console.error("Storage load error:", e);
-    } stroke:
+    } finally {
       if (!silent) setLoaded(true);
+    }
   }, [key, tableName]);
 
   useEffect(() => {

@@ -198,10 +198,11 @@ function Led({ status, size = 10 }) {
   );
 }
 
-function Card({ children, style, className = "" }) {
+function Card({ children, style, className = "", onClick }) {
   return (
     <div
       className={className}
+      onClick={onClick}
       style={{
         background: "linear-gradient(180deg, #122A3F 0%, #0F2233 100%)",
         border: "1px solid #1F3B54",
@@ -427,6 +428,7 @@ export default function App() {
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
   const [tab, setTab] = useState("out");
+  const [presetItem, setPresetItem] = useState(null);
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -609,8 +611,8 @@ export default function App() {
           <>
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
-            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
-            {tab === "stock" && <StockView items={items} />}
+            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} />}
+            {tab === "stock" && <StockView items={items} onSelectItem={(item) => { setPresetItem(item); setTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
@@ -920,7 +922,7 @@ function InForm({ items, saveItems, txs, saveTxs, notify }) {
 }
 
 /* ---------------- 출고 (스캔) ---------------- */
-function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings }) {
+function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, presetItem, onConsumePreset }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
   const [shipNo, setShipNo] = useState("");
@@ -930,6 +932,15 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings }) {
   const [worker, setWorker] = useState("울산에이원");
   const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
+
+  // [복구됨] 재고조회 화면에서 자재를 클릭해 넘어온 경우, 해당 자재를 자동으로 선택합니다.
+  useEffect(() => {
+    if (presetItem) {
+      setFound(presetItem);
+      notify(`자재 선택됨: ${presetItem.name}`, "ok");
+      if (onConsumePreset) onConsumePreset();
+    }
+  }, [presetItem]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // [수정됨] 프로젝트/공정구분/불출자 옵션은 더 이상 하드코딩이 아니라
   // '불출설정' 화면(PC 전용)에서 관리하는 값을 사용합니다. Supabase에 저장되므로
@@ -1308,7 +1319,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings }) {
 }
 
 /* ---------------- 재고 조회 ---------------- */
-function StockView({ items }) {
+function StockView({ items, onSelectItem }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -1383,7 +1394,11 @@ function StockView({ items }) {
           {filteredItems.map((item) => {
             const st = statusOf(item);
             return (
-              <Card key={item.code} style={{ padding: 14 }}>
+              <Card
+                key={item.code}
+                style={{ padding: 14, cursor: onSelectItem ? "pointer" : "default" }}
+                onClick={() => onSelectItem && onSelectItem(item)}
+              >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>

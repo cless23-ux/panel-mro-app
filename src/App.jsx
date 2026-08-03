@@ -1527,7 +1527,7 @@ function MasterView({ items, saveItems, notify }) {
     setEditingLocationValue("");
   };
 
-  // [추가됨] 생산업체 > 거래처 인라인 수정용 상태 및 핸들러
+  // 거래처 인라인 수정
   const [editingManufacturerCode, setEditingManufacturerCode] = useState(null);
   const [editingManufacturerValue, setEditingManufacturerValue] = useState("");
 
@@ -1544,7 +1544,7 @@ function MasterView({ items, saveItems, notify }) {
   const commitEditManufacturer = async (code) => {
     const nextItems = items.map((i) => (i.code === code ? { ...i, manufacturer: editingManufacturerValue.trim() } : i));
     await saveItems(nextItems);
-    notify("생산업체(거래처)가 수정되었습니다.", "ok");
+    notify("거래처가 수정되었습니다.", "ok");
     setEditingManufacturerCode(null);
     setEditingManufacturerValue("");
   };
@@ -1654,7 +1654,7 @@ function MasterView({ items, saveItems, notify }) {
             const code = getCol('코드', 'code', '자재코드');
             const fullName = getCol('품명 / 규격', '품명/규격', '품명', 'name');
             const spec = getCol('규격', 'spec');
-            const manufacturer = getCol('생산업체 > 거래처', '생산업체', '거래처', '제조사', 'manufacturer');
+            const manufacturer = getCol('거래처', '생산업체', '제조사', 'manufacturer');
             const unit = getCol('단위', 'unit') || 'EA';
             const stock = Number(getCol('현재고', '재고', '수량', '입고수량', '재고수량', 'stock', 'qty')) || 0;
             const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
@@ -1776,7 +1776,7 @@ function MasterView({ items, saveItems, notify }) {
             <Field label="자재코드 *"><input style={inputStyle} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="예: CG-M32-BR" /></Field>
             <Field label="품명 *"><input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="예: 케이블 글랜드" /></Field>
             <Field label="규격"><input style={inputStyle} value={form.spec} onChange={(e) => setForm({ ...form, spec: e.target.value })} placeholder="예: Brass Gland M32" /></Field>
-            <Field label="생산업체 > 거래처"><input style={inputStyle} value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="예: 동아베스텍" /></Field>
+            <Field label="거래처"><input style={inputStyle} value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="예: 동아베스텍" /></Field>
             <Field label="카테고리"><input style={inputStyle} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="예: 글랜드" /></Field>
             <Field label="단위">
               <Select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} options={["EA", "m", "kg", "roll", "set"]} />
@@ -1796,7 +1796,7 @@ function MasterView({ items, saveItems, notify }) {
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>코드</th><th>품명 / 규격</th><th>생산업체 &gt; 거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                <th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -1826,7 +1826,7 @@ function MasterView({ items, saveItems, notify }) {
                     ) : (
                       <span
                         onClick={() => startEditManufacturer(i)}
-                        title="클릭하여 생산업체(거래처) 수정"
+                        title="클릭하여 거래처 수정"
                         style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
                       >
                         {i.manufacturer || "-"}

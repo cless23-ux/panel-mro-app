@@ -1200,7 +1200,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         <Card style={{ padding: 22 }}>
           <SectionLabel>2. 불출 정보 입력</SectionLabel>
           {!found ? (
-            <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 입력해주세요." color="#5E86A3" />
+            <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 선택해주세요." color="#5E86A3" />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
@@ -1360,9 +1360,6 @@ function StockView({ items, onSelectItem }) {
   }, [items, search, statusFilter]);
 
   const handleCardClick = (item) => {
-    if (window.innerWidth <= 768) {
-      return; // 모바일에서는 이미지뷰창(상세 선택) 안 띄우도록 설정
-    }
     if (onSelectItem) {
       onSelectItem(item);
     }
@@ -1370,7 +1367,7 @@ function StockView({ items, onSelectItem }) {
 
   return (
     <div>
-      <Header title="재고 현황 조회" subtitle="전체 자재 실시간 재고 및 안전재고 파악" />
+      <Header title="재고 현황 조회" subtitle="전체 자재 실시간 재고 및 안전재고 파악 (자재 클릭 시 출고창 이동)" />
 
       <Card style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1422,7 +1419,7 @@ function StockView({ items, onSelectItem }) {
             return (
               <Card
                 key={item.code}
-                style={{ padding: 14, cursor: window.innerWidth > 768 && onSelectItem ? "pointer" : "default" }}
+                style={{ padding: 14, cursor: "pointer" }}
                 onClick={() => handleCardClick(item)}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>

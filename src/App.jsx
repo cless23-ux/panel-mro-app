@@ -64,7 +64,7 @@ async function compressAndUploadImage(file, itemCode) {
               const filePath = `items/${fileName}`;
 
               const { data, error } = await supabase.storage
-                .from("items-images")
+                .from("item-images")
                 .upload(filePath, blob, {
                   contentType: "image/jpeg",
                   upsert: true,
@@ -77,7 +77,7 @@ async function compressAndUploadImage(file, itemCode) {
               }
 
               const { data: publicUrlData } = supabase.storage
-                .from("items-images")
+                .from("item-images")
                 .getPublicUrl(filePath);
 
               resolve(publicUrlData.publicUrl);

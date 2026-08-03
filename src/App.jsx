@@ -954,28 +954,9 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
 
-  // [수정] 개별 자재 수동 선택창 상태 추가 (초기값 빈 문자열 "")
-  const [manualCode, setManualCode] = useState("");
-
-  // 수동 선택창에서 자재를 선택했을 때 처리
-  const handleManualSelectChange = (e) => {
-    const code = e.target.value;
-    setManualCode(code);
-    if (!code) {
-      setFound(null);
-    } else {
-      const hit = items.find((i) => i.code === code);
-      if (hit) {
-        setFound(hit);
-        notify(`자재 선택됨: ${hit.name}`, "ok");
-      }
-    }
-  };
-
   useEffect(() => {
     if (presetItem) {
       setFound(presetItem);
-      setManualCode(presetItem.code); // 프리셋 선택 시 수동 select에도 반영
       notify(`자재 선택됨: ${presetItem.name}`, "ok");
       if (onConsumePreset) onConsumePreset();
     }
@@ -1037,11 +1018,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const doScan = (val) => {
     const codeVal = val ?? scan;
     const hit = findItemByCode(codeVal);
-    if (hit) { 
-      setFound(hit); 
-      setManualCode(hit.code); // 스캔 성공 시 수동 select에도 동기화
-      notify(`자재 선택됨: ${hit.name}`, "ok"); 
-    }
+    if (hit) { setFound(hit); notify(`자재 선택됨: ${hit.name}`, "ok"); }
     else { setFound(null); notify(`등록되지 않은 자재입니다. (인식값: ${String(codeVal).trim()})`, "err"); }
   };
 
@@ -1072,7 +1049,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           const hit = findItemByCode(decodedText);
           if (hit) {
             setFound(hit);
-            setManualCode(hit.code);
             notify(`스캔 성공: ${hit.name}`, "ok");
             html5QrCode.stop().catch(() => {});
             setIsScanning(false);
@@ -1130,7 +1106,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     setQty(""); 
     setShipNo("");
     setFound(null); 
-    setManualCode(""); // 초기화 시 빈 값으로 복원
     setScan("");
   };
 
@@ -1222,43 +1197,31 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         </Card>
 
         <Card style={{ padding: 22 }}>
-          <SectionLabel>2. 개별 자재 수동 입고 및 불출 정보</SectionLabel>
-          
-          {/* [수정] 자재검색 선택창 및 선택된 자재 사진 표시 영역 */}
-          <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
-            <div style={{ flex: 1 }}>
-              <Field label="자재 검색 선택">
-                <select
-                  value={manualCode}
-                  onChange={handleManualSelectChange}
-                  style={{ ...inputStyle, width: "100%" }}
-                >
-                  <option value="">-- 자재를 선택하세요 --</option>
-                  {items.map((i) => (
-                    <option key={i.code} value={i.code}>
-                      [{i.code}] {i.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-
-            {/* 자재 선택 시 옆에 등록한 사진이 뜨도록 구성 (사진에 표시된 요구사항 반영) */}
-            <div style={{ width: 64, height: 64, flexShrink: 0, marginTop: 22, display: "flex", alignItems: "center", justifyContent: "center", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 8, overflow: "hidden" }}>
-              {found && found.image_url ? (
-                <img src={found.image_url} alt={found.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-              ) : (
-                <ImageIcon size={22} color="#5E86A3" />
-              )}
-            </div>
-          </div>
-
+          <SectionLabel>2. 불출 정보 입력</SectionLabel>
           {!found ? (
-            <EmptyState icon={ScanLine} text="자재를 선택하거나 스캔해주세요." color="#5E86A3" />
+            <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 입력해주세요." color="#5E86A3" />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", background: "#0B1C2C", padding: 10, borderRadius: 6, border: "1px solid #274460" }}>
-                규격: {found.spec || "-"} | 업체: {found.manufacturer || "-"} | 위치: {found.location || "-"} | 현재고: <strong style={{ color: found.stock > 0 ? "#35D08C" : "#EF5350" }}>{found.stock} {found.unit}</strong>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
+                {found.image_url ? (
+                  <img src={found.image_url} alt={found.name} style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover" }} />
+                ) : (
+                  <Led status={statusOf(found)} size={12} />
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {found.name}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
+                    코드: {found.code} | {found.manufacturer || "업체 미지정"}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", paddingLeft: 8, borderLeft: "1px solid #1F3B54" }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: found.stock > 0 ? "#35D08C" : "#EF5350" }}>
+                    {found.stock} <span style={{ fontSize: 12 }}>{found.unit}</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
+                </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -2292,7 +2255,7 @@ function MasterView({ items, saveItems, notify }) {
 
 /* ---------------- 입고 등록 ---------------- */
 function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
-  const [selectedCode, setSelectedCode] = useState(items[0]?.code || "");
+  const [selectedCode, setSelectedCode] = useState("");
   const [qty, setQty] = useState(1);
   const [person, setPerson] = useState("");
 
@@ -2719,7 +2682,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
               </Btn>
             </div>
 
-            {/* 전체 선택 및 개수 표시 바 */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0b1329", padding: "8px 12px", borderRadius: 6, marginBottom: 10, fontSize: 12, border: "1px solid #1e293b" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: "#38bdf8", fontWeight: 600 }}>
                 <input type="checkbox" checked={isAllChecked} onChange={toggleAllCheck} style={{ width: 16, height: 16 }} />
@@ -2730,7 +2692,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
               </span>
             </div>
 
-            {/* 모바일 카드 형식 리스트 뷰 */}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto", marginBottom: 14 }}>
               {invoiceData.list.map(({ code, masterItem, docQty, inputQty, checked }, idx) => {
                 return (
@@ -2867,61 +2828,85 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
         </div>
       )}
 
-      <Card style={{ maxWidth: 600, margin: "0 auto", padding: 20 }}>
-        <h3 style={{ margin: "0 0 14px 0", color: "#94a3b8", fontSize: 13.5 }}>개별 자재 수동 입고</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <Field label="자재 검색 선택">
-            <select
-              value={selectedCode}
-              onChange={(e) => setSelectedCode(e.target.value)}
-              style={{ ...inputStyle, width: "100%" }}
-            >
-              {items.map((i) => (
-                <option key={i.code} value={i.code}>
-                  [{i.code}] {i.name}
-                </option>
-              ))}
-            </select>
-          </Field>
+      {/* 개별 자재 수동 입고 영역 (사진을 입력 폼 우측에 크게 배치) */}
+      <Card style={{ maxWidth: 760, margin: "0 auto", padding: 22 }}>
+        <h3 style={{ margin: "0 0 16px 0", color: "#94a3b8", fontSize: 14 }}>개별 자재 수동 입고</h3>
+        
+        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 20, alignItems: "start" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <Field label="자재 검색 선택">
+              <select
+                value={selectedCode}
+                onChange={(e) => setSelectedCode(e.target.value)}
+                style={{ ...inputStyle, width: "100%", color: selectedCode ? "#E7EEF5" : "#7F97AC" }}
+              >
+                <option value="" disabled>-- 자재를 선택하세요 --</option>
+                {items.map((i) => (
+                  <option key={i.code} value={i.code}>
+                    [{i.code}] {i.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
 
-          {selectedItem && (
-            <div style={{ fontSize: 11.5, color: "#64748b" }}>
-              규격: {selectedItem.spec || "-"} | 업체: {selectedItem.manufacturer || "-"} | 위치: {selectedItem.location || "-"}
+            {selectedItem && (
+              <div style={{ fontSize: 11.5, color: "#64748b" }}>
+                규격: {selectedItem.spec || "-"} | 업체: {selectedItem.manufacturer || "-"} | 위치: {selectedItem.location || "-"}
+              </div>
+            )}
+
+            <Field label="입고 수량">
+              <input
+                type="number"
+                min="1"
+                value={qty}
+                onChange={(e) => setQty(e.target.value)}
+                style={inputStyle}
+              />
+            </Field>
+
+            <Field label="담당자">
+              <input
+                type="text"
+                value={person}
+                onChange={(e) => setPerson(e.target.value)}
+                placeholder="이름 입력"
+                style={inputStyle}
+              />
+            </Field>
+
+            {selectedItem && (
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #1e293b", fontWeight: "bold", fontSize: 13 }}>
+                <span>현재고 → 입고 후</span>
+                <span style={{ color: "#10b981" }}>
+                  {selectedItem.stock}EA → {(Number(selectedItem.stock) || 0) + (Number(qty) || 0)}EA
+                </span>
+              </div>
+            )}
+
+            <div style={{ marginTop: 4 }}>
+              <Btn onClick={handleSingleInbound} style={{ width: "100%", height: 44, fontSize: 14, justifyContent: "center" }}>
+                ↓ 입고 확정
+              </Btn>
             </div>
-          )}
+          </div>
 
-          <Field label="입고 수량">
-            <input
-              type="number"
-              min="1"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              style={inputStyle}
-            />
-          </Field>
-
-          <Field label="담당자">
-            <input
-              type="text"
-              value={person}
-              onChange={(e) => setPerson(e.target.value)}
-              placeholder="이름 입력"
-              style={inputStyle}
-            />
-          </Field>
-
-          {selectedItem && (
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #1e293b", fontWeight: "bold", fontSize: 13 }}>
-              <span>현재고 → 입고 후</span>
-              <span style={{ color: "#10b981" }}>
-                {selectedItem.stock}EA → {(Number(selectedItem.stock) || 0) + (Number(qty) || 0)}EA
-              </span>
-            </div>
-          )}
-
-          <Btn onClick={handleSingleInbound} style={{ height: 44, fontSize: 14 }}>
-            ↓ 입고 확정
-          </Btn>
+          {/* 자재 선택 시 우측에 크게 띄워지는 등록된 사진 영역 */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10, padding: 16, height: "100%", minHeight: 280 }}>
+            <span style={{ fontSize: 12, color: "#5E86A3", marginBottom: 12, fontFamily: "IBM Plex Mono", fontWeight: "bold" }}>자재 등록 사진</span>
+            {selectedItem && selectedItem.image_url ? (
+              <img 
+                src={selectedItem.image_url} 
+                alt={selectedItem.name} 
+                style={{ width: "100%", maxWidth: 200, height: 200, borderRadius: 8, objectFit: "cover", border: "1px solid #38BDF8" }} 
+              />
+            ) : (
+              <div style={{ width: "100%", maxWidth: 200, height: 200, borderRadius: 8, background: "#0F2233", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 12, border: "1px dashed #274460" }}>
+                <ImageIcon size={36} color="#5E86A3" style={{ marginBottom: 8 }} />
+                <span style={{ fontSize: 12, color: "#7F97AC" }}>{selectedItem ? "등록된 사진이 없습니다" : "자재를 선택해주세요"}</span>
+              </div>
+            )}
+          </div>
         </div>
       </Card>
 

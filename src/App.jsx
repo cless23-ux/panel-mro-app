@@ -255,81 +255,6 @@ function Select({ value, onChange, options, style }) {
   );
 }
 
-function SearchableSelect({ items, value, onChange }) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-
-  const selectedItem = useMemo(() => items.find((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(value).replace(/[\r\n]+/g, "").trim()), [items, value]);
-
-  const filtered = useMemo(() => {
-    if (!query) return items.slice(0, 50);
-    const q = query.toLowerCase().trim();
-    return items.filter((i) =>
-      String(i.code).toLowerCase().includes(q) ||
-      String(i.name).toLowerCase().includes(q) ||
-      String(i.spec).toLowerCase().includes(q) ||
-      (i.manufacturer && String(i.manufacturer).toLowerCase().includes(q))
-    ).slice(0, 50);
-  }, [items, query]);
-
-  return (
-    <div style={{ position: "relative" }}>
-      <div
-        onClick={() => setOpen(!open)}
-        style={{
-          ...inputStyle, cursor: "pointer", display: "flex", justifyContent: "space-between",
-          alignItems: "center", background: "#0B1C2C",
-        }}
-      >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {selectedItem ? `[${selectedItem.code}] ${selectedItem.name} (${selectedItem.spec || ""})` : "자재를 검색하여 선택하세요"}
-        </span>
-        <span style={{ fontSize: 10, color: "#7F97AC", marginLeft: 8 }}>▼</span>
-      </div>
-
-      {open && (
-        <div style={{
-          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
-          background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
-          marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", padding: 8,
-        }}>
-          <input
-            style={{ ...inputStyle, marginBottom: 8 }}
-            placeholder="자재명, 코드, 규격 검색..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoFocus
-          />
-          <div style={{ maxHeight: 200, overflowY: "auto" }}>
-            {filtered.length === 0 ? (
-              <div style={{ padding: 12, color: "#7F97AC", fontSize: 13, textAlign: "center" }}>검색 결과가 없습니다.</div>
-            ) : (
-              filtered.map((item) => (
-                <div
-                  key={item.code}
-                  onClick={() => {
-                    onChange(item.code);
-                    setOpen(false);
-                    setQuery("");
-                  }}
-                  style={{
-                    padding: "10px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13,
-                    borderBottom: "1px solid #16293C",
-                    background: item.code === value ? "#1F3B54" : "transparent",
-                  }}
-                >
-                  <div style={{ fontWeight: 600, color: "#E7EEF5" }}>{item.name} <span style={{ fontSize: 11, color: "#F5A623" }}>[{item.code}]</span></div>
-                  <div style={{ fontSize: 11.5, color: "#7F97AC" }}>{item.spec} | 재고: {item.stock}{item.unit}</div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function AutocompleteInput({ value, onChange, options, placeholder }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -480,8 +405,9 @@ export default function App() {
             height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
             grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
           }
-          .main-content { flex: 1; padding: 16px 14px; overflow-y: auto; }
+          .main-content { flex: 1; padding: 14px 10px; overflow-y: auto; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
+          .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         }
       `}</style>
 
@@ -770,7 +696,7 @@ function Dashboard({ items, txs }) {
         {recent.length === 0 ? (
           <EmptyState icon={ScanLine} text="입출고 이력이 아직 없습니다." color="#5E86A3" />
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="mobile-scroll-table">
             <table>
               <thead>
                 <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
@@ -1477,7 +1403,6 @@ function MasterView({ items, saveItems, notify }) {
     setEditingLocationValue("");
   };
 
-  // 거래처 인라인 수정
   const [editingManufacturerCode, setEditingManufacturerCode] = useState(null);
   const [editingManufacturerValue, setEditingManufacturerValue] = useState("");
 
@@ -1639,7 +1564,7 @@ function MasterView({ items, saveItems, notify }) {
           e.target.value = "";
         }
       };
-      reader.readAsArrayBuffer(file);
+      reader.readAsBuffer ? reader.readAsBuffer(file) : reader.readAsArrayBuffer(file);
     }
   };
 
@@ -1742,7 +1667,7 @@ function MasterView({ items, saveItems, notify }) {
       )}
 
       <Card style={{ padding: 8 }}>
-        <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
+        <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }} className="mobile-scroll-table">
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
@@ -1889,7 +1814,7 @@ function MasterView({ items, saveItems, notify }) {
   );
 }
 
-/* ---------------- 입고 등록 컴포넌트 (카메라 QR 스캐너 탑재) ---------------- */
+/* ---------------- 입고 등록 컴포넌트 (원클릭 마스터 등록 및 모바일 스케일 최적화) ---------------- */
 function InboundView({ items, saveItems, notify, supabase }) {
   // 수동 단일 입고 상태
   const [selectedCode, setSelectedCode] = useState(items[0]?.code || "");
@@ -1903,9 +1828,15 @@ function InboundView({ items, saveItems, notify, supabase }) {
   const [invoicePerson, setInvoicePerson] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // 원클릭 빠른 자재등록 모달 상태
+  const [quickRegItem, setQuickRegItem] = useState(null);
+  const [quickName, setQuickName] = useState("");
+  const [quickSpec, setQuickSpec] = useState("");
+  const [quickUnit, setQuickUnit] = useState("EA");
+
   const selectedItem = items.find((i) => i.code === selectedCode);
 
-  // html5-qrcode 라이브러리를 이용한 라이브 카메라 QR 스캔 제어
+  // html5-qrcode 카메라 QR 스캐너
   useEffect(() => {
     let html5QrCode = null;
     if (useCamera) {
@@ -1922,12 +1853,12 @@ function InboundView({ items, saveItems, notify, supabase }) {
           html5QrCode = new window.Html5Qrcode("inbound-qr-reader");
           await html5QrCode.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
+            { fps: 10, qrbox: { width: 220, height: 220 } },
             (decodedText) => {
               fetchInvoiceData(decodedText);
               setUseCamera(false);
             },
-            () => { /* 인식 대기 중 */ }
+            () => {}
           );
         } catch (err) {
           console.error("카메라 접근 에러:", err);
@@ -1945,12 +1876,11 @@ function InboundView({ items, saveItems, notify, supabase }) {
     };
   }, [useCamera]);
 
-  // QR 스캔 텍스트에서 KEY_CODE 파싱 및 Supabase 조회
+  // QR 스캔 텍스트에서 KEY_CODE 파싱 및 DB 조회
   const fetchInvoiceData = async (rawVal) => {
     if (!rawVal) return;
     let keyCode = rawVal.trim();
 
-    // KEY_CODE 파싱 (예: {QR_TYPE:QR040,KEY_CODE:17035} -> 17035)
     const match = rawVal.match(/KEY_CODE\s*:\s*([A-Za-z0-9_-]+)/i);
     if (match && match[1]) {
       keyCode = match[1];
@@ -2030,6 +1960,51 @@ function InboundView({ items, saveItems, notify, supabase }) {
     const nextList = [...invoiceData.list];
     nextList[idx].inputQty = Number(value) || 0;
     setInvoiceData({ ...invoiceData, list: nextList });
+  };
+
+  // 미등록 자재 빠른 마스터 등록
+  const handleOpenQuickReg = (code) => {
+    setQuickRegItem(code);
+    setQuickName("");
+    setQuickSpec("");
+    setQuickUnit("EA");
+  };
+
+  const handleSaveQuickReg = async () => {
+    if (!quickName.trim()) {
+      notify("품명을 입력해주세요.", "err");
+      return;
+    }
+
+    const newItem = {
+      code: quickRegItem,
+      name: quickName.trim(),
+      spec: quickSpec.trim(),
+      unit: quickUnit,
+      stock: 0,
+      safety: 0,
+      location: "",
+      manufacturer: invoiceData?.supplier || "",
+      category: "",
+      deleted: false,
+    };
+
+    const nextItems = [newItem, ...items];
+    await saveItems(nextItems);
+
+    // 입고 명세서 데이터의 자재 매칭 업데이트
+    if (invoiceData) {
+      const updatedList = invoiceData.list.map((inv) => {
+        if (inv.code === quickRegItem) {
+          return { ...inv, masterItem: newItem };
+        }
+        return inv;
+      });
+      setInvoiceData({ ...invoiceData, list: updatedList });
+    }
+
+    notify(`[${newItem.name}] 자재가 마스터에 바로 등록되었습니다!`, "ok");
+    setQuickRegItem(null);
   };
 
   const handleSelectedInbound = async () => {
@@ -2141,28 +2116,28 @@ function InboundView({ items, saveItems, notify, supabase }) {
     <div>
       <Header title="입고 등록" subtitle="거래명세서 QR 스캔 (선택/일괄 입고) 및 개별 자재 입고 처리" />
 
-      {/* --- 상단: 거래명세서 QR 스캔 영역 --- */}
-      <Card style={{ padding: 20, marginBottom: 24, border: "2px solid #38bdf8", background: "#0b172a" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "1.1rem", fontWeight: 600, color: "#38bdf8", marginBottom: 12 }}>
-          <QrCode size={24} />
+      {/* --- 거래명세서 QR 스캔 영역 --- */}
+      <Card style={{ padding: 16, marginBottom: 20, border: "2px solid #38bdf8", background: "#0b172a" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "1.05rem", fontWeight: 600, color: "#38bdf8", marginBottom: 12 }}>
+          <QrCode size={22} />
           <span>거래명세서 QR 스캔</span>
         </div>
 
-        {/* 📹 라이브 카메라 조작 영역 */}
+        {/* 카메라 조작 */}
         {!useCamera ? (
           <button
             onClick={() => setUseCamera(true)}
             style={{
-              width: "100%", padding: "14px", background: "#0284c7", color: "#fff", border: "none",
-              borderRadius: 8, fontWeight: "bold", fontSize: 15, cursor: "pointer", display: "flex",
+              width: "100%", padding: "12px", background: "#0284c7", color: "#fff", border: "none",
+              borderRadius: 8, fontWeight: "bold", fontSize: 14, cursor: "pointer", display: "flex",
               alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 12
             }}
           >
-            <Camera size={20} /> 📹 카메라로 QR 스캔하기
+            <Camera size={18} /> 📹 카메라로 QR 스캔하기
           </button>
         ) : (
           <div style={{ textAlign: "center", marginBottom: 12 }}>
-            <div id="inbound-qr-reader" style={{ width: "100%", maxWidth: 360, margin: "0 auto", background: "#000", borderRadius: 8, overflow: "hidden" }} />
+            <div id="inbound-qr-reader" style={{ width: "100%", maxWidth: 320, margin: "0 auto", background: "#000", borderRadius: 8, overflow: "hidden" }} />
             <button
               onClick={() => setUseCamera(false)}
               style={{ marginTop: 10, padding: "8px 16px", background: "#EF4444", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}
@@ -2172,7 +2147,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
           </div>
         )}
 
-        {/* 바코드 스캐너 입력 또는 KEY_CODE 수동 입력창 */}
         <input
           type="text"
           value={invoiceQRInput}
@@ -2188,97 +2162,114 @@ function InboundView({ items, saveItems, notify, supabase }) {
           autoComplete="off"
         />
 
-        {/* QR 스캔 결과 명세서 상세 목록 */}
+        {/* QR 스캔 결과 거래명세서 - 모바일 스케일 최적화 */}
         {invoiceData && (
-          <div style={{ marginTop: 20, background: "#0f172a", padding: 16, borderRadius: 8, border: "1px solid #1e293b" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ marginTop: 16, background: "#0f172a", padding: 12, borderRadius: 8, border: "1px solid #1e293b" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
               <div>
-                <span style={{ fontSize: 16, fontWeight: "bold", color: "#f59e0b" }}>
+                <span style={{ fontSize: 15, fontWeight: "bold", color: "#f59e0b" }}>
                   명세서 KEY: {invoiceData.key_code}
                 </span>
-                <span style={{ marginLeft: 12, fontSize: 13, color: "#94a3b8" }}>
+                <span style={{ marginLeft: 8, fontSize: 12, color: "#94a3b8" }}>
                   공급자: {invoiceData.supplier}
                 </span>
               </div>
-              <Btn onClick={() => setInvoiceData(null)} variant="ghost" style={{ fontSize: 12, padding: "4px 8px" }}>
+              <Btn onClick={() => setInvoiceData(null)} variant="ghost" style={{ fontSize: 11, padding: "4px 8px" }}>
                 닫기 / 취소
               </Btn>
             </div>
 
-            <table style={{ width: "100%", textAlign: "left", marginBottom: 16 }}>
-              <thead>
-                <tr style={{ color: "#64748b", borderBottom: "1px solid #334155", fontSize: 12 }}>
-                  <th style={{ padding: 8, width: 40, textAlign: "center" }}>
-                    <input type="checkbox" checked={isAllChecked} onChange={toggleAllCheck} />
-                  </th>
-                  <th>자재코드</th>
-                  <th>품명 / 규격</th>
-                  <th>명세서 수량</th>
-                  <th style={{ width: 110 }}>실입고 수량</th>
-                  <th>현재고 → 입고 후</th>
-                  <th>상태</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoiceData.list.map(({ code, masterItem, docQty, inputQty, checked }, idx) => {
-                  const currentStock = masterItem ? Number(masterItem.stock) || 0 : 0;
-                  const afterStock = currentStock + (checked ? inputQty : 0);
-                  return (
-                    <tr key={idx} style={{ borderBottom: "1px solid #1e293b", fontSize: 13, opacity: checked ? 1 : 0.4 }}>
-                      <td style={{ padding: 8, textAlign: "center" }}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleItemCheck(idx)} />
-                      </td>
-                      <td style={{ fontFamily: "IBM Plex Mono", color: "#38bdf8" }}>{code}</td>
-                      <td>{masterItem ? masterItem.name : <span style={{ color: "#ef4444" }}>미등록 자재</span>}</td>
-                      <td style={{ color: "#94a3b8" }}>{docQty} EA</td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          value={inputQty}
-                          disabled={!checked}
-                          onChange={(e) => handleQtyChange(idx, e.target.value)}
-                          style={{
-                            ...inputStyle,
-                            width: 80,
-                            padding: "4px 8px",
-                            fontSize: 13,
-                            borderColor: checked ? "#38bdf8" : "#334155",
-                          }}
-                        />
-                      </td>
-                      <td style={{ fontFamily: "IBM Plex Mono" }}>
-                        {masterItem ? `${currentStock} → ${afterStock}` : "-"}
-                      </td>
-                      <td>
-                        {masterItem ? (
-                          <span style={{ color: "#10b981", fontSize: 12 }}>✓ 정상</span>
-                        ) : (
-                          <span style={{ color: "#ef4444", fontSize: 12 }}>✕ 마스터 미등록</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            {/* 모바일 화면에서도 잘리지 않도록 가로 스크롤 테이블 */}
+            <div style={{ overflowX: "auto", width: "100%", marginBottom: 14 }}>
+              <table style={{ width: "100%", minWidth: 540, textAlign: "left" }}>
+                <thead>
+                  <tr style={{ color: "#64748b", borderBottom: "1px solid #334155", fontSize: 12 }}>
+                    <th style={{ padding: "8px 4px", width: 36, textAlign: "center" }}>
+                      <input type="checkbox" checked={isAllChecked} onChange={toggleAllCheck} />
+                    </th>
+                    <th style={{ padding: "8px 6px" }}>자재코드</th>
+                    <th style={{ padding: "8px 6px" }}>품명 / 규격</th>
+                    <th style={{ padding: "8px 6px", width: 80 }}>명세수량</th>
+                    <th style={{ padding: "8px 6px", width: 80 }}>실입고</th>
+                    <th style={{ padding: "8px 6px" }}>상태</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {invoiceData.list.map(({ code, masterItem, docQty, inputQty, checked }, idx) => {
+                    return (
+                      <tr key={idx} style={{ borderBottom: "1px solid #1e293b", fontSize: 12.5, opacity: checked ? 1 : 0.4 }}>
+                        <td style={{ padding: "8px 4px", textAlign: "center" }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleItemCheck(idx)} />
+                        </td>
+                        <td style={{ padding: "8px 6px", fontFamily: "IBM Plex Mono", color: "#38bdf8", fontWeight: "bold" }}>{code}</td>
+                        <td style={{ padding: "8px 6px" }}>
+                          {masterItem ? (
+                            <div>
+                              <div style={{ fontWeight: 600, color: "#E7EEF5" }}>{masterItem.name}</div>
+                              {masterItem.spec && <div style={{ fontSize: 11, color: "#7F97AC" }}>{masterItem.spec}</div>}
+                            </div>
+                          ) : (
+                            <span style={{ color: "#ef4444" }}>미등록 자재</span>
+                          )}
+                        </td>
+                        <td style={{ padding: "8px 6px", color: "#94a3b8", fontFamily: "IBM Plex Mono" }}>{docQty} EA</td>
+                        <td style={{ padding: "8px 6px" }}>
+                          <input
+                            type="number"
+                            min="0"
+                            value={inputQty}
+                            disabled={!checked}
+                            onChange={(e) => handleQtyChange(idx, e.target.value)}
+                            style={{
+                              ...inputStyle,
+                              width: 65,
+                              padding: "4px 6px",
+                              fontSize: 12.5,
+                              textAlign: "center",
+                              borderColor: checked ? "#38bdf8" : "#334155",
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: "8px 6px" }}>
+                          {masterItem ? (
+                            <span style={{ color: "#10b981", fontSize: 11.5, fontWeight: "bold" }}>✓ 정상</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenQuickReg(code)}
+                              style={{
+                                background: "#f59e0b", color: "#000", border: "none",
+                                borderRadius: 4, padding: "4px 8px", fontSize: 11, fontWeight: "bold",
+                                cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 2
+                              }}
+                            >
+                              <Plus size={12} /> 마스터 등록
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-            {/* 하단 담당자 입력 및 동작 버튼 */}
-            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+            {/* 하단 담당자 및 처리 버튼 */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
               <input
                 type="text"
                 value={invoicePerson}
                 onChange={(e) => setInvoicePerson(e.target.value)}
                 placeholder="담당자 이름 입력 *"
-                style={{ ...inputStyle, width: 180 }}
+                style={{ ...inputStyle, width: "100%", maxWidth: 180, padding: "8px 12px" }}
               />
 
-              <div style={{ display: "flex", gap: 8 }}>
-                <Btn onClick={handleSelectedInbound} style={{ backgroundColor: "#0284c7", color: "#ffffff", fontWeight: "bold" }}>
-                  <Plus size={16} /> 선택 품목 입고 확정
+              <div style={{ display: "flex", gap: 8, width: "100%", justifyContent: "flex-end" }}>
+                <Btn onClick={handleSelectedInbound} style={{ flex: 1, backgroundColor: "#0284c7", color: "#ffffff", fontWeight: "bold", padding: "10px", fontSize: 13 }}>
+                  선택 입고
                 </Btn>
-                <Btn onClick={handleBatchInbound} style={{ backgroundColor: "#f59e0b", color: "#000000", fontWeight: "bold" }}>
-                  <Plus size={16} /> 전체 품목 일괄 입고
+                <Btn onClick={handleBatchInbound} style={{ flex: 1, backgroundColor: "#f59e0b", color: "#000000", fontWeight: "bold", padding: "10px", fontSize: 13 }}>
+                  전체 일괄 입고
                 </Btn>
               </div>
             </div>
@@ -2286,10 +2277,45 @@ function InboundView({ items, saveItems, notify, supabase }) {
         )}
       </Card>
 
-      {/* --- 하단: 개별 자재 수동 입고 영역 --- */}
-      <Card style={{ maxWidth: 600, margin: "0 auto", padding: 24 }}>
-        <h3 style={{ margin: "0 0 16px 0", color: "#94a3b8", fontSize: 14 }}>개별 자재 수동 입고</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* --- 원클릭 빠른 자재등록 모달 --- */}
+      {quickRegItem && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16,
+        }}>
+          <div style={{ background: "#0F2233", border: "1px solid #38bdf8", borderRadius: 12, padding: 20, maxWidth: 360, width: "100%" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ margin: 0, fontSize: 16, color: "#38bdf8" }}>⚡ 원클릭 자재 마스터 등록</h3>
+              <X size={18} color="#7F97AC" style={{ cursor: "pointer" }} onClick={() => setQuickRegItem(null)} />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <Field label="자재코드 (자동 입력)">
+                <input style={{ ...inputStyle, opacity: 0.7 }} value={quickRegItem} readOnly />
+              </Field>
+              <Field label="품명 *">
+                <input style={inputStyle} value={quickName} onChange={(e) => setQuickName(e.target.value)} placeholder="예: 케이블 타이" autoFocus />
+              </Field>
+              <Field label="규격/사양">
+                <input style={inputStyle} value={quickSpec} onChange={(e) => setQuickSpec(e.target.value)} placeholder="예: 300mm Black" />
+              </Field>
+              <Field label="단위">
+                <Select value={quickUnit} onChange={(e) => setQuickUnit(e.target.value)} options={["EA", "m", "kg", "roll", "set"]} />
+              </Field>
+
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <Btn variant="ghost" onClick={() => setQuickRegItem(null)} style={{ flex: 1, padding: "10px" }}>취소</Btn>
+                <Btn onClick={handleSaveQuickReg} style={{ flex: 1, padding: "10px" }}>등록 완료</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- 개별 자재 수동 입고 영역 --- */}
+      <Card style={{ maxWidth: 600, margin: "0 auto", padding: 20 }}>
+        <h3 style={{ margin: "0 0 14px 0", color: "#94a3b8", fontSize: 13.5 }}>개별 자재 수동 입고</h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <Field label="자재 검색 선택">
             <select
               value={selectedCode}
@@ -2305,7 +2331,7 @@ function InboundView({ items, saveItems, notify, supabase }) {
           </Field>
 
           {selectedItem && (
-            <div style={{ fontSize: 12, color: "#64748b" }}>
+            <div style={{ fontSize: 11.5, color: "#64748b" }}>
               규격: {selectedItem.spec || "-"} | 업체: {selectedItem.manufacturer || "-"} | 위치: {selectedItem.location || "-"}
             </div>
           )}
@@ -2331,7 +2357,7 @@ function InboundView({ items, saveItems, notify, supabase }) {
           </Field>
 
           {selectedItem && (
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: "1px solid #1e293b", fontWeight: "bold" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #1e293b", fontWeight: "bold", fontSize: 13 }}>
               <span>현재고 → 입고 후</span>
               <span style={{ color: "#10b981" }}>
                 {selectedItem.stock}EA → {(Number(selectedItem.stock) || 0) + (Number(qty) || 0)}EA
@@ -2339,7 +2365,7 @@ function InboundView({ items, saveItems, notify, supabase }) {
             </div>
           )}
 
-          <Btn onClick={handleSingleInbound} style={{ height: 44, fontSize: 15 }}>
+          <Btn onClick={handleSingleInbound} style={{ height: 44, fontSize: 14 }}>
             ↓ 입고 확정
           </Btn>
         </div>
@@ -2562,6 +2588,7 @@ function OutFormSettingsView({ settings, saveCategory, notify }) {
         />
         <OptionListEditor
           title="프로젝트 목록"
+          description="출고 화면에서는 직접 입력도 가능하지만, 여기 등록해두면 검색 추천 목록으로 표시됩니다."
           category="projects"
           options={settings.projects}
           saveCategory={saveCategory}

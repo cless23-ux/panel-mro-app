@@ -175,8 +175,9 @@ function useOutFormSettings() {
 function statusOf(item) {
   const safety = Number(item.safety) || 0;
   const stock = Number(item.stock) || 0;
-  if (stock < safety) return "danger";
-  if (stock < safety * 1.2) return "warn";
+  // [수정됨] 재고가 안전재고의 20% 미만이면 '부족', 50% 미만이면 '주의'로 판정
+  if (stock < safety * 0.2) return "danger";
+  if (stock < safety * 0.5) return "warn";
   return "ok";
 }
 
@@ -1439,6 +1440,32 @@ function MasterView({ items, saveItems, notify }) {
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
   const [masterQRInput, setMasterQRInput] = useState("");
+  // [추가됨] 안전재고 인라인 수정용 상태
+  const [editingSafetyCode, setEditingSafetyCode] = useState(null);
+  const [editingSafetyValue, setEditingSafetyValue] = useState("");
+
+  const startEditSafety = (item) => {
+    setEditingSafetyCode(item.code);
+    setEditingSafetyValue(String(item.safety ?? 0));
+  };
+
+  const cancelEditSafety = () => {
+    setEditingSafetyCode(null);
+    setEditingSafetyValue("");
+  };
+
+  const commitEditSafety = async (code) => {
+    const num = Number(editingSafetyValue);
+    if (editingSafetyValue.trim() === "" || Number.isNaN(num) || num < 0) {
+      notify("안전재고는 0 이상의 숫자여야 합니다.", "err");
+      return;
+    }
+    const nextItems = items.map((i) => (i.code === code ? { ...i, safety: num } : i));
+    await saveItems(nextItems);
+    notify("안전재고가 수정되었습니다.", "ok");
+    setEditingSafetyCode(null);
+    setEditingSafetyValue("");
+  };
 
   // 🔴 🔥 [추가된 신규 자재 등록 함수]
   const addItem = async () => {
@@ -1679,7 +1706,31 @@ function MasterView({ items, saveItems, notify }) {
                   <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{i.manufacturer || "-"}</td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.unit}</td>
                   <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600, fontSize: 13.5, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#E7EEF5" }}>{i.stock}</td>
-                  <td style={{ fontFamily: "IBM Plex Mono", color: "#7F97AC", fontSize: 13 }}>{i.safety}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", color: "#7F97AC", fontSize: 13 }}>
+                    {editingSafetyCode === i.code ? (
+                      <input
+                        type="number"
+                        min="0"
+                        autoFocus
+                        value={editingSafetyValue}
+                        onChange={(e) => setEditingSafetyValue(e.target.value)}
+                        onBlur={() => commitEditSafety(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditSafety(i.code);
+                          if (e.key === "Escape") cancelEditSafety();
+                        }}
+                        style={{ ...inputStyle, width: 84, padding: "4px 8px", fontSize: 13 }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditSafety(i)}
+                        title="클릭하여 안전재고 수정"
+                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
+                      >
+                        {i.safety}
+                      </span>
+                    )}
+                  </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.location || "-"}</td>
                   <td>
                     <button

@@ -940,6 +940,18 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
     const nextTxs = txs.filter((t) => t.id !== targetTx.id);
 
     await saveItems(nextItems);
+
+    // [수정됨] saveTxs의 upsert는 Supabase 원격 DB에서 행을 실제로 지우지 않으므로
+    // 폴링/새로고침 시 삭제했던 이력이 다시 나타나는 문제가 있었습니다.
+    // 여기서 명시적으로 delete를 호출해 원격 DB에서도 해당 행을 제거합니다.
+    if (supabase) {
+      const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
+      if (error) {
+        notify("이력 원복 중 오류가 발생했습니다.", "err");
+        return;
+      }
+    }
+
     await saveTxs(nextTxs);
     notify(`출고가 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 복원되었습니다.`, "info");
   };
@@ -948,6 +960,16 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
     if (!window.confirm(`[${targetTx.itemName}] 출고 이력을 완전히 삭제하시겠습니까?`)) {
         return;
     }
+
+    // [수정됨] 위와 동일한 이유로 Supabase에서 실제로 행을 삭제합니다.
+    if (supabase) {
+      const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
+      if (error) {
+        notify("삭제 실패", "err");
+        return;
+      }
+    }
+
     const nextTxs = txs.filter((t) => t.id !== targetTx.id);
     await saveTxs(nextTxs);
     notify("출고 이력이 삭제되었습니다.", "info");

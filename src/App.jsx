@@ -108,7 +108,6 @@ function useStorage(key, initial) {
         const { data, error } = await supabase.from(tableName).select("*").eq("deleted", false);
         if (!error && data) {
           if (tableName === "transactions") {
-            // 이력 데이터는 기존 state와 Supabase 데이터를 id 기준으로 병합하여 유실 방지
             setValue(prev => {
               const map = new Map();
               [...data, ...prev].forEach(item => {
@@ -151,8 +150,6 @@ function useStorage(key, initial) {
         if (tableName === "items") {
           await supabase.from("items").upsert(next, { onConflict: "code" });
         } else if (tableName === "transactions") {
-          // 트랜잭션은 전체를 덮어쓰기보다 개별 레코드 안전 저장을 위해 최신 항목 위주로 처리
-          // 혹은 누락 방지를 위해 upsert 수행
           await supabase.from("transactions").upsert(next, { onConflict: "id" });
         }
       }
@@ -163,12 +160,6 @@ function useStorage(key, initial) {
 
   return [value, save, loaded, load];
 }
-await saveTxs(prevTxs => {
-  const exists = prevTxs.some(t => t.id === tx.id);
-  if (exists) return prevTxs;
-  const updated = [...prevTxs, tx];
-  return updated;
-});
 
 const OUT_FORM_SETTINGS_ROW_ID = 1;
 const DEFAULT_OUT_FORM_SETTINGS = {
@@ -1536,7 +1527,7 @@ async function buildQrLabelWorkbook(items) {
   return workbook;
 }
 
-/* ---------------- 자재 마스터 관리 (모바일 반응형 카드 UI 적용) ---------------- */
+/* ---------------- 자재 마스터 관리 ---------------- */
 function MasterView({ items, saveItems, notify }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", image_url: "" };
   const [form, setForm] = useState(blank);
@@ -2262,7 +2253,7 @@ function MasterView({ items, saveItems, notify }) {
   );
 }
 
-/* ---------------- 입고 등록 (수정: 입고 이력 저장 및 철회/원복 기능 추가) ---------------- */
+/* ---------------- 입고 등록 ---------------- */
 function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
   const [selectedCode, setSelectedCode] = useState(items[0]?.code || "");
   const [qty, setQty] = useState(1);
@@ -2281,7 +2272,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
 
   const selectedItem = items.find((i) => i.code === selectedCode);
 
-  // 최근 등록된 입고 목록 (상위 5개)
   const recentInTxs = useMemo(() => {
     return (txs || []).filter((t) => t.type === "in").slice(-5).reverse();
   }, [txs]);
@@ -2454,7 +2444,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
     setQuickRegItem(null);
   };
 
-  // 선택 항목 입고 처리 (트랜잭션 기록 추가)
   const handleSelectedInbound = async () => {
     if (!invoiceData) return;
     const targetList = invoiceData.list.filter((i) => i.checked);
@@ -2510,7 +2499,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
     setInvoicePerson("");
   };
 
-  // 거래명세서 일괄 입고 (트랜잭션 기록 추가)
   const handleBatchInbound = async () => {
     if (!invoiceData || !invoiceData.list || invoiceData.list.length === 0) {
       notify("입고할 명세서 항목이 없습니다.", "err");
@@ -2563,7 +2551,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
     setInvoicePerson("");
   };
 
-  // 단일 개별 입고 (트랜잭션 기록 추가)
   const handleSingleInbound = async () => {
     if (!selectedItem) {
       notify("자재를 선택하세요.", "err");
@@ -2601,7 +2588,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
     setQty(1);
   };
 
-  // 입고 철회(원복 및 차감) 함수
   const cancelInTx = async (targetTx) => {
     if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 입고 내역을 철회(재고 차감)하시겠습니까?`)) {
       return;
@@ -2884,7 +2870,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
         </div>
       </Card>
 
-      {/* 입고 화면 하단: 최근 입고 내역 및 철회 버튼 */}
       <Card style={{ padding: 16, marginTop: 20 }}>
         <SectionLabel>최근 등록된 입고 이력 (잘못 등록 시 철회)</SectionLabel>
         {recentInTxs.length === 0 ? (

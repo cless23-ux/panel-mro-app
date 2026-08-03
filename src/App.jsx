@@ -475,6 +475,10 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=${FONT_LINK}&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        /* [추가됨] Vite 기본 템플릿의 index.css/App.css에 남아있는
+           "#root { max-width: 1280px; margin: 0 auto; }" 같은 설정이 있으면
+           화면이 넓어져도 가운데만 쓰고 양옆이 비게 됩니다. 여기서 강제로 풀폭 처리합니다. */
+        html, body, #root { width: 100%; max-width: none; margin: 0; padding: 0; }
         ::selection { background: #F5A62355; }
         table { border-collapse: collapse; width: 100%; }
         th, td { text-align: left; padding: 10px 12px; font-size: 13.5px; }
@@ -1553,7 +1557,7 @@ function MasterView({ items, saveItems, notify }) {
             const spec = getCol('규격', 'spec');
             const manufacturer = getCol('생산업체', '제조사', 'manufacturer');
             const unit = getCol('단위', 'unit') || 'EA';
-            const stock = Number(getCol('현재고', '재고', 'stock')) || 0;
+            const stock = Number(getCol('현재고', '재고', '수량', '입고수량', '재고수량', 'stock', 'qty')) || 0;
             const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
             const location = getCol('위치', 'location');
 

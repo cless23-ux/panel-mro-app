@@ -400,7 +400,6 @@ function Toast({ toast }) {
 }
 
 export default function App() {
-  const supabase = useSupabase();
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
@@ -588,7 +587,7 @@ export default function App() {
         ) : (
           <>
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
-            {tab === "in" && <InboundView items={items} saveItems={saveItems} notify={notify} supabase={supabase} />}
+            {tab === "in" && <InboundView items={items} saveItems={saveItems} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} />}
             {tab === "stock" && <StockView items={items} onSelectItem={(item) => { setPresetItem(item); setTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
@@ -845,56 +844,6 @@ function Header({ title, subtitle }) {
     <div style={{ marginBottom: 20 }}>
       <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 26, fontWeight: 700, margin: 0 }}>{title}</h1>
       <div style={{ color: "#7F97AC", fontSize: 13, marginTop: 2, fontFamily: "IBM Plex Mono" }}>{subtitle}</div>
-    </div>
-  );
-}
-
-/* ---------------- 입고 등록 ---------------- */
-function InForm({ items, saveItems, txs, saveTxs, notify }) {
-  const [code, setCode] = useState(items[0]?.code || "");
-  const [qty, setQty] = useState("");
-  const [worker, setWorker] = useState("");
-
-  const item = items.find((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(code).replace(/[\r\n]+/g, "").trim());
-
-  const submit = async () => {
-    if (!item || !qty || Number(qty) <= 0) { notify("자재와 수량을 확인해주세요.", "err"); return; }
-    const nextItems = items.map((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(code).replace(/[\r\n]+/g, "").trim() ? { ...i, stock: i.stock + Number(qty) } : i);
-    const tx = { id: uid("IN"), type: "in", itemCode: code, itemName: item.name, unit: item.unit, qty: Number(qty), worker: worker || "미지정", at: nowStr() };
-    await saveItems(nextItems);
-    await saveTxs([...txs, tx]);
-    notify(`${item.name} ${qty}${item.unit} 입고 완료 · 현재고 ${item.stock + Number(qty)}${item.unit}`, "ok");
-    setQty("");
-  };
-
-  return (
-    <div>
-      <Header title="입고 등록" subtitle="자재 마스터 재고가 실시간으로 재계산됩니다" />
-      <Card style={{ padding: 24, maxWidth: 600 }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <Field label="자재 검색 선택">
-            <SearchableSelect items={items} value={code} onChange={setCode} />
-            {item && (
-              <div style={{ fontSize: 12, color: "#5E86A3", marginTop: 4, fontFamily: "IBM Plex Mono" }}>
-                규격: {item.spec} | 업체: {item.manufacturer || "미지정"} | 위치: {item.location}
-              </div>
-            )}
-          </Field>
-          <Field label="입고 수량">
-            <input style={inputStyle} type="number" min="0" value={qty} onChange={(e) => setQty(e.target.value)} placeholder={item ? `단위: ${item.unit}` : ""} />
-          </Field>
-          <Field label="담당자">
-            <input style={inputStyle} value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="이름 입력" />
-          </Field>
-          {item && (
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 14px", background: "#0B1C2C", borderRadius: 8, fontFamily: "IBM Plex Mono", fontSize: 13 }}>
-              <span style={{ color: "#7F97AC" }}>현재고 → 입고 후</span>
-              <span><b style={{ color: "#9FB4C7" }}>{item.stock}{item.unit}</b> → <b style={{ color: "#35D08C" }}>{item.stock + (Number(qty) || 0)}{item.unit}</b></span>
-            </div>
-          )}
-          <Btn onClick={submit} style={{ marginTop: 6 }}><ArrowDownToLine size={18} />입고 확정</Btn>
-        </div>
-      </Card>
     </div>
   );
 }
@@ -1939,86 +1888,129 @@ function MasterView({ items, saveItems, notify }) {
     </div>
   );
 }
-/* ---------------- 입고 등록 컴포넌트 ---------------- */
+
+/* ---------------- 입고 등록 컴포넌트 (카메라 QR 스캐너 탑재) ---------------- */
 function InboundView({ items, saveItems, notify, supabase }) {
   // 수동 단일 입고 상태
   const [selectedCode, setSelectedCode] = useState(items[0]?.code || "");
   const [qty, setQty] = useState(1);
   const [person, setPerson] = useState("");
 
-  // QR 명세서 스캔 상태
+  // QR 명세서 스캔 & 카메라 상태
+  const [useCamera, setUseCamera] = useState(false);
   const [invoiceQRInput, setInvoiceQRInput] = useState("");
-  const [invoiceData, setInvoiceData] = useState(null); // { key_code, supplier, list: [{ item, docQty, inputQty, checked }] }
+  const [invoiceData, setInvoiceData] = useState(null);
   const [invoicePerson, setInvoicePerson] = useState("");
   const [loading, setLoading] = useState(false);
 
   const selectedItem = items.find((i) => i.code === selectedCode);
 
-  // 1. 거래명세서 QR 스캔 처리
-  const handleInvoiceQRScan = async (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const rawVal = e.target.value.trim();
-      if (!rawVal) return;
+  // html5-qrcode 라이브러리를 이용한 라이브 카메라 QR 스캔 제어
+  useEffect(() => {
+    let html5QrCode = null;
+    if (useCamera) {
+      const startScanner = async () => {
+        try {
+          if (!window.Html5Qrcode) {
+            const script = document.createElement("script");
+            script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+            script.async = true;
+            document.body.appendChild(script);
+            await new Promise((resolve) => (script.onload = resolve));
+          }
 
-      // KEY_CODE 파싱 (예: {QR_TYPE:QR040,KEY_CODE:17035} -> 17035)
-      let keyCode = rawVal;
-      const match = rawVal.match(/KEY_CODE\s*:\s*([A-Za-z0-9_-]+)/i);
-      if (match && match[1]) {
-        keyCode = match[1];
+          html5QrCode = new window.Html5Qrcode("inbound-qr-reader");
+          await html5QrCode.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            (decodedText) => {
+              fetchInvoiceData(decodedText);
+              setUseCamera(false);
+            },
+            () => { /* 인식 대기 중 */ }
+          );
+        } catch (err) {
+          console.error("카메라 접근 에러:", err);
+          if (notify) notify("카메라를 켤 수 없습니다. 권한을 확인해주세요.", "err");
+          setUseCamera(false);
+        }
+      };
+      startScanner();
+    }
+
+    return () => {
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
       }
+    };
+  }, [useCamera]);
 
-      setLoading(true);
-      notify(`명세서 코드 [${keyCode}] 데이터 조회 중...`, "info");
+  // QR 스캔 텍스트에서 KEY_CODE 파싱 및 Supabase 조회
+  const fetchInvoiceData = async (rawVal) => {
+    if (!rawVal) return;
+    let keyCode = rawVal.trim();
 
-      try {
-        if (!supabase) {
-          notify("Supabase가 연동되어 있지 않습니다.", "err");
-          setLoading(false);
-          return;
-        }
+    // KEY_CODE 파싱 (예: {QR_TYPE:QR040,KEY_CODE:17035} -> 17035)
+    const match = rawVal.match(/KEY_CODE\s*:\s*([A-Za-z0-9_-]+)/i);
+    if (match && match[1]) {
+      keyCode = match[1];
+    }
 
-        const { data, error } = await supabase
-          .from("invoices")
-          .select("*")
-          .eq("key_code", keyCode)
-          .single();
+    setLoading(true);
+    notify(`명세서 코드 [${keyCode}] 데이터 조회 중...`, "info");
 
-        if (error || !data) {
-          notify(`[KEY_CODE: ${keyCode}]에 해당하는 거래명세서를 찾을 수 없습니다.`, "err");
-          setInvoiceData(null);
-        } else {
-          // 체크 여부(checked)와 실입고 수량(inputQty) 상태 초기화
-          const parsedList = (data.items || []).map((invItem) => {
-            const masterItem = items.find((i) => i.code === invItem.code);
-            const defaultQty = Number(invItem.qty) || 0;
-            return {
-              code: invItem.code,
-              masterItem: masterItem || null,
-              docQty: defaultQty,    // 명세서 상 수량
-              inputQty: defaultQty,  // 실제 입고 수량 (수정 가능)
-              checked: true,         // 기본 체크 선택
-            };
-          });
-
-          setInvoiceData({
-            key_code: data.key_code,
-            supplier: data.supplier || "미지정 거래처",
-            list: parsedList,
-          });
-          notify(`명세서 [${keyCode}] 불러오기 완료 (${parsedList.length}건)`, "ok");
-        }
-      } catch (err) {
-        console.error(err);
-        notify("거래명세서 조회 중 오류가 발생했습니다.", "err");
-      } finally {
+    try {
+      if (!supabase) {
+        notify("Supabase가 연동되어 있지 않습니다.", "err");
         setLoading(false);
-        setInvoiceQRInput("");
+        return;
       }
+
+      const { data, error } = await supabase
+        .from("invoices")
+        .select("*")
+        .eq("key_code", keyCode)
+        .single();
+
+      if (error || !data) {
+        notify(`[KEY_CODE: ${keyCode}]에 해당하는 거래명세서를 찾을 수 없습니다.`, "err");
+        setInvoiceData(null);
+      } else {
+        const parsedList = (data.items || []).map((invItem) => {
+          const masterItem = items.find((i) => i.code === invItem.code);
+          const defaultQty = Number(invItem.qty) || 0;
+          return {
+            code: invItem.code,
+            masterItem: masterItem || null,
+            docQty: defaultQty,
+            inputQty: defaultQty,
+            checked: true,
+          };
+        });
+
+        setInvoiceData({
+          key_code: data.key_code,
+          supplier: data.supplier || "미지정 거래처",
+          list: parsedList,
+        });
+        notify(`명세서 [${keyCode}] 불러오기 완료 (${parsedList.length}건)`, "ok");
+      }
+    } catch (err) {
+      console.error(err);
+      notify("거래명세서 조회 중 오류가 발생했습니다.", "err");
+    } finally {
+      setLoading(false);
+      setInvoiceQRInput("");
     }
   };
 
-  // 개별 항목 체크 토글
+  const handleInvoiceQRScan = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      fetchInvoiceData(e.target.value);
+    }
+  };
+
   const toggleItemCheck = (idx) => {
     if (!invoiceData) return;
     const nextList = [...invoiceData.list];
@@ -2026,7 +2018,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
     setInvoiceData({ ...invoiceData, list: nextList });
   };
 
-  // 전체 항목 선택 / 해제
   const toggleAllCheck = (e) => {
     if (!invoiceData) return;
     const isAll = e.target.checked;
@@ -2034,7 +2025,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
     setInvoiceData({ ...invoiceData, list: nextList });
   };
 
-  // 실입고 수량 변경 처리
   const handleQtyChange = (idx, value) => {
     if (!invoiceData) return;
     const nextList = [...invoiceData.list];
@@ -2042,7 +2032,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
     setInvoiceData({ ...invoiceData, list: nextList });
   };
 
-  // 2-A. [선택 품목만 입고 확정]
   const handleSelectedInbound = async () => {
     if (!invoiceData) return;
     const targetList = invoiceData.list.filter((i) => i.checked);
@@ -2084,7 +2073,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
     setInvoicePerson("");
   };
 
-  // 2-B. [전체 품목 일괄 입고 확정]
   const handleBatchInbound = async () => {
     if (!invoiceData || !invoiceData.list || invoiceData.list.length === 0) {
       notify("입고할 명세서 항목이 없습니다.", "err");
@@ -2123,7 +2111,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
     setInvoicePerson("");
   };
 
-  // 3. 개별 자재 수동 입고 확정
   const handleSingleInbound = async () => {
     if (!selectedItem) {
       notify("자재를 선택하세요.", "err");
@@ -2160,25 +2147,43 @@ function InboundView({ items, saveItems, notify, supabase }) {
           <QrCode size={24} />
           <span>거래명세서 QR 스캔</span>
         </div>
+
+        {/* 📹 라이브 카메라 조작 영역 */}
+        {!useCamera ? (
+          <button
+            onClick={() => setUseCamera(true)}
+            style={{
+              width: "100%", padding: "14px", background: "#0284c7", color: "#fff", border: "none",
+              borderRadius: 8, fontWeight: "bold", fontSize: 15, cursor: "pointer", display: "flex",
+              alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 12
+            }}
+          >
+            <Camera size={20} /> 📹 카메라로 QR 스캔하기
+          </button>
+        ) : (
+          <div style={{ textAlign: "center", marginBottom: 12 }}>
+            <div id="inbound-qr-reader" style={{ width: "100%", maxWidth: 360, margin: "0 auto", background: "#000", borderRadius: 8, overflow: "hidden" }} />
+            <button
+              onClick={() => setUseCamera(false)}
+              style={{ marginTop: 10, padding: "8px 16px", background: "#EF4444", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}
+            >
+              📷 카메라 끄기
+            </button>
+          </div>
+        )}
+
+        {/* 바코드 스캐너 입력 또는 KEY_CODE 수동 입력창 */}
         <input
           type="text"
           value={invoiceQRInput}
           onChange={(e) => setInvoiceQRInput(e.target.value)}
           onKeyDown={handleInvoiceQRScan}
-          placeholder="거래명세서 우측 상단의 QR코드를 스캔하세요..."
+          placeholder="스캐너 스캔 또는 QR 키코드 입력 (예: 17035)..."
           disabled={loading}
           style={{
-            width: "100%",
-            height: 48,
-            fontSize: "1.05rem",
-            fontWeight: "bold",
-            padding: "0 16px",
-            border: "1px solid #0284c7",
-            borderRadius: 8,
-            backgroundColor: "#030712",
-            color: "#ffffff",
-            outline: "none",
-            fontFamily: "'IBM Plex Mono', monospace",
+            width: "100%", height: 44, fontSize: "0.95rem", padding: "0 14px",
+            border: "1px solid #0284c7", borderRadius: 8, backgroundColor: "#030712",
+            color: "#ffffff", outline: "none", fontFamily: "'IBM Plex Mono', monospace",
           }}
           autoComplete="off"
         />
@@ -2269,12 +2274,9 @@ function InboundView({ items, saveItems, notify, supabase }) {
               />
 
               <div style={{ display: "flex", gap: 8 }}>
-                {/* 1. 선택 품목만 입고 */}
                 <Btn onClick={handleSelectedInbound} style={{ backgroundColor: "#0284c7", color: "#ffffff", fontWeight: "bold" }}>
                   <Plus size={16} /> 선택 품목 입고 확정
                 </Btn>
-
-                {/* 2. 전체 품목 일괄 입고 */}
                 <Btn onClick={handleBatchInbound} style={{ backgroundColor: "#f59e0b", color: "#000000", fontWeight: "bold" }}>
                   <Plus size={16} /> 전체 품목 일괄 입고
                 </Btn>
@@ -2345,6 +2347,7 @@ function InboundView({ items, saveItems, notify, supabase }) {
     </div>
   );
 }
+
 function TrashView({ items, saveItems, notify }) {
   const [trashItems, setTrashItems] = useState([]);
 

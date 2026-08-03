@@ -38,7 +38,6 @@ async function compressAndUploadImage(file, itemCode) {
       const img = new Image();
       img.src = event.target.result;
       img.onload = async () => {
-        // 1. 이미지 압축 처리 (최대 너비 600px 기준)
         const canvas = document.createElement("canvas");
         const MAX_WIDTH = 600;
         let scale = 1;
@@ -51,7 +50,6 @@ async function compressAndUploadImage(file, itemCode) {
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        // Canvas를 JPEG 품질 0.6(60%)으로 압축된 Blob으로 변환 (용량 최적화: ~50KB)
         canvas.toBlob(
           async (blob) => {
             if (!blob) {
@@ -60,7 +58,6 @@ async function compressAndUploadImage(file, itemCode) {
             }
 
             try {
-              // 2. Supabase Storage 업로드 ("item-images" 버킷 사용)
               const fileExt = "jpg";
               const fileName = `${itemCode}_${Date.now()}.${fileExt}`;
               const filePath = `items/${fileName}`;
@@ -78,7 +75,6 @@ async function compressAndUploadImage(file, itemCode) {
                 return;
               }
 
-              // 3. 업로드된 파일의 Public URL 가져오기
               const { data: publicUrlData } = supabase.storage
                 .from("item-images")
                 .getPublicUrl(filePath);
@@ -586,13 +582,30 @@ export default function App() {
 
       {/* 모바일 헤더 */}
       <header className="mobile-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <img src="/Luxco.png" alt="Luxco" style={{ height: 34, width: "auto", objectFit: "contain", display: "block" }} />
-            <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
-              선박 생산부
-            </span>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <img src="/Luxco.png" alt="Luxco" style={{ height: 34, width: "auto", objectFit: "contain", display: "block" }} />
+          <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
+            선박 생산부
+          </span>
+          {/* 상부 로고 옆 자재마스터 아이콘 버튼 */}
+          <button
+            onClick={() => setTab("master")}
+            title="자재마스터 이동"
+            style={{
+              background: tab === "master" ? "#F5A62322" : "transparent",
+              border: `1px solid ${tab === "master" ? "#F5A623" : "#274460"}`,
+              borderRadius: 6,
+              padding: "4px 6px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: tab === "master" ? "#F5A623" : "#F5A623",
+              marginLeft: 4
+            }}
+          >
+            <Package size={17} color="#F5A623" />
+          </button>
         </div>
         <button
           onClick={refreshAll}
@@ -1511,12 +1524,10 @@ function MasterView({ items, saveItems, notify }) {
   const [qrModalItem, setQrModalItem] = useState(null);
   const [masterQRInput, setMasterQRInput] = useState("");
   
-  // 사진 첨부 관련 상태값
   const [uploadingImage, setUploadingImage] = useState(false);
   const liveCameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
-  // 개별 자재 사진 수정용 Ref & State
   const [targetItemForPhoto, setTargetItemForPhoto] = useState(null);
   const editCameraInputRef = useRef(null);
   const editGalleryInputRef = useRef(null);
@@ -1538,12 +1549,10 @@ function MasterView({ items, saveItems, notify }) {
       const imageUrl = await compressAndUploadImage(file, codeToUse);
 
       if (targetCode) {
-        // 기존 등록 자재의 사진 개별 업데이트
         const nextItems = items.map((i) => (i.code === targetCode ? { ...i, image_url: imageUrl } : i));
         await saveItems(nextItems);
         notify("자재 사진이 성공적으로 업데이트되었습니다.", "ok");
       } else {
-        // 신규 등록 폼의 사진 등록
         setForm((prev) => ({ ...prev, image_url: imageUrl }));
         notify("사진 등록이 완료되었습니다.", "ok");
       }
@@ -1796,7 +1805,6 @@ function MasterView({ items, saveItems, notify }) {
     <div>
       <Header title="자재 마스터" subtitle="신규 자재 등록 · QR 생성 · 사진 관리 및 백업" />
 
-      {/* 숨겨진 File Input (목록에서 개별 사진 업데이트용) */}
       <input
         type="file"
         accept="image/*"
@@ -1879,13 +1887,11 @@ function MasterView({ items, saveItems, notify }) {
             <Field label="안전재고 기준"><input style={inputStyle} type="number" value={form.safety} onChange={(e) => setForm({ ...form, safety: e.target.value })} /></Field>
             <Field label="저장 위치"><input style={inputStyle} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="예: A-03" /></Field>
             
-            {/* 자재 사진 등록 폼 영역 */}
             <div style={{ gridColumn: "1 / -1", background: "#0B1C2C", padding: 14, borderRadius: 8, border: "1px dashed #274460" }}>
               <span style={{ fontSize: 13, color: "#9FB4C7", fontWeight: 600, display: "block", marginBottom: 8 }}>
                 자재 사진 첨부 (자동 초용량 압축)
               </span>
 
-              {/* 숨겨진 File Input */}
               <input
                 type="file"
                 accept="image/*"

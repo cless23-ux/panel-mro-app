@@ -333,6 +333,45 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // 뒤로가기 2번 눌러 종료 감지용 Ref & State
+  const backPressedRef = useRef(false);
+  const backTimerRef = useRef(null);
+
+  const notify = useCallback((msg, type = "ok") => {
+    setToast({ text: msg, type });
+    setTimeout(() => { setToast(null); }, 2500);
+  }, []);
+
+  /* --- 모바일 뒤로가기 2회 종료 제어 로직 --- */
+  useEffect(() => {
+    // 히스토리에 더미 상태 추가
+    window.history.pushState({ page: "app" }, "", window.location.href);
+
+    const handlePopState = (e) => {
+      if (backPressedRef.current) {
+        // 2초 내에 두 번째 눌렀을 때: 실제 앱 종료/뒤로가기 진행
+        clearTimeout(backTimerRef.current);
+        window.history.back();
+      } else {
+        // 첫 번째 눌렀을 때: 종료 방지 및 안내 토스트
+        backPressedRef.current = true;
+        window.history.pushState({ page: "app" }, "", window.location.href);
+        notify("뒤로가기를 한 번 더 누르면 종료됩니다.", "info");
+
+        // 2초 후 초기화
+        backTimerRef.current = setTimeout(() => {
+          backPressedRef.current = false;
+        }, 2000);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      if (backTimerRef.current) clearTimeout(backTimerRef.current);
+    };
+  }, [notify]);
+
   useEffect(() => {
     if (!window.XLSX) {
       const script = document.createElement("script");
@@ -346,11 +385,6 @@ export default function App() {
     setRefreshing(true);
     await Promise.all([reloadItems(), reloadTxs()]);
     setRefreshing(false);
-  };
-
-  const notify = (msg, type = "ok") => {
-    setToast({ text: msg, type });
-    setTimeout(() => { setToast(null); }, 2500);
   };
 
   const alerts = useMemo(() => items.filter((i) => statusOf(i) === "danger"), [items]);
@@ -1814,21 +1848,18 @@ function MasterView({ items, saveItems, notify }) {
   );
 }
 
-/* ---------------- 입고 등록 컴포넌트 (원클릭 마스터 등록 및 모바일 스케일 최적화) ---------------- */
+/* ---------------- 입고 등록 컴포넌트 ---------------- */
 function InboundView({ items, saveItems, notify, supabase }) {
-  // 수동 단일 입고 상태
   const [selectedCode, setSelectedCode] = useState(items[0]?.code || "");
   const [qty, setQty] = useState(1);
   const [person, setPerson] = useState("");
 
-  // QR 명세서 스캔 & 카메라 상태
   const [useCamera, setUseCamera] = useState(false);
   const [invoiceQRInput, setInvoiceQRInput] = useState("");
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoicePerson, setInvoicePerson] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 원클릭 빠른 자재등록 모달 상태
   const [quickRegItem, setQuickRegItem] = useState(null);
   const [quickName, setQuickName] = useState("");
   const [quickSpec, setQuickSpec] = useState("");
@@ -1836,7 +1867,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
 
   const selectedItem = items.find((i) => i.code === selectedCode);
 
-  // html5-qrcode 카메라 QR 스캐너
   useEffect(() => {
     let html5QrCode = null;
     if (useCamera) {
@@ -1876,7 +1906,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
     };
   }, [useCamera]);
 
-  // QR 스캔 텍스트에서 KEY_CODE 파싱 및 DB 조회
   const fetchInvoiceData = async (rawVal) => {
     if (!rawVal) return;
     let keyCode = rawVal.trim();
@@ -1962,7 +1991,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
     setInvoiceData({ ...invoiceData, list: nextList });
   };
 
-  // 미등록 자재 빠른 마스터 등록
   const handleOpenQuickReg = (code) => {
     setQuickRegItem(code);
     setQuickName("");
@@ -1992,7 +2020,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
     const nextItems = [newItem, ...items];
     await saveItems(nextItems);
 
-    // 입고 명세서 데이터의 자재 매칭 업데이트
     if (invoiceData) {
       const updatedList = invoiceData.list.map((inv) => {
         if (inv.code === quickRegItem) {
@@ -2116,14 +2143,12 @@ function InboundView({ items, saveItems, notify, supabase }) {
     <div>
       <Header title="입고 등록" subtitle="거래명세서 QR 스캔 (선택/일괄 입고) 및 개별 자재 입고 처리" />
 
-      {/* --- 거래명세서 QR 스캔 영역 --- */}
       <Card style={{ padding: 16, marginBottom: 20, border: "2px solid #38bdf8", background: "#0b172a" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "1.05rem", fontWeight: 600, color: "#38bdf8", marginBottom: 12 }}>
           <QrCode size={22} />
           <span>거래명세서 QR 스캔</span>
         </div>
 
-        {/* 카메라 조작 */}
         {!useCamera ? (
           <button
             onClick={() => setUseCamera(true)}
@@ -2162,7 +2187,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
           autoComplete="off"
         />
 
-        {/* QR 스캔 결과 거래명세서 - 모바일 스케일 최적화 */}
         {invoiceData && (
           <div style={{ marginTop: 16, background: "#0f172a", padding: 12, borderRadius: 8, border: "1px solid #1e293b" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
@@ -2179,7 +2203,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
               </Btn>
             </div>
 
-            {/* 모바일 화면에서도 잘리지 않도록 가로 스크롤 테이블 */}
             <div style={{ overflowX: "auto", width: "100%", marginBottom: 14 }}>
               <table style={{ width: "100%", minWidth: 540, textAlign: "left" }}>
                 <thead>
@@ -2254,7 +2277,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
               </table>
             </div>
 
-            {/* 하단 담당자 및 처리 버튼 */}
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
               <input
                 type="text"
@@ -2277,7 +2299,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
         )}
       </Card>
 
-      {/* --- 원클릭 빠른 자재등록 모달 --- */}
       {quickRegItem && (
         <div style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)",
@@ -2312,7 +2333,6 @@ function InboundView({ items, saveItems, notify, supabase }) {
         </div>
       )}
 
-      {/* --- 개별 자재 수동 입고 영역 --- */}
       <Card style={{ maxWidth: 600, margin: "0 auto", padding: 20 }}>
         <h3 style={{ margin: "0 0 14px 0", color: "#94a3b8", fontSize: 13.5 }}>개별 자재 수동 입고</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -2588,7 +2608,6 @@ function OutFormSettingsView({ settings, saveCategory, notify }) {
         />
         <OptionListEditor
           title="프로젝트 목록"
-          description="출고 화면에서는 직접 입력도 가능하지만, 여기 등록해두면 검색 추천 목록으로 표시됩니다."
           category="projects"
           options={settings.projects}
           saveCategory={saveCategory}

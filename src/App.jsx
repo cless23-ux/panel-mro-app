@@ -30,19 +30,6 @@ function nowStr() {
 const POLL_MS = 8000;
 
 /* ---------------- Supabase 연동 useStorage Hook ---------------- */
-/*
-  [수정됨] 기존 코드는 `data && data.length > 0` 조건 때문에
-  Supabase가 정상 응답을 했지만 실제로 행이 0개(빈 배열)인 경우에도
-  "실패"로 간주하고 localStorage에 남아있던 예전 캐시 데이터로 폴백했습니다.
-
-  이 때문에 PC(캐시 없음)에서는 실제 빈 상태가 그대로 보이지만,
-  모바일(예전 캐시가 남아있는 브라우저/기기)에서는 이미 삭제된
-  옛날 자재 데이터가 계속 표시되는 문제가 발생했습니다.
-
-  수정: Supabase 요청 자체가 에러 없이 성공했다면(행이 0개여도)
-  그 결과를 신뢰하고 localStorage도 최신 상태로 덮어씁니다.
-  localStorage 폴백은 Supabase 요청 자체가 실패했을 때만 사용합니다.
-*/
 function useStorage(key, initial) {
   const [value, setValue] = useState(initial);
   const [loaded, setLoaded] = useState(false);
@@ -53,14 +40,12 @@ function useStorage(key, initial) {
       if (supabase) {
         const { data, error } = await supabase.from(tableName).select("*").eq("deleted", false);
         if (!error && data) {
-          // data.length > 0 조건 제거: 빈 배열(0건)도 유효한 최신 상태로 인정
           setValue(data);
           localStorage.setItem(key, JSON.stringify(data));
           if (!silent) setLoaded(true);
           return;
         }
       }
-      // Supabase 요청 자체가 실패(에러)했거나 supabase 객체가 없을 때만 캐시 사용
       const res = localStorage.getItem(key);
       if (res !== null) {
         setValue(JSON.parse(res));
@@ -97,11 +82,6 @@ function useStorage(key, initial) {
   return [value, save, loaded, load];
 }
 
-/* ---------------- 불출 정보 옵션(호선/프로젝트/공정구분/불출자) 설정 훅 ----------------
-   기존 items/transactions용 useStorage와는 완전히 별개의 독립 훅입니다.
-   Supabase의 "out_form_settings" 테이블(단일 행, id=1)에 각 목록을 jsonb로 저장합니다.
-   테이블이 아직 없거나 조회에 실패해도 기본값(기존에 코드에 하드코딩되어 있던 목록)으로
-   안전하게 동작하며, 앱이 깨지지 않습니다. */
 const OUT_FORM_SETTINGS_ROW_ID = 1;
 const DEFAULT_OUT_FORM_SETTINGS = {
   ships: [],
@@ -151,7 +131,6 @@ function useOutFormSettings() {
     return () => clearInterval(t);
   }, [load]);
 
-  // 특정 카테고리(ships/projects/processes/workers) 목록만 갱신해서 저장
   const saveCategory = useCallback(async (category, nextList) => {
     setSettings((prev) => {
       const next = { ...prev, [category]: nextList };
@@ -175,7 +154,6 @@ function useOutFormSettings() {
 function statusOf(item) {
   const safety = Number(item.safety) || 0;
   const stock = Number(item.stock) || 0;
-  // [수정됨] 재고가 안전재고의 20% 미만이면 '부족', 50% 미만이면 '주의'로 판정
   if (stock < safety * 0.2) return "danger";
   if (stock < safety * 0.5) return "warn";
   return "ok";
@@ -352,9 +330,6 @@ function SearchableSelect({ items, value, onChange }) {
   );
 }
 
-/* 직접 입력도 가능하면서, 설정에 등록된 목록에서 검색/선택도 가능한 자동완성 입력창.
-   예: 사용자가 "3527"을 입력하면 등록된 목록 중 "H-3527" 등이 검색되어 클릭으로 선택 가능.
-   목록에 없는 값이어도 그대로 자유롭게 입력해서 쓸 수 있음(호선 필드용). */
 function AutocompleteInput({ value, onChange, options, placeholder }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -475,9 +450,6 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=${FONT_LINK}&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        /* [추가됨] Vite 기본 템플릿의 index.css/App.css에 남아있는
-           "#root { max-width: 1280px; margin: 0 auto; }" 같은 설정이 있으면
-           화면이 넓어져도 가운데만 쓰고 양옆이 비게 됩니다. 여기서 강제로 풀폭 처리합니다. */
         html, body, #root { width: 100%; max-width: none; margin: 0; padding: 0; }
         ::selection { background: #F5A62355; }
         table { border-collapse: collapse; width: 100%; }
@@ -938,41 +910,36 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
 
-  // [복구됨] 재고조회 화면에서 자재를 클릭해 넘어온 경우, 해당 자재를 자동으로 선택합니다.
   useEffect(() => {
     if (presetItem) {
       setFound(presetItem);
       notify(`자재 선택됨: ${presetItem.name}`, "ok");
       if (onConsumePreset) onConsumePreset();
     }
-  }, [presetItem]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [presetItem]);
 
-  // [수정됨] 프로젝트/공정구분/불출자 옵션은 더 이상 하드코딩이 아니라
-  // '불출설정' 화면(PC 전용)에서 관리하는 값을 사용합니다. Supabase에 저장되므로
-  // 어느 기기에서 접속하든 동일한 목록이 보입니다.
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
   const processOptions = outFormSettings?.processes || [];
   const workerOptions = outFormSettings?.workers || [];
 
-  // 설정 목록이 바뀌어서 현재 선택값이 더 이상 목록에 없으면 첫 번째 값으로 보정
   useEffect(() => {
     if (projectOptions.length > 0 && !projectOptions.includes(project)) {
       setProject(projectOptions[0]);
     }
-  }, [projectOptions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectOptions]);
 
   useEffect(() => {
     if (processOptions.length > 0 && !processOptions.includes(process)) {
       setProcess(processOptions[0]);
     }
-  }, [processOptions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [processOptions]);
 
   useEffect(() => {
     if (workerOptions.length > 0 && !workerOptions.includes(worker)) {
       setWorker(workerOptions[0]);
     }
-  }, [workerOptions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workerOptions]);
 
   const recentOutTxs = useMemo(() => {
     return txs.filter((t) => t.type === "out").slice(-5).reverse();
@@ -1114,9 +1081,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
     await saveItems(nextItems);
 
-    // [수정됨] saveTxs의 upsert는 Supabase 원격 DB에서 행을 실제로 지우지 않으므로
-    // 폴링/새로고침 시 삭제했던 이력이 다시 나타나는 문제가 있었습니다.
-    // 여기서 명시적으로 delete를 호출해 원격 DB에서도 해당 행을 제거합니다.
     if (supabase) {
       const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
       if (error) {
@@ -1134,7 +1098,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         return;
     }
 
-    // [수정됨] 위와 동일한 이유로 Supabase에서 실제로 행을 삭제합니다.
     if (supabase) {
       const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
       if (error) {
@@ -1437,10 +1400,7 @@ function StockView({ items, onSelectItem }) {
   );
 }
 
-/* ---------------- QR 라벨 엑셀 내보내기 ----------------
-   기존 "엑셀 백업 다운로드"(CSV)와는 별개 기능입니다. CSV는 이미지를 담을 수 없어서,
-   이미지 삽입이 가능한 ExcelJS 라이브러리를 CDN에서 동적으로 불러와 사용합니다.
-   (이미 있는 XLSX 로딩 방식과 동일한 패턴 - <script> 태그 동적 삽입) */
+/* ---------------- QR 라벨 엑셀 내보내기 ---------------- */
 function loadExcelJS() {
   return new Promise((resolve, reject) => {
     if (window.ExcelJS) { resolve(window.ExcelJS); return; }
@@ -1506,7 +1466,7 @@ async function buildQrLabelWorkbook(items) {
       console.error("QR 이미지 생성 실패:", item.code, e);
     }
 
-    row = endRow + 2; // 항목 사이 빈 줄 한 칸
+    row = endRow + 2;
   }
 
   return workbook;
@@ -1519,7 +1479,7 @@ function MasterView({ items, saveItems, notify }) {
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
   const [masterQRInput, setMasterQRInput] = useState("");
-  // [추가됨] 안전재고 인라인 수정용 상태
+  
   const [editingSafetyCode, setEditingSafetyCode] = useState(null);
   const [editingSafetyValue, setEditingSafetyValue] = useState("");
 
@@ -1546,7 +1506,6 @@ function MasterView({ items, saveItems, notify }) {
     setEditingSafetyValue("");
   };
 
-  // [추가됨] 위치 인라인 수정용 상태
   const [editingLocationCode, setEditingLocationCode] = useState(null);
   const [editingLocationValue, setEditingLocationValue] = useState("");
 
@@ -1568,7 +1527,28 @@ function MasterView({ items, saveItems, notify }) {
     setEditingLocationValue("");
   };
 
-  // 🔴 🔥 [추가된 신규 자재 등록 함수]
+  // [추가됨] 생산업체 > 거래처 인라인 수정용 상태 및 핸들러
+  const [editingManufacturerCode, setEditingManufacturerCode] = useState(null);
+  const [editingManufacturerValue, setEditingManufacturerValue] = useState("");
+
+  const startEditManufacturer = (item) => {
+    setEditingManufacturerCode(item.code);
+    setEditingManufacturerValue(item.manufacturer || "");
+  };
+
+  const cancelEditManufacturer = () => {
+    setEditingManufacturerCode(null);
+    setEditingManufacturerValue("");
+  };
+
+  const commitEditManufacturer = async (code) => {
+    const nextItems = items.map((i) => (i.code === code ? { ...i, manufacturer: editingManufacturerValue.trim() } : i));
+    await saveItems(nextItems);
+    notify("생산업체(거래처)가 수정되었습니다.", "ok");
+    setEditingManufacturerCode(null);
+    setEditingManufacturerValue("");
+  };
+
   const addItem = async () => {
     if (!form.code.trim() || !form.name.trim()) {
       notify("자재코드와 품명은 필수 입력 항목입니다.", "err");
@@ -1626,12 +1606,11 @@ function MasterView({ items, saveItems, notify }) {
     notify("자재 데이터가 엑셀(CSV)로 다운로드 되었습니다.", "ok");
   };
 
-  // [추가됨] QR 이미지가 셀에 삽입된 엑셀(라벨용) 다운로드
   const [qrExporting, setQrExporting] = useState(false);
   const exportQRLabelsExcel = async () => {
     if (items.length === 0) { notify("등록된 자재가 없습니다.", "err"); return; }
     setQrExporting(true);
-    notify("QR 라벨 엑셀을 생성 중입니다. 자재가 많으면 시간이 걸릴 수 있어요...", "info");
+    notify("QR 라벨 엑셀을 생성 중입니다...", "info");
     try {
       const workbook = await buildQrLabelWorkbook(items);
       const buffer = await workbook.xlsx.writeBuffer();
@@ -1675,7 +1654,7 @@ function MasterView({ items, saveItems, notify }) {
             const code = getCol('코드', 'code', '자재코드');
             const fullName = getCol('품명 / 규격', '품명/규격', '품명', 'name');
             const spec = getCol('규격', 'spec');
-            const manufacturer = getCol('생산업체', '제조사', 'manufacturer');
+            const manufacturer = getCol('생산업체 > 거래처', '생산업체', '거래처', '제조사', 'manufacturer');
             const unit = getCol('단위', 'unit') || 'EA';
             const stock = Number(getCol('현재고', '재고', '수량', '입고수량', '재고수량', 'stock', 'qty')) || 0;
             const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
@@ -1797,7 +1776,7 @@ function MasterView({ items, saveItems, notify }) {
             <Field label="자재코드 *"><input style={inputStyle} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="예: CG-M32-BR" /></Field>
             <Field label="품명 *"><input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="예: 케이블 글랜드" /></Field>
             <Field label="규격"><input style={inputStyle} value={form.spec} onChange={(e) => setForm({ ...form, spec: e.target.value })} placeholder="예: Brass Gland M32" /></Field>
-            <Field label="생산업체 (제조사)"><input style={inputStyle} value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="예: 동아베스텍" /></Field>
+            <Field label="생산업체 > 거래처"><input style={inputStyle} value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="예: 동아베스텍" /></Field>
             <Field label="카테고리"><input style={inputStyle} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="예: 글랜드" /></Field>
             <Field label="단위">
               <Select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} options={["EA", "m", "kg", "roll", "set"]} />
@@ -1817,7 +1796,7 @@ function MasterView({ items, saveItems, notify }) {
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>코드</th><th>품명 / 규격</th><th>생산업체</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                <th>코드</th><th>품명 / 규격</th><th>생산업체 &gt; 거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -1830,7 +1809,30 @@ function MasterView({ items, saveItems, notify }) {
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{i.name}</div>
                     {i.spec && <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>}
                   </td>
-                  <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{i.manufacturer || "-"}</td>
+                  <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>
+                    {editingManufacturerCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingManufacturerValue}
+                        onChange={(e) => setEditingManufacturerValue(e.target.value)}
+                        onBlur={() => commitEditManufacturer(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditManufacturer(i.code);
+                          if (e.key === "Escape") cancelEditManufacturer();
+                        }}
+                        style={{ ...inputStyle, width: 110, padding: "4px 8px", fontSize: 13 }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditManufacturer(i)}
+                        title="클릭하여 생산업체(거래처) 수정"
+                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
+                      >
+                        {i.manufacturer || "-"}
+                      </span>
+                    )}
+                  </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.unit}</td>
                   <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600, fontSize: 13.5, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#E7EEF5" }}>{i.stock}</td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#7F97AC", fontSize: 13 }}>
@@ -2039,17 +2041,10 @@ function TrashView({ items, saveItems, notify }) {
   );
 }
 
-/* ---------------- 불출 설정 관리 (PC 전용) ----------------
-   호선/프로젝트/공정구분/불출자 목록을 추가·삭제할 수 있는 화면입니다.
-   여기서 바꾼 내용은 Supabase "out_form_settings" 테이블에 저장되어,
-   폴링(8초) 또는 새로고침 시 다른 모든 기기(모바일 포함)의 출고 화면에도
-   그대로 반영됩니다. 불출수량은 값이 매번 달라 목록 관리 대상이 아니므로
-   여기에 포함하지 않았습니다. */
 function OptionListEditor({ title, description, category, options, saveCategory, notify, placeholder }) {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // 여러 값을 한 번에 추가하는 공통 로직 (줄바꿈/쉼표/탭으로 구분된 텍스트를 모두 분리)
   const addMultiple = async (rawText) => {
     const parts = rawText
       .split(/[\n\r,\t]+/)
@@ -2057,7 +2052,6 @@ function OptionListEditor({ title, description, category, options, saveCategory,
       .filter(Boolean);
     if (parts.length === 0) return;
 
-    // 붙여넣은 값 안의 중복 제거 + 이미 등록된 값 제외
     const uniqueParts = Array.from(new Set(parts));
     const newOnes = uniqueParts.filter((p) => !options.includes(p));
     const skipped = uniqueParts.length - newOnes.length;
@@ -2081,14 +2075,12 @@ function OptionListEditor({ title, description, category, options, saveCategory,
 
   const addOption = () => addMultiple(draft);
 
-  // [추가됨] 목록을 통째로 복사해서 붙여넣으면(줄바꿈/쉼표 구분) 한 번에 전부 추가
   const handlePaste = (e) => {
     const text = e.clipboardData.getData("text");
     if (/[\n\r,\t]/.test(text)) {
       e.preventDefault();
       addMultiple(text);
     }
-    // 줄바꿈/쉼표가 없는 단순 한 줄 붙여넣기는 기본 동작(입력창에 그대로 입력)을 그대로 둠
   };
 
   const removeOption = async (val) => {

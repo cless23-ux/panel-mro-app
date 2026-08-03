@@ -59,7 +59,8 @@ async function compressAndUploadImage(file, itemCode) {
 
             try {
               const fileExt = "jpg";
-              const fileName = `${itemCode}_${Date.now()}.${fileExt}`;
+              const safeCode = String(itemCode || "item").replace(/[^a-zA-Z0-9_-]/g, "_");
+              const fileName = `${safeCode}_${Date.now()}.${fileExt}`;
               const filePath = `items/${fileName}`;
 
               const { data, error } = await supabase.storage
@@ -1358,6 +1359,15 @@ function StockView({ items, onSelectItem }) {
     });
   }, [items, search, statusFilter]);
 
+  const handleCardClick = (item) => {
+    if (window.innerWidth <= 768) {
+      return;
+    }
+    if (onSelectItem) {
+      onSelectItem(item);
+    }
+  };
+
   return (
     <div>
       <Header title="재고 현황 조회" subtitle="전체 자재 실시간 재고 및 안전재고 파악" />
@@ -1413,7 +1423,7 @@ function StockView({ items, onSelectItem }) {
               <Card
                 key={item.code}
                 style={{ padding: 14, cursor: onSelectItem ? "pointer" : "default" }}
-                onClick={() => onSelectItem && onSelectItem(item)}
+                onClick={() => handleCardClick(item)}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                   {item.image_url ? (
@@ -1789,7 +1799,9 @@ function MasterView({ items, saveItems, notify }) {
 
       if (matched) {
         notify(`[QR 스캔 성공] ${matched.name} (${matched.code})`, "ok");
-        setQrModalItem(matched);
+        if (window.innerWidth > 768) {
+          setQrModalItem(matched);
+        }
       } else {
         notify(`[미등록 자재] "${cleanQuery}" 코드를 찾을 수 없습니다.`, "err");
       }
@@ -2129,7 +2141,11 @@ function MasterView({ items, saveItems, notify }) {
 
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                     <button
-                      onClick={() => setQrModalItem(i)}
+                      onClick={() => {
+                        if (window.innerWidth > 768) {
+                          setQrModalItem(i);
+                        }
+                      }}
                       style={{ background: "#16324A", border: "1px solid #274460", color: "#F5A623", padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
                     >
                       <QrCode size={14} />
@@ -2226,7 +2242,7 @@ function MasterView({ items, saveItems, notify }) {
         )}
       </div>
 
-      {qrModalItem && (
+      {qrModalItem && window.innerWidth > 768 && (
         <div style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.75)",
           display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20,
@@ -2253,7 +2269,7 @@ function MasterView({ items, saveItems, notify }) {
   );
 }
 
-/* ---------------- 입고 등록 (모바일 화면 최적화 적용) ---------------- */
+/* ---------------- 입고 등록 ---------------- */
 function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
   const [selectedCode, setSelectedCode] = useState("");
   const [qty, setQty] = useState(1);
@@ -2270,7 +2286,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
   const [quickSpec, setQuickSpec] = useState("");
   const [quickUnit, setQuickUnit] = useState("EA");
 
-  // 모바일 사용성을 위한 자재 검색어 자동완성/텍스트 선택 상태
   const [itemSearchText, setItemSearchText] = useState("");
   const [itemDropdownOpen, setItemDropdownOpen] = useState(false);
   const itemInputWrapRef = useRef(null);
@@ -2854,14 +2869,11 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
         </div>
       )}
 
-      {/* 개별 자재 수동 입고 영역 (모바일 화면 최적화: 드롭다운 및 텍스트 직접 입력/자동완성 지원) */}
       <Card style={{ maxWidth: 760, margin: "0 auto", padding: 22 }}>
         <h3 style={{ margin: "0 0 16px 0", color: "#94a3b8", fontSize: 14 }}>개별 자재 수동 입고</h3>
         
         <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 20, alignItems: "start" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            
-            {/* 자재 선택창 드롭다운 및 텍스트 작성 가능하도록 변경된 입력부 */}
             <Field label="자재 검색 및 선택">
               <div ref={itemInputWrapRef} style={{ position: "relative" }}>
                 <input
@@ -2947,7 +2959,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
             </div>
           </div>
 
-          {/* 자재 선택 시 우측에 띄워지는 등록된 사진 영역 (컴팩트하게 정돈) */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10, padding: 16, height: "100%", minHeight: 240 }}>
             <span style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 10, fontFamily: "IBM Plex Mono", fontWeight: "bold" }}>자재 사진</span>
             {selectedItem && selectedItem.image_url ? (

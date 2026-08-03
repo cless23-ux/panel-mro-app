@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -13,9 +13,9 @@ const FONT_LINK =
 "Rajdhani:wght@500;600;700|Oswald:wght@500;600;700|IBM+Plex+Mono:wght@400;500;600|Inter:wght@400;500;600;700";
 
 const seedItems = [
-  { code: "BB-C1100-T3", name: "부스바 (동바)", spec: "C1100 T3 x 20mm", unit: "m", stock: 62, safety: 50, location: "A-01", manufacturer: "대한전선", category: "부스바" },
-  { code: "RT-2.5SQ", name: "압착단자", spec: "Ring Terminal 2.5 sq", unit: "EA", stock: 840, safety: 1000, location: "B-04", manufacturer: "KEC", category: "압착단자" },
-  { code: "CG-M20-BR", name: "케이블 글랜드", spec: "Brass Gland M20", unit: "EA", stock: 260, safety: 200, location: "B-07", manufacturer: "동아베스텍", category: "케이블 글랜드" },
+  { code: "BB-C1100-T3", name: "부스바 (동바)", spec: "C1100 T3 x 20mm", unit: "m", stock: 62, safety: 50, location: "A-01", manufacturer: "대한전선", category: "부스바", image_url: "" },
+  { code: "RT-2.5SQ", name: "압착단자", spec: "Ring Terminal 2.5 sq", unit: "EA", stock: 840, safety: 1000, location: "B-04", manufacturer: "KEC", category: "압착단자", image_url: "" },
+  { code: "CG-M20-BR", name: "케이블 글랜드", spec: "Brass Gland M20", unit: "EA", stock: 260, safety: 200, location: "B-07", manufacturer: "동아베스텍", category: "케이블 글랜드", image_url: "" },
 ];
 
 function uid(p = "T") {
@@ -25,6 +25,77 @@ function nowStr() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/* ---------------- 이미지 압축 및 Supabase 업로드 유틸 ---------------- */
+async function compressAndUploadImage(file, itemCode) {
+  if (!supabase) throw new Error("Supabase 클라이언트가 설정되지 않았습니다.");
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = async () => {
+        // 1. 이미지 압축 처리 (최대 너비 600px 기준)
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 600;
+        let scale = 1;
+        if (img.width > MAX_WIDTH) {
+          scale = MAX_WIDTH / img.width;
+        }
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        // Canvas를 JPEG 품질 0.6(60%)으로 압축된 Blob으로 변환 (용량 최적화: ~50KB)
+        canvas.toBlob(
+          async (blob) => {
+            if (!blob) {
+              reject(new Error("이미지 압축 실패"));
+              return;
+            }
+
+            try {
+              // 2. Supabase Storage 업로드 ("item-images" 버킷 사용)
+              const fileExt = "jpg";
+              const fileName = `${itemCode}_${Date.now()}.${fileExt}`;
+              const filePath = `items/${fileName}`;
+
+              const { data, error } = await supabase.storage
+                .from("item-images")
+                .upload(filePath, blob, {
+                  contentType: "image/jpeg",
+                  upsert: true,
+                });
+
+              if (error) {
+                console.error("Storage upload error:", error);
+                reject(error);
+                return;
+              }
+
+              // 3. 업로드된 파일의 Public URL 가져오기
+              const { data: publicUrlData } = supabase.storage
+                .from("item-images")
+                .getPublicUrl(filePath);
+
+              resolve(publicUrlData.publicUrl);
+            } catch (err) {
+              reject(err);
+            }
+          },
+          "image/jpeg",
+          0.6
+        );
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
+  });
 }
 
 const POLL_MS = 8000;
@@ -333,7 +404,6 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // 뒤로가기 2번 눌러 종료 감지용 Ref & State
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
 
@@ -342,23 +412,18 @@ export default function App() {
     setTimeout(() => { setToast(null); }, 2500);
   }, []);
 
-  /* --- 모바일 뒤로가기 2회 종료 제어 로직 --- */
   useEffect(() => {
-    // 히스토리에 더미 상태 추가
     window.history.pushState({ page: "app" }, "", window.location.href);
 
     const handlePopState = (e) => {
       if (backPressedRef.current) {
-        // 2초 내에 두 번째 눌렀을 때: 실제 앱 종료/뒤로가기 진행
         clearTimeout(backTimerRef.current);
         window.history.back();
       } else {
-        // 첫 번째 눌렀을 때: 종료 방지 및 안내 토스트
         backPressedRef.current = true;
         window.history.pushState({ page: "app" }, "", window.location.href);
         notify("뒤로가기를 한 번 더 누르면 종료됩니다.", "info");
 
-        // 2초 후 초기화
         backTimerRef.current = setTimeout(() => {
           backPressedRef.current = false;
         }, 2000);
@@ -442,15 +507,10 @@ export default function App() {
           .main-content { flex: 1; padding: 14px 10px; overflow-y: auto; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-
-          .dash-header-row { flex-direction: column; align-items: stretch !important; gap: 10px !important; }
-          .dash-filter-group { width: 100%; }
-          .dash-filter-item { flex: 1 1 0; min-width: 0; }
-          .dash-filter-item select { width: 100%; }
         }
       `}</style>
 
-      {/* PC 전용 사이드바 */}
+      {/* PC 사이드바 */}
       <div className="pc-sidebar">
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 4px" }}>
           <div style={{ width: 38, height: 38, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -545,7 +605,7 @@ export default function App() {
         </button>
       </header>
 
-      {/* 메인 컨텐츠 영역 */}
+      {/* 메인 영역 */}
       <main className="main-content">
         {!ready ? (
           <div style={{ color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", textAlign: "center", padding: 40 }}>Supabase 불러오는 중...</div>
@@ -562,7 +622,7 @@ export default function App() {
         )}
       </main>
 
-      {/* 모바일 하단 탭 바 */}
+      {/* 모바일 하단 탭 */}
       <nav className="mobile-bottom-nav">
         {NAV.filter(n => !n.pcOnly).map((n) => {
           const active = tab === n.id;
@@ -666,41 +726,37 @@ function Dashboard({ items, txs }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 20 }}>
         <Card style={{ padding: 20 }}>
-          <div className="dash-header-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <SectionLabel>호선별 부자재 소모 현황</SectionLabel>
-            <div className="dash-filter-group" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span className="dash-filter-item" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600, whiteSpace: "nowrap" }}>호선 선택:</span>
-                <select
-                  value={selectedShip}
-                  onChange={(e) => setSelectedShip(e.target.value)}
-                  style={{
-                    background: "#0B1C2C", border: "1px solid #274460", color: "#38BDF8",
-                    padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
-                    outline: "none", cursor: "pointer", minWidth: 0
-                  }}
-                >
-                  {availableShips.map((ship) => (
-                    <option key={ship} value={ship}>{ship}</option>
-                  ))}
-                </select>
-              </span>
-              <span className="dash-filter-item" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600, whiteSpace: "nowrap" }}>프로젝트:</span>
-                <select
-                  value={selectedProject}
-                  onChange={(e) => setSelectedProject(e.target.value)}
-                  style={{
-                    background: "#0B1C2C", border: "1px solid #274460", color: "#F5A623",
-                    padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
-                    outline: "none", cursor: "pointer", minWidth: 0
-                  }}
-                >
-                  {availableProjects.map((proj) => (
-                    <option key={proj} value={proj}>{proj}</option>
-                  ))}
-                </select>
-              </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>호선 선택:</span>
+              <select
+                value={selectedShip}
+                onChange={(e) => setSelectedShip(e.target.value)}
+                style={{
+                  background: "#0B1C2C", border: "1px solid #274460", color: "#38BDF8",
+                  padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
+                  outline: "none", cursor: "pointer"
+                }}
+              >
+                {availableShips.map((ship) => (
+                  <option key={ship} value={ship}>{ship}</option>
+                ))}
+              </select>
+              <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>프로젝트:</span>
+              <select
+                value={selectedProject}
+                onChange={(e) => setSelectedProject(e.target.value)}
+                style={{
+                  background: "#0B1C2C", border: "1px solid #274460", color: "#F5A623",
+                  padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
+                  outline: "none", cursor: "pointer"
+                }}
+              >
+                {availableProjects.map((proj) => (
+                  <option key={proj} value={proj}>{proj}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -1123,7 +1179,11 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
-                <Led status={statusOf(found)} size={12} />
+                {found.image_url ? (
+                  <img src={found.image_url} alt={found.name} style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover" }} />
+                ) : (
+                  <Led status={statusOf(found)} size={12} />
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {found.name}
@@ -1266,8 +1326,8 @@ function StockView({ items, onSelectItem }) {
       const st = statusOf(item);
       const matchStatus =
         statusFilter === "all" ||
-        (statusFilter === "normal" && st === "normal") ||
-        (statusFilter === "warning" && st === "warning") ||
+        (statusFilter === "normal" && st === "ok") ||
+        (statusFilter === "warning" && st === "warn") ||
         (statusFilter === "danger" && st === "danger");
 
       return matchSearch && matchStatus;
@@ -1331,7 +1391,14 @@ function StockView({ items, onSelectItem }) {
                 style={{ padding: 14, cursor: onSelectItem ? "pointer" : "default" }}
                 onClick={() => onSelectItem && onSelectItem(item)}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                  {item.image_url ? (
+                    <img src={item.image_url} alt={item.name} style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover" }} />
+                  ) : (
+                    <div style={{ width: 50, height: 50, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <ImageIcon size={20} color="#5E86A3" />
+                    </div>
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                       <Led status={st} size={10} />
@@ -1348,7 +1415,7 @@ function StockView({ items, onSelectItem }) {
                   <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flexShrink: 0 }}>
                     <div style={{
                       fontSize: 16, fontWeight: 700,
-                      color: st === "danger" ? "#EF5350" : st === "warning" ? "#F5A623" : "#35D08C",
+                      color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C",
                     }}>
                       {item.stock} <span style={{ fontSize: 11 }}>{item.unit}</span>
                     </div>
@@ -1436,14 +1503,59 @@ async function buildQrLabelWorkbook(items) {
   return workbook;
 }
 
-/* ---------------- 자재 마스터 관리 ---------------- */
+/* ---------------- 자재 마스터 관리 (사진 첨부 기능 포함) ---------------- */
 function MasterView({ items, saveItems, notify }) {
-  const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "" };
+  const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", image_url: "" };
   const [form, setForm] = useState(blank);
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
   const [masterQRInput, setMasterQRInput] = useState("");
   
+  // 사진 첨부 관련 상태값
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const liveCameraInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
+
+  // 개별 자재 사진 수정용 Ref & State
+  const [targetItemForPhoto, setTargetItemForPhoto] = useState(null);
+  const editCameraInputRef = useRef(null);
+  const editGalleryInputRef = useRef(null);
+
+  const handleImageFileSelected = async (e, targetCode = null) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const codeToUse = targetCode || form.code.trim();
+    if (!codeToUse) {
+      notify("자재 코드를 먼저 입력해야 사진을 첨부할 수 있습니다.", "err");
+      e.target.value = "";
+      return;
+    }
+
+    try {
+      setUploadingImage(true);
+      notify("이미지를 최소 용량으로 압축 및 업로드 중...", "info");
+      const imageUrl = await compressAndUploadImage(file, codeToUse);
+
+      if (targetCode) {
+        // 기존 등록 자재의 사진 개별 업데이트
+        const nextItems = items.map((i) => (i.code === targetCode ? { ...i, image_url: imageUrl } : i));
+        await saveItems(nextItems);
+        notify("자재 사진이 성공적으로 업데이트되었습니다.", "ok");
+      } else {
+        // 신규 등록 폼의 사진 등록
+        setForm((prev) => ({ ...prev, image_url: imageUrl }));
+        notify("사진 등록이 완료되었습니다.", "ok");
+      }
+    } catch (err) {
+      console.error(err);
+      notify("이미지 업로드에 실패했습니다. (Storage 정책 및 버킷 확인)", "err");
+    } finally {
+      setUploadingImage(false);
+      e.target.value = "";
+    }
+  };
+
   const [editingSafetyCode, setEditingSafetyCode] = useState(null);
   const [editingSafetyValue, setEditingSafetyValue] = useState("");
 
@@ -1559,8 +1671,8 @@ function MasterView({ items, saveItems, notify }) {
   };
 
   const exportCSV = () => {
-    const headers = ["code,name,spec,category,unit,stock,safety,location,manufacturer\n"];
-    const rows = items.map(i => `"${i.code}","${i.name}","${i.spec}","${i.category || ""}","${i.unit}",${i.stock},${i.safety},"${i.location || ""}","${i.manufacturer || ""}"\n`);
+    const headers = ["code,name,spec,category,unit,stock,safety,location,manufacturer,image_url\n"];
+    const rows = items.map(i => `"${i.code}","${i.name}","${i.spec}","${i.category || ""}","${i.unit}",${i.stock},${i.safety},"${i.location || ""}","${i.manufacturer || ""}","${i.image_url || ""}"\n`);
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -1622,6 +1734,7 @@ function MasterView({ items, saveItems, notify }) {
             const stock = Number(getCol('현재고', '재고', '수량', '입고수량', '재고수량', 'stock', 'qty')) || 0;
             const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
             const location = getCol('위치', 'location');
+            const imageUrl = getCol('이미지', 'image_url', '사진');
 
             if (!code && !fullName) return null;
 
@@ -1635,6 +1748,7 @@ function MasterView({ items, saveItems, notify }) {
               safety: safety,
               location: location,
               manufacturer: manufacturer,
+              image_url: imageUrl || "",
               deleted: false,
             };
           }).filter(Boolean);
@@ -1680,7 +1794,24 @@ function MasterView({ items, saveItems, notify }) {
 
   return (
     <div>
-      <Header title="자재 마스터" subtitle="신규 자재 등록 · QR 생성 · 엑셀/CSV 백업 및 복원" />
+      <Header title="자재 마스터" subtitle="신규 자재 등록 · QR 생성 · 사진 관리 및 백업" />
+
+      {/* 숨겨진 File Input (목록에서 개별 사진 업데이트용) */}
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        ref={editCameraInputRef}
+        style={{ display: "none" }}
+        onChange={(e) => handleImageFileSelected(e, targetItemForPhoto)}
+      />
+      <input
+        type="file"
+        accept="image/*"
+        ref={editGalleryInputRef}
+        style={{ display: "none" }}
+        onChange={(e) => handleImageFileSelected(e, targetItemForPhoto)}
+      />
 
       <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", justifyContent: "space-between" }}>
         <div style={{ display: "flex", gap: 8 }}>
@@ -1747,9 +1878,59 @@ function MasterView({ items, saveItems, notify }) {
             <Field label="초기 재고"><input style={inputStyle} type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} /></Field>
             <Field label="안전재고 기준"><input style={inputStyle} type="number" value={form.safety} onChange={(e) => setForm({ ...form, safety: e.target.value })} /></Field>
             <Field label="저장 위치"><input style={inputStyle} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="예: A-03" /></Field>
+            
+            {/* 자재 사진 등록 폼 영역 */}
+            <div style={{ gridColumn: "1 / -1", background: "#0B1C2C", padding: 14, borderRadius: 8, border: "1px dashed #274460" }}>
+              <span style={{ fontSize: 13, color: "#9FB4C7", fontWeight: 600, display: "block", marginBottom: 8 }}>
+                자재 사진 첨부 (자동 초용량 압축)
+              </span>
+
+              {/* 숨겨진 File Input */}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                ref={liveCameraInputRef}
+                style={{ display: "none" }}
+                onChange={(e) => handleImageFileSelected(e, null)}
+              />
+              <input
+                type="file"
+                accept="image/*"
+                ref={galleryInputRef}
+                style={{ display: "none" }}
+                onChange={(e) => handleImageFileSelected(e, null)}
+              />
+
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <Btn
+                  variant="subtle"
+                  disabled={uploadingImage || !form.code.trim()}
+                  onClick={() => liveCameraInputRef.current && liveCameraInputRef.current.click()}
+                  style={{ fontSize: 13, padding: "8px 14px" }}
+                >
+                  <Camera size={16} /> 라이브 사진 촬영
+                </Btn>
+                <Btn
+                  variant="subtle"
+                  disabled={uploadingImage || !form.code.trim()}
+                  onClick={() => galleryInputRef.current && galleryInputRef.current.click()}
+                  style={{ fontSize: 13, padding: "8px 14px" }}
+                >
+                  <ImageIcon size={16} /> 갤러리에서 선택
+                </Btn>
+
+                {form.image_url && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                    <img src={form.image_url} alt="미리보기" style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", border: "1px solid #38BDF8" }} />
+                    <span style={{ fontSize: 12, color: "#35D08C" }}>✓ 등록됨</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           <div style={{ marginTop: 16 }}>
-            <Btn onClick={addItem}><Plus size={16} />등록 완료</Btn>
+            <Btn onClick={addItem} disabled={uploadingImage}><Plus size={16} />등록 완료</Btn>
           </div>
         </Card>
       )}
@@ -1759,7 +1940,7 @@ function MasterView({ items, saveItems, notify }) {
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                <th>사진</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -1767,6 +1948,39 @@ function MasterView({ items, saveItems, notify }) {
                 const st = statusOf(i);
                 return (
                 <tr key={i.code}>
+                  <td>
+                    {i.image_url ? (
+                      <img
+                        src={i.image_url}
+                        alt={i.name}
+                        onClick={() => {
+                          setTargetItemForPhoto(i.code);
+                          if (window.confirm("사진을 변경하시겠습니까? (확인: 라이브 촬영 / 취소: 갤러리)")) {
+                            editCameraInputRef.current.click();
+                          } else {
+                            editGalleryInputRef.current.click();
+                          }
+                        }}
+                        style={{ width: 38, height: 38, borderRadius: 6, objectFit: "cover", cursor: "pointer" }}
+                        title="클릭하여 사진 변경"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setTargetItemForPhoto(i.code);
+                          if (window.confirm("사진 등록 방식을 선택하세요.\n확인: 라이브 촬영 / 취소: 갤러리")) {
+                            editCameraInputRef.current.click();
+                          } else {
+                            editGalleryInputRef.current.click();
+                          }
+                        }}
+                        style={{ background: "#0B1C2C", border: "1px solid #274460", color: "#5E86A3", padding: "6px", borderRadius: 6, cursor: "pointer" }}
+                        title="사진 첨부"
+                      >
+                        <Camera size={14} />
+                      </button>
+                    )}
+                  </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
                   <td>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{i.name}</div>
@@ -1865,7 +2079,7 @@ function MasterView({ items, saveItems, notify }) {
               })}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={9} style={{ textAlign: "center", padding: 30, color: "#7F97AC" }}>
+                  <td colSpan={10} style={{ textAlign: "center", padding: 30, color: "#7F97AC" }}>
                     등록된 자재가 없습니다. '신규 자재 등록' 또는 '엑셀/CSV 불러오기'를 진행하세요.
                   </td>
                 </tr>
@@ -1902,7 +2116,7 @@ function MasterView({ items, saveItems, notify }) {
   );
 }
 
-/* ---------------- 입고 등록 컴포넌트 ---------------- */
+/* ---------------- 입고 등록 ---------------- */
 function InboundView({ items, saveItems, notify, supabase }) {
   const [selectedCode, setSelectedCode] = useState(items[0]?.code || "");
   const [qty, setQty] = useState(1);
@@ -2068,6 +2282,7 @@ function InboundView({ items, saveItems, notify, supabase }) {
       location: "",
       manufacturer: invoiceData?.supplier || "",
       category: "",
+      image_url: "",
       deleted: false,
     };
 

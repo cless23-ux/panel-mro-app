@@ -1899,15 +1899,46 @@ function OptionListEditor({ title, description, category, options, saveCategory,
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const addOption = async () => {
-    const val = draft.trim();
-    if (!val) return;
-    if (options.includes(val)) { notify("이미 등록된 항목입니다.", "err"); return; }
+  // 여러 값을 한 번에 추가하는 공통 로직 (줄바꿈/쉼표/탭으로 구분된 텍스트를 모두 분리)
+  const addMultiple = async (rawText) => {
+    const parts = rawText
+      .split(/[\n\r,\t]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+
+    // 붙여넣은 값 안의 중복 제거 + 이미 등록된 값 제외
+    const uniqueParts = Array.from(new Set(parts));
+    const newOnes = uniqueParts.filter((p) => !options.includes(p));
+    const skipped = uniqueParts.length - newOnes.length;
+
+    if (newOnes.length === 0) {
+      notify("모두 이미 등록된 항목입니다.", "err");
+      return;
+    }
+
     setSaving(true);
-    await saveCategory(category, [...options, val]);
+    await saveCategory(category, [...options, ...newOnes]);
     setSaving(false);
     setDraft("");
-    notify(`[${val}] 항목이 추가되었습니다.`, "ok");
+
+    if (newOnes.length === 1) {
+      notify(`[${newOnes[0]}] 항목이 추가되었습니다.`, "ok");
+    } else {
+      notify(`${newOnes.length}개 항목이 추가되었습니다.${skipped > 0 ? ` (중복 ${skipped}개 제외)` : ""}`, "ok");
+    }
+  };
+
+  const addOption = () => addMultiple(draft);
+
+  // [추가됨] 목록을 통째로 복사해서 붙여넣으면(줄바꿈/쉼표 구분) 한 번에 전부 추가
+  const handlePaste = (e) => {
+    const text = e.clipboardData.getData("text");
+    if (/[\n\r,\t]/.test(text)) {
+      e.preventDefault();
+      addMultiple(text);
+    }
+    // 줄바꿈/쉼표가 없는 단순 한 줄 붙여넣기는 기본 동작(입력창에 그대로 입력)을 그대로 둠
   };
 
   const removeOption = async (val) => {
@@ -1924,15 +1955,19 @@ function OptionListEditor({ title, description, category, options, saveCategory,
       {description && (
         <div style={{ fontSize: 12, color: "#7F97AC", marginTop: -6, marginBottom: 14, fontFamily: "IBM Plex Mono" }}>{description}</div>
       )}
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
         <input
           style={{ ...inputStyle, flex: 1 }}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addOption()}
+          onPaste={handlePaste}
           placeholder={placeholder}
         />
         <Btn onClick={addOption} variant="subtle" disabled={saving}><Plus size={16} />추가</Btn>
+      </div>
+      <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 14, fontFamily: "IBM Plex Mono" }}>
+        여러 개를 한 번에 추가하려면 줄바꿈 또는 쉼표(,)로 구분된 목록을 이 칸에 붙여넣으세요.
       </div>
       {options.length === 0 ? (
         <EmptyState icon={Package} text="등록된 항목이 없습니다." color="#5E86A3" />

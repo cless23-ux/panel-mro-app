@@ -502,6 +502,14 @@ export default function App() {
         .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; min-width: 0; }
         .toast-box { bottom: 26px; left: 50%; transform: translateX(-50%); }
 
+        /* 입고 그리드 컨테이너 기본 (PC) */
+        .inbound-grid-container {
+          display: grid;
+          grid-template-columns: 1.3fr 1fr;
+          gap: 20px;
+          align-items: start;
+        }
+
         @media (max-width: 768px) {
           .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
           .pc-sidebar { display: none; }
@@ -516,6 +524,12 @@ export default function App() {
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+          /* 모바일에서 수동 입고 그리드를 1열 수직 배치하여 자재 사진창이 폼 밑으로 오도록 설정 */
+          .inbound-grid-container {
+            grid-template-columns: 1fr;
+            gap: 16px;
+          }
         }
       `}</style>
 
@@ -2869,7 +2883,8 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
       <Card style={{ maxWidth: 760, margin: "0 auto", padding: 22 }}>
         <h3 style={{ margin: "0 0 16px 0", color: "#94a3b8", fontSize: 14 }}>개별 자재 수동 입고</h3>
         
-        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 20, alignItems: "start" }}>
+        {/* 모바일 미디어 쿼리 적용 클래스 추가 */}
+        <div className="inbound-grid-container">
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <Field label="자재 검색 및 선택">
               <div ref={itemInputWrapRef} style={{ position: "relative" }}>
@@ -2956,7 +2971,8 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
             </div>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10, padding: 16, height: "100%", minHeight: 240 }}>
+          {/* 자재 사진 영역 */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10, padding: 16, height: "100%", minHeight: 200 }}>
             <span style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 10, fontFamily: "IBM Plex Mono", fontWeight: "bold" }}>자재 사진</span>
             {selectedItem && selectedItem.image_url ? (
               <img 

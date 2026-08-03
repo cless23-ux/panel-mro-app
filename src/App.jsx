@@ -1643,7 +1643,8 @@ function MasterView({ items, saveItems, notify }) {
       }
     } catch (err) {
       console.error(err);
-      notify("이미지 업로드에 실패했습니다.", "err");
+      const detail = err?.message || err?.error_description || String(err);
+      notify(`이미지 업로드 실패: ${detail}`, "err");
     } finally {
       setUploadingImage(false);
       e.target.value = "";

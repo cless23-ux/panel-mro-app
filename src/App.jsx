@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -97,6 +97,81 @@ function useStorage(key, initial) {
   return [value, save, loaded, load];
 }
 
+/* ---------------- 불출 정보 옵션(호선/프로젝트/공정구분/불출자) 설정 훅 ----------------
+   기존 items/transactions용 useStorage와는 완전히 별개의 독립 훅입니다.
+   Supabase의 "out_form_settings" 테이블(단일 행, id=1)에 각 목록을 jsonb로 저장합니다.
+   테이블이 아직 없거나 조회에 실패해도 기본값(기존에 코드에 하드코딩되어 있던 목록)으로
+   안전하게 동작하며, 앱이 깨지지 않습니다. */
+const OUT_FORM_SETTINGS_ROW_ID = 1;
+const DEFAULT_OUT_FORM_SETTINGS = {
+  ships: [],
+  projects: ["MSBD/LVSB", "GSP", "DIST", "LGSP", "TEST", "BCD", "선박기타"],
+  processes: ["배전반 결선", "배전반 조립", "배전반 어렌지", "A/S"],
+  workers: ["울산에이원", "부산에이원", "본사에이원", "수림기전", "생산팀"],
+};
+const OUT_FORM_SETTINGS_CACHE_KEY = "panel:outFormSettings";
+
+function useOutFormSettings() {
+  const [settings, setSettings] = useState(DEFAULT_OUT_FORM_SETTINGS);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async (silent = false) => {
+    try {
+      if (supabase) {
+        const { data, error } = await supabase
+          .from("out_form_settings")
+          .select("*")
+          .eq("id", OUT_FORM_SETTINGS_ROW_ID)
+          .maybeSingle();
+        if (!error && data) {
+          const next = {
+            ships: Array.isArray(data.ships) ? data.ships : DEFAULT_OUT_FORM_SETTINGS.ships,
+            projects: Array.isArray(data.projects) && data.projects.length ? data.projects : DEFAULT_OUT_FORM_SETTINGS.projects,
+            processes: Array.isArray(data.processes) && data.processes.length ? data.processes : DEFAULT_OUT_FORM_SETTINGS.processes,
+            workers: Array.isArray(data.workers) && data.workers.length ? data.workers : DEFAULT_OUT_FORM_SETTINGS.workers,
+          };
+          setSettings(next);
+          localStorage.setItem(OUT_FORM_SETTINGS_CACHE_KEY, JSON.stringify(next));
+          if (!silent) setLoaded(true);
+          return;
+        }
+      }
+      const cached = localStorage.getItem(OUT_FORM_SETTINGS_CACHE_KEY);
+      if (cached) setSettings(JSON.parse(cached));
+    } catch (e) {
+      console.error("Out form settings load error:", e);
+    } finally {
+      if (!silent) setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(() => load(true), POLL_MS);
+    return () => clearInterval(t);
+  }, [load]);
+
+  // 특정 카테고리(ships/projects/processes/workers) 목록만 갱신해서 저장
+  const saveCategory = useCallback(async (category, nextList) => {
+    setSettings((prev) => {
+      const next = { ...prev, [category]: nextList };
+      localStorage.setItem(OUT_FORM_SETTINGS_CACHE_KEY, JSON.stringify(next));
+      return next;
+    });
+    try {
+      if (supabase) {
+        await supabase
+          .from("out_form_settings")
+          .upsert({ id: OUT_FORM_SETTINGS_ROW_ID, [category]: nextList }, { onConflict: "id" });
+      }
+    } catch (e) {
+      console.error("Out form settings save error:", e);
+    }
+  }, []);
+
+  return [settings, saveCategory, loaded];
+}
+
 function statusOf(item) {
   const safety = Number(item.safety) || 0;
   const stock = Number(item.stock) || 0;
@@ -123,11 +198,10 @@ function Led({ status, size = 10 }) {
   );
 }
 
-function Card({ children, style, className = "", onClick }) {
+function Card({ children, style, className = "" }) {
   return (
     <div
       className={className}
-      onClick={onClick}
       style={{
         background: "linear-gradient(180deg, #122A3F 0%, #0F2233 100%)",
         border: "1px solid #1F3B54",
@@ -276,6 +350,62 @@ function SearchableSelect({ items, value, onChange }) {
   );
 }
 
+/* 직접 입력도 가능하면서, 설정에 등록된 목록에서 검색/선택도 가능한 자동완성 입력창.
+   예: 사용자가 "3527"을 입력하면 등록된 목록 중 "H-3527" 등이 검색되어 클릭으로 선택 가능.
+   목록에 없는 값이어도 그대로 자유롭게 입력해서 쓸 수 있음(호선 필드용). */
+function AutocompleteInput({ value, onChange, options, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  const filtered = useMemo(() => {
+    const list = options || [];
+    if (!value) return list.slice(0, 30);
+    const q = value.toLowerCase().trim();
+    return list.filter((o) => String(o).toLowerCase().includes(q)).slice(0, 30);
+  }, [options, value]);
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <input
+        style={inputStyle}
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+          background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
+          marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", maxHeight: 200, overflowY: "auto",
+        }}>
+          {filtered.map((opt) => (
+            <div
+              key={opt}
+              onMouseDown={(e) => { e.preventDefault(); onChange(opt); setOpen(false); }}
+              style={{
+                padding: "10px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13,
+                borderBottom: "1px solid #16293C", color: "#E7EEF5",
+              }}
+            >
+              {opt}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Toast({ toast }) {
   if (!toast) return null;
   const colors = { ok: "#35D08C", err: "#EF5350", info: "#F5A623" };
@@ -295,10 +425,10 @@ function Toast({ toast }) {
 export default function App() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
+  const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
   const [tab, setTab] = useState("out");
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [stockSelectedItem, setStockSelectedItem] = useState(null);
 
   useEffect(() => {
     if (!window.XLSX) {
@@ -329,10 +459,11 @@ export default function App() {
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
+    { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
   ];
 
-  const ready = itemsLoaded && txsLoaded;
+  const ready = itemsLoaded && txsLoaded && outFormSettingsLoaded;
 
   return (
     <div className="app-container" style={{
@@ -478,27 +609,10 @@ export default function App() {
           <>
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
-            {tab === "out" && (
-              <OutForm
-                items={items}
-                saveItems={saveItems}
-                txs={txs}
-                saveTxs={saveTxs}
-                notify={notify}
-                presetItem={stockSelectedItem}
-                onConsumePreset={() => setStockSelectedItem(null)}
-              />
-            )}
-            {tab === "stock" && (
-              <StockView
-                items={items}
-                onSelectItem={(item) => {
-                  setStockSelectedItem(item);
-                  setTab("out");
-                }}
-              />
-            )}
+            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
+            {tab === "stock" && <StockView items={items} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
           </>
         )}
@@ -806,7 +920,7 @@ function InForm({ items, saveItems, txs, saveTxs, notify }) {
 }
 
 /* ---------------- 출고 (스캔) ---------------- */
-function OutForm({ items, saveItems, txs, saveTxs, notify, presetItem, onConsumePreset }) {
+function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
   const [shipNo, setShipNo] = useState("");
@@ -817,22 +931,36 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, presetItem, onConsume
   const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
 
-  const projectOptions = ["MSBD/LVSB", "GSP", "DIST", "LGSP", "TEST", "BCD", "선박기타"];
-  const processOptions = ["배전반 결선", "배전반 조립", "배전반 어렌지", "A/S"];
-  const workerOptions = ["울산에이원", "부산에이원", "본사에이원", "수림기전", "생산팀"];
+  // [수정됨] 프로젝트/공정구분/불출자 옵션은 더 이상 하드코딩이 아니라
+  // '불출설정' 화면(PC 전용)에서 관리하는 값을 사용합니다. Supabase에 저장되므로
+  // 어느 기기에서 접속하든 동일한 목록이 보입니다.
+  const shipOptions = outFormSettings?.ships || [];
+  const projectOptions = outFormSettings?.projects || [];
+  const processOptions = outFormSettings?.processes || [];
+  const workerOptions = outFormSettings?.workers || [];
+
+  // 설정 목록이 바뀌어서 현재 선택값이 더 이상 목록에 없으면 첫 번째 값으로 보정
+  useEffect(() => {
+    if (projectOptions.length > 0 && !projectOptions.includes(project)) {
+      setProject(projectOptions[0]);
+    }
+  }, [projectOptions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (processOptions.length > 0 && !processOptions.includes(process)) {
+      setProcess(processOptions[0]);
+    }
+  }, [processOptions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (workerOptions.length > 0 && !workerOptions.includes(worker)) {
+      setWorker(workerOptions[0]);
+    }
+  }, [workerOptions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recentOutTxs = useMemo(() => {
     return txs.filter((t) => t.type === "out").slice(-5).reverse();
   }, [txs]);
-
-  // [추가됨] 재고조회 화면에서 자재를 클릭해 넘어온 경우, 해당 자재를 자동으로 선택
-  useEffect(() => {
-    if (presetItem) {
-      setFound(presetItem);
-      notify(`자재 선택됨: ${presetItem.name}`, "ok");
-      if (onConsumePreset) onConsumePreset();
-    }
-  }, [presetItem]);
 
   const findItemByCode = (rawCode) => {
     if (!rawCode) return null;
@@ -1071,7 +1199,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, presetItem, onConsume
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <Field label="1. 호선">
-                  <input style={inputStyle} value={shipNo} onChange={(e) => setShipNo(e.target.value)} placeholder="예: H-2024" />
+                  <AutocompleteInput
+                    value={shipNo}
+                    onChange={setShipNo}
+                    options={shipOptions}
+                    placeholder="예: H-2024 (직접 입력 또는 목록 검색)"
+                  />
                 </Field>
                 <Field label="2. 프로젝트">
                   <Select value={project} onChange={(e) => setProject(e.target.value)} options={projectOptions} />
@@ -1175,7 +1308,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, presetItem, onConsume
 }
 
 /* ---------------- 재고 조회 ---------------- */
-function StockView({ items, onSelectItem }) {
+function StockView({ items }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -1250,11 +1383,7 @@ function StockView({ items, onSelectItem }) {
           {filteredItems.map((item) => {
             const st = statusOf(item);
             return (
-              <Card
-                key={item.code}
-                style={{ padding: 14, cursor: onSelectItem ? "pointer" : "default" }}
-                onClick={() => onSelectItem && onSelectItem(item)}
-              >
+              <Card key={item.code} style={{ padding: 14 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
@@ -1690,6 +1819,120 @@ function TrashView({ items, saveItems, notify }) {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+/* ---------------- 불출 설정 관리 (PC 전용) ----------------
+   호선/프로젝트/공정구분/불출자 목록을 추가·삭제할 수 있는 화면입니다.
+   여기서 바꾼 내용은 Supabase "out_form_settings" 테이블에 저장되어,
+   폴링(8초) 또는 새로고침 시 다른 모든 기기(모바일 포함)의 출고 화면에도
+   그대로 반영됩니다. 불출수량은 값이 매번 달라 목록 관리 대상이 아니므로
+   여기에 포함하지 않았습니다. */
+function OptionListEditor({ title, description, category, options, saveCategory, notify, placeholder }) {
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const addOption = async () => {
+    const val = draft.trim();
+    if (!val) return;
+    if (options.includes(val)) { notify("이미 등록된 항목입니다.", "err"); return; }
+    setSaving(true);
+    await saveCategory(category, [...options, val]);
+    setSaving(false);
+    setDraft("");
+    notify(`[${val}] 항목이 추가되었습니다.`, "ok");
+  };
+
+  const removeOption = async (val) => {
+    if (!window.confirm(`[${val}] 항목을 목록에서 삭제하시겠습니까?`)) return;
+    setSaving(true);
+    await saveCategory(category, options.filter((o) => o !== val));
+    setSaving(false);
+    notify(`[${val}] 항목이 삭제되었습니다.`, "info");
+  };
+
+  return (
+    <Card style={{ padding: 20 }}>
+      <SectionLabel>{title}</SectionLabel>
+      {description && (
+        <div style={{ fontSize: 12, color: "#7F97AC", marginTop: -6, marginBottom: 14, fontFamily: "IBM Plex Mono" }}>{description}</div>
+      )}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <input
+          style={{ ...inputStyle, flex: 1 }}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addOption()}
+          placeholder={placeholder}
+        />
+        <Btn onClick={addOption} variant="subtle" disabled={saving}><Plus size={16} />추가</Btn>
+      </div>
+      {options.length === 0 ? (
+        <EmptyState icon={Package} text="등록된 항목이 없습니다." color="#5E86A3" />
+      ) : (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {options.map((opt) => (
+            <div key={opt} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "7px 10px 7px 12px",
+              background: "#0B1C2C", border: "1px solid #274460", borderRadius: 20, fontSize: 13,
+              color: "#E7EEF5", fontFamily: "IBM Plex Mono",
+            }}>
+              <span>{opt}</span>
+              <button
+                onClick={() => removeOption(opt)}
+                disabled={saving}
+                style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function OutFormSettingsView({ settings, saveCategory, notify }) {
+  return (
+    <div>
+      <Header title="불출 설정 관리" subtitle="출고(스캔) 화면의 호선 · 프로젝트 · 공정구분 · 불출자 목록을 관리합니다 (PC 전용 · 전 기기 자동 동기화)" />
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <OptionListEditor
+          title="호선 목록"
+          description="출고 화면에서는 직접 입력도 가능하지만, 여기 등록해두면 검색 추천 목록으로 표시됩니다."
+          category="ships"
+          options={settings.ships}
+          saveCategory={saveCategory}
+          notify={notify}
+          placeholder="예: H-2024"
+        />
+        <OptionListEditor
+          title="프로젝트 목록"
+          category="projects"
+          options={settings.projects}
+          saveCategory={saveCategory}
+          notify={notify}
+          placeholder="예: MSBD/LVSB"
+        />
+        <OptionListEditor
+          title="공정구분 목록"
+          category="processes"
+          options={settings.processes}
+          saveCategory={saveCategory}
+          notify={notify}
+          placeholder="예: 배전반 결선"
+        />
+        <OptionListEditor
+          title="불출자 목록"
+          category="workers"
+          options={settings.workers}
+          saveCategory={saveCategory}
+          notify={notify}
+          placeholder="예: 울산에이원"
+        />
+      </div>
     </div>
   );
 }

@@ -954,9 +954,28 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
 
+  // [수정] 개별 자재 수동 선택창 상태 추가 (초기값 빈 문자열 "")
+  const [manualCode, setManualCode] = useState("");
+
+  // 수동 선택창에서 자재를 선택했을 때 처리
+  const handleManualSelectChange = (e) => {
+    const code = e.target.value;
+    setManualCode(code);
+    if (!code) {
+      setFound(null);
+    } else {
+      const hit = items.find((i) => i.code === code);
+      if (hit) {
+        setFound(hit);
+        notify(`자재 선택됨: ${hit.name}`, "ok");
+      }
+    }
+  };
+
   useEffect(() => {
     if (presetItem) {
       setFound(presetItem);
+      setManualCode(presetItem.code); // 프리셋 선택 시 수동 select에도 반영
       notify(`자재 선택됨: ${presetItem.name}`, "ok");
       if (onConsumePreset) onConsumePreset();
     }
@@ -1018,7 +1037,11 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const doScan = (val) => {
     const codeVal = val ?? scan;
     const hit = findItemByCode(codeVal);
-    if (hit) { setFound(hit); notify(`자재 선택됨: ${hit.name}`, "ok"); }
+    if (hit) { 
+      setFound(hit); 
+      setManualCode(hit.code); // 스캔 성공 시 수동 select에도 동기화
+      notify(`자재 선택됨: ${hit.name}`, "ok"); 
+    }
     else { setFound(null); notify(`등록되지 않은 자재입니다. (인식값: ${String(codeVal).trim()})`, "err"); }
   };
 
@@ -1049,6 +1072,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           const hit = findItemByCode(decodedText);
           if (hit) {
             setFound(hit);
+            setManualCode(hit.code);
             notify(`스캔 성공: ${hit.name}`, "ok");
             html5QrCode.stop().catch(() => {});
             setIsScanning(false);
@@ -1106,6 +1130,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     setQty(""); 
     setShipNo("");
     setFound(null); 
+    setManualCode(""); // 초기화 시 빈 값으로 복원
     setScan("");
   };
 
@@ -1197,31 +1222,43 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         </Card>
 
         <Card style={{ padding: 22 }}>
-          <SectionLabel>2. 불출 정보 입력</SectionLabel>
+          <SectionLabel>2. 개별 자재 수동 입고 및 불출 정보</SectionLabel>
+          
+          {/* [수정] 자재검색 선택창 및 선택된 자재 사진 표시 영역 */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
+            <div style={{ flex: 1 }}>
+              <Field label="자재 검색 선택">
+                <select
+                  value={manualCode}
+                  onChange={handleManualSelectChange}
+                  style={{ ...inputStyle, width: "100%" }}
+                >
+                  <option value="">-- 자재를 선택하세요 --</option>
+                  {items.map((i) => (
+                    <option key={i.code} value={i.code}>
+                      [{i.code}] {i.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+
+            {/* 자재 선택 시 옆에 등록한 사진이 뜨도록 구성 (사진에 표시된 요구사항 반영) */}
+            <div style={{ width: 64, height: 64, flexShrink: 0, marginTop: 22, display: "flex", alignItems: "center", justifyContent: "center", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 8, overflow: "hidden" }}>
+              {found && found.image_url ? (
+                <img src={found.image_url} alt={found.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                <ImageIcon size={22} color="#5E86A3" />
+              )}
+            </div>
+          </div>
+
           {!found ? (
-            <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 입력해주세요." color="#5E86A3" />
+            <EmptyState icon={ScanLine} text="자재를 선택하거나 스캔해주세요." color="#5E86A3" />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
-                {found.image_url ? (
-                  <img src={found.image_url} alt={found.name} style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover" }} />
-                ) : (
-                  <Led status={statusOf(found)} size={12} />
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {found.name}
-                  </div>
-                  <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
-                    코드: {found.code} | {found.manufacturer || "업체 미지정"}
-                  </div>
-                </div>
-                <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", paddingLeft: 8, borderLeft: "1px solid #1F3B54" }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: found.stock > 0 ? "#35D08C" : "#EF5350" }}>
-                    {found.stock} <span style={{ fontSize: 12 }}>{found.unit}</span>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
-                </div>
+              <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", background: "#0B1C2C", padding: 10, borderRadius: 6, border: "1px solid #274460" }}>
+                규격: {found.spec || "-"} | 업체: {found.manufacturer || "-"} | 위치: {found.location || "-"} | 현재고: <strong style={{ color: found.stock > 0 ? "#35D08C" : "#EF5350" }}>{found.stock} {found.unit}</strong>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>

@@ -64,7 +64,7 @@ async function compressAndUploadImage(file, itemCode) {
               const filePath = `items/${fileName}`;
 
               const { data, error } = await supabase.storage
-                .from("items-images")
+                .from("item-images")
                 .upload(filePath, blob, {
                   contentType: "image/jpeg",
                   upsert: true,
@@ -77,7 +77,7 @@ async function compressAndUploadImage(file, itemCode) {
               }
 
               const { data: publicUrlData } = supabase.storage
-                .from("items-images")
+                .from("item-images")
                 .getPublicUrl(filePath);
 
               resolve(publicUrlData.publicUrl);
@@ -2943,16 +2943,37 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
               <div ref={itemInputWrapRef} style={{ position: "relative" }}>
                 <input
                   type="text"
-                  style={inputStyle}
+                  style={{ ...inputStyle, paddingRight: itemSearchText ? 34 : inputStyle.paddingRight }}
                   value={itemSearchText}
                   onChange={(e) => {
                     setItemSearchText(e.target.value);
+                    setSelectedCode("");
                     setItemDropdownOpen(true);
                   }}
                   onFocus={() => setItemDropdownOpen(true)}
                   placeholder="자재명 또는 코드를 입력/선택하세요"
                   autoComplete="off"
                 />
+                {itemSearchText && (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setItemSearchText("");
+                      setSelectedCode("");
+                      setItemDropdownOpen(false);
+                    }}
+                    aria-label="선택 지우기"
+                    style={{
+                      position: "absolute", top: "50%", right: 10, transform: "translateY(-50%)",
+                      background: "none", border: "none", cursor: "pointer", padding: 4,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: "#7F97AC",
+                    }}
+                  >
+                    <X size={16} />
+                  </button>
+                )}
                 {itemDropdownOpen && filteredItemsForInbound.length > 0 && (
                   <div style={{
                     position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,

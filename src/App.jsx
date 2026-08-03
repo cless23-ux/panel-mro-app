@@ -400,6 +400,7 @@ function Toast({ toast }) {
 }
 
 export default function App() {
+  const supabase = useSupabase();
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
@@ -587,7 +588,7 @@ export default function App() {
         ) : (
           <>
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
-            {tab === "in" && <InForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
+            {tab === "in" && <InboundView items={items} saveItems={saveItems} notify={notify} supabase={supabase} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} />}
             {tab === "stock" && <StockView items={items} onSelectItem={(item) => { setPresetItem(item); setTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}

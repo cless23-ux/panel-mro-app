@@ -1364,8 +1364,8 @@ function StockView({ items, onSelectItem }) {
             {[
               { id: "all", label: "전체" },
               { id: "normal", label: "정상" },
-              { id: "warning", label: "부족위험" },
-              { id: "danger", label: "품절" },
+              { id: "warning", label: "주의" },
+              { id: "danger", label: "부족" },
             ].map((f) => (
               <button
                 key={f.id}

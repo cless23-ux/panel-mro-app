@@ -1516,7 +1516,7 @@ async function buildQrLabelWorkbook(items) {
   return workbook;
 }
 
-/* ---------------- 자재 마스터 관리 (사진 첨부 기능 포함) ---------------- */
+/* ---------------- 자재 마스터 관리 (모바일 반응형 카드 UI 적용) ---------------- */
 function MasterView({ items, saveItems, notify }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", image_url: "" };
   const [form, setForm] = useState(blank);
@@ -1545,7 +1545,7 @@ function MasterView({ items, saveItems, notify }) {
 
     try {
       setUploadingImage(true);
-      notify("이미지를 최소 용량으로 압축 및 업로드 중...", "info");
+      notify("이미지를 압축 및 업로드 중...", "info");
       const imageUrl = await compressAndUploadImage(file, codeToUse);
 
       if (targetCode) {
@@ -1558,24 +1558,20 @@ function MasterView({ items, saveItems, notify }) {
       }
     } catch (err) {
       console.error(err);
-      notify("이미지 업로드에 실패했습니다. (Storage 정책 및 버킷 확인)", "err");
+      notify("이미지 업로드에 실패했습니다.", "err");
     } finally {
       setUploadingImage(false);
       e.target.value = "";
     }
   };
 
+  // 인라인 수정 상태들
   const [editingSafetyCode, setEditingSafetyCode] = useState(null);
   const [editingSafetyValue, setEditingSafetyValue] = useState("");
 
   const startEditSafety = (item) => {
     setEditingSafetyCode(item.code);
     setEditingSafetyValue(String(item.safety ?? 0));
-  };
-
-  const cancelEditSafety = () => {
-    setEditingSafetyCode(null);
-    setEditingSafetyValue("");
   };
 
   const commitEditSafety = async (code) => {
@@ -1599,11 +1595,6 @@ function MasterView({ items, saveItems, notify }) {
     setEditingLocationValue(item.location || "");
   };
 
-  const cancelEditLocation = () => {
-    setEditingLocationCode(null);
-    setEditingLocationValue("");
-  };
-
   const commitEditLocation = async (code) => {
     const nextItems = items.map((i) => (i.code === code ? { ...i, location: editingLocationValue.trim() } : i));
     await saveItems(nextItems);
@@ -1618,11 +1609,6 @@ function MasterView({ items, saveItems, notify }) {
   const startEditManufacturer = (item) => {
     setEditingManufacturerCode(item.code);
     setEditingManufacturerValue(item.manufacturer || "");
-  };
-
-  const cancelEditManufacturer = () => {
-    setEditingManufacturerCode(null);
-    setEditingManufacturerValue("");
   };
 
   const commitEditManufacturer = async (code) => {
@@ -1801,8 +1787,27 @@ function MasterView({ items, saveItems, notify }) {
     }
   };
 
+  const triggerPhotoUpload = (code) => {
+    setTargetItemForPhoto(code);
+    if (window.confirm("사진 등록 방식을 선택하세요.\n확인: 라이브 촬영 / 취소: 갤러리")) {
+      editCameraInputRef.current.click();
+    } else {
+      editGalleryInputRef.current.click();
+    }
+  };
+
   return (
     <div>
+      <style>{`
+        .master-table-view { display: block; width: 100%; overflow-x: auto; }
+        .master-cards-view { display: none; flex-direction: column; gap: 12px; }
+
+        @media (max-width: 768px) {
+          .master-table-view { display: none; }
+          .master-cards-view { display: flex; }
+        }
+      `}</style>
+
       <Header title="자재 마스터" subtitle="신규 자재 등록 · QR 생성 · 사진 관리 및 백업" />
 
       <input
@@ -1829,10 +1834,10 @@ function MasterView({ items, saveItems, notify }) {
           </Btn>
         </div>
 
-        <div style={{ display: "flex", gap: 8 }}>
-          <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업 다운로드</Btn>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업</Btn>
           <Btn onClick={exportQRLabelsExcel} variant="subtle" disabled={qrExporting}>
-            <QrCode size={15} />{qrExporting ? "생성 중..." : "QR 라벨 엑셀 다운로드"}
+            <QrCode size={15} />{qrExporting ? "생성 중..." : "QR 라벨"}
           </Btn>
           <label style={{ display: "inline-block" }}>
             <input type="file" accept=".xlsx, .xls, .csv" onChange={importExcelFile} style={{ display: "none" }} />
@@ -1841,30 +1846,30 @@ function MasterView({ items, saveItems, notify }) {
               fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 13.5,
               padding: "10px 16px", borderRadius: 8, cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center"
             }}>
-              <Upload size={15} />엑셀/CSV 불러오기
+              <Upload size={15} />불러오기
             </span>
           </label>
         </div>
       </div>
 
       <div style={{
-        background: "#111c38", border: "1px solid #1e293b", padding: "16px 20px",
+        background: "#111c38", border: "1px solid #1e293b", padding: "14px 18px",
         borderRadius: 12, marginBottom: 20, display: "flex", alignItems: "center",
-        justifyContent: "space-between", gap: 16, flexWrap: "wrap"
+        justifyContent: "space-between", gap: 12, flexWrap: "wrap"
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "1.05rem", fontWeight: 600, color: "#38bdf8", fontFamily: "'IBM Plex Mono', monospace" }}>
-          <QrCode size={22} />
-          <span>QR 스캔 / 코드 입력:</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.95rem", fontWeight: 600, color: "#38bdf8", fontFamily: "'IBM Plex Mono', monospace" }}>
+          <QrCode size={20} />
+          <span>QR / 코드 입력:</span>
         </div>
         <input 
           type="text" 
           value={masterQRInput}
           onChange={(e) => setMasterQRInput(e.target.value)}
           onKeyDown={handleMasterQRKeyDown}
-          placeholder="스캐너로 QR을 스캔하세요..." 
+          placeholder="스캐너 스캔..." 
           style={{
-            flex: 1, minWidth: 200, height: 48, fontSize: "1.1rem", fontWeight: "bold",
-            padding: "0 16px", border: "2px solid #38bdf8", borderRadius: 8,
+            flex: 1, minWidth: 160, height: 42, fontSize: "1rem", fontWeight: "bold",
+            padding: "0 14px", border: "2px solid #38bdf8", borderRadius: 8,
             backgroundColor: "#0b1329", color: "#ffffff", outline: "none",
             fontFamily: "'IBM Plex Mono', monospace"
           }}
@@ -1889,7 +1894,7 @@ function MasterView({ items, saveItems, notify }) {
             
             <div style={{ gridColumn: "1 / -1", background: "#0B1C2C", padding: 14, borderRadius: 8, border: "1px dashed #274460" }}>
               <span style={{ fontSize: 13, color: "#9FB4C7", fontWeight: 600, display: "block", marginBottom: 8 }}>
-                자재 사진 첨부 (자동 초용량 압축)
+                자재 사진 첨부 (자동 압축)
               </span>
 
               <input
@@ -1915,7 +1920,7 @@ function MasterView({ items, saveItems, notify }) {
                   onClick={() => liveCameraInputRef.current && liveCameraInputRef.current.click()}
                   style={{ fontSize: 13, padding: "8px 14px" }}
                 >
-                  <Camera size={16} /> 라이브 사진 촬영
+                  <Camera size={16} /> 촬영
                 </Btn>
                 <Btn
                   variant="subtle"
@@ -1923,7 +1928,7 @@ function MasterView({ items, saveItems, notify }) {
                   onClick={() => galleryInputRef.current && galleryInputRef.current.click()}
                   style={{ fontSize: 13, padding: "8px 14px" }}
                 >
-                  <ImageIcon size={16} /> 갤러리에서 선택
+                  <ImageIcon size={16} /> 갤러리
                 </Btn>
 
                 {form.image_url && (
@@ -1941,8 +1946,9 @@ function MasterView({ items, saveItems, notify }) {
         </Card>
       )}
 
-      <Card style={{ padding: 8 }}>
-        <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }} className="mobile-scroll-table">
+      {/* 1) PC/태블릿용 테이블 뷰 */}
+      <Card style={{ padding: 8 }} className="master-table-view">
+        <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
@@ -1959,27 +1965,13 @@ function MasterView({ items, saveItems, notify }) {
                       <img
                         src={i.image_url}
                         alt={i.name}
-                        onClick={() => {
-                          setTargetItemForPhoto(i.code);
-                          if (window.confirm("사진을 변경하시겠습니까? (확인: 라이브 촬영 / 취소: 갤러리)")) {
-                            editCameraInputRef.current.click();
-                          } else {
-                            editGalleryInputRef.current.click();
-                          }
-                        }}
+                        onClick={() => triggerPhotoUpload(i.code)}
                         style={{ width: 38, height: 38, borderRadius: 6, objectFit: "cover", cursor: "pointer" }}
                         title="클릭하여 사진 변경"
                       />
                     ) : (
                       <button
-                        onClick={() => {
-                          setTargetItemForPhoto(i.code);
-                          if (window.confirm("사진 등록 방식을 선택하세요.\n확인: 라이브 촬영 / 취소: 갤러리")) {
-                            editCameraInputRef.current.click();
-                          } else {
-                            editGalleryInputRef.current.click();
-                          }
-                        }}
+                        onClick={() => triggerPhotoUpload(i.code)}
                         style={{ background: "#0B1C2C", border: "1px solid #274460", color: "#5E86A3", padding: "6px", borderRadius: 6, cursor: "pointer" }}
                         title="사진 첨부"
                       >
@@ -2002,7 +1994,7 @@ function MasterView({ items, saveItems, notify }) {
                         onBlur={() => commitEditManufacturer(i.code)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") commitEditManufacturer(i.code);
-                          if (e.key === "Escape") cancelEditManufacturer();
+                          if (e.key === "Escape") setEditingManufacturerCode(null);
                         }}
                         style={{ ...inputStyle, width: 110, padding: "4px 8px", fontSize: 13 }}
                       />
@@ -2029,7 +2021,7 @@ function MasterView({ items, saveItems, notify }) {
                         onBlur={() => commitEditSafety(i.code)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") commitEditSafety(i.code);
-                          if (e.key === "Escape") cancelEditSafety();
+                          if (e.key === "Escape") setEditingSafetyCode(null);
                         }}
                         style={{ ...inputStyle, width: 84, padding: "4px 8px", fontSize: 13 }}
                       />
@@ -2053,7 +2045,7 @@ function MasterView({ items, saveItems, notify }) {
                         onBlur={() => commitEditLocation(i.code)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") commitEditLocation(i.code);
-                          if (e.key === "Escape") cancelEditLocation();
+                          if (e.key === "Escape") setEditingLocationCode(null);
                         }}
                         style={{ ...inputStyle, width: 84, padding: "4px 8px", fontSize: 13 }}
                       />
@@ -2083,17 +2075,149 @@ function MasterView({ items, saveItems, notify }) {
                 </tr>
                 );
               })}
-              {items.length === 0 && (
-                <tr>
-                  <td colSpan={10} style={{ textAlign: "center", padding: 30, color: "#7F97AC" }}>
-                    등록된 자재가 없습니다. '신규 자재 등록' 또는 '엑셀/CSV 불러오기'를 진행하세요.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
       </Card>
+
+      {/* 2) 모바일 전용 카드 뷰 */}
+      <div className="master-cards-view">
+        {items.length === 0 ? (
+          <Card style={{ padding: 20 }}>
+            <EmptyState icon={Package} text="등록된 자재가 없습니다." color="#5E86A3" />
+          </Card>
+        ) : (
+          items.map((i) => {
+            const st = statusOf(i);
+            return (
+              <Card key={i.code} style={{ padding: 14 }}>
+                {/* 카드 상단 헤더: 사진, 품명, 코드, 버튼들 */}
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
+                  {i.image_url ? (
+                    <img
+                      src={i.image_url}
+                      alt={i.name}
+                      onClick={() => triggerPhotoUpload(i.code)}
+                      style={{ width: 48, height: 48, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div
+                      onClick={() => triggerPhotoUpload(i.code)}
+                      style={{ width: 48, height: 48, borderRadius: 8, background: "#0B1C2C", border: "1px solid #274460", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" }}
+                    >
+                      <Camera size={18} color="#5E86A3" />
+                    </div>
+                  )}
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", wordBreak: "break-all" }}>
+                      {i.name}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
+                      {i.code} {i.spec ? `| ${i.spec}` : ""}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button
+                      onClick={() => setQrModalItem(i)}
+                      style={{ background: "#16324A", border: "1px solid #274460", color: "#F5A623", padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
+                    >
+                      <QrCode size={14} />
+                    </button>
+                    <button
+                      onClick={() => removeItem(i.code)}
+                      style={{ background: "#2A1818", border: "1px solid #4A2A2A", color: "#EF5350", padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 카드 중간: 거래처 및 위치 */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, background: "#0B1C2C", padding: "8px 10px", borderRadius: 6, fontSize: 12, marginBottom: 10 }}>
+                  <div>
+                    <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>거래처</span>
+                    {editingManufacturerCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingManufacturerValue}
+                        onChange={(e) => setEditingManufacturerValue(e.target.value)}
+                        onBlur={() => commitEditManufacturer(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditManufacturer(i.code);
+                          if (e.key === "Escape") setEditingManufacturerCode(null);
+                        }}
+                        style={{ ...inputStyle, width: "100%", padding: "2px 4px", fontSize: 12 }}
+                      />
+                    ) : (
+                      <span onClick={() => startEditManufacturer(i)} style={{ color: "#E7EEF5", borderBottom: "1px dashed #5E86A3" }}>
+                        {i.manufacturer || "미지정"}
+                      </span>
+                    )}
+                  </div>
+
+                  <div>
+                    <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>저장 위치</span>
+                    {editingLocationCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingLocationValue}
+                        onChange={(e) => setEditingLocationValue(e.target.value)}
+                        onBlur={() => commitEditLocation(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditLocation(i.code);
+                          if (e.key === "Escape") setEditingLocationCode(null);
+                        }}
+                        style={{ ...inputStyle, width: "100%", padding: "2px 4px", fontSize: 12 }}
+                      />
+                    ) : (
+                      <span onClick={() => startEditLocation(i)} style={{ color: "#E7EEF5", borderBottom: "1px dashed #5E86A3" }}>
+                        {i.location || "미지정"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 카드 하단: 현재고 / 안전재고 현황 */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #1A3146", paddingTop: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Led status={st} size={8} />
+                    <span style={{ fontSize: 12, color: "#9FB4C7" }}>
+                      안전재고:{" "}
+                      {editingSafetyCode === i.code ? (
+                        <input
+                          type="number"
+                          min="0"
+                          autoFocus
+                          value={editingSafetyValue}
+                          onChange={(e) => setEditingSafetyValue(e.target.value)}
+                          onBlur={() => commitEditSafety(i.code)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") commitEditSafety(i.code);
+                            if (e.key === "Escape") setEditingSafetyCode(null);
+                          }}
+                          style={{ ...inputStyle, width: 50, padding: "2px 4px", fontSize: 11, display: "inline-block" }}
+                        />
+                      ) : (
+                        <strong onClick={() => startEditSafety(i)} style={{ borderBottom: "1px dashed #5E86A3", cursor: "pointer" }}>
+                          {i.safety} {i.unit}
+                        </strong>
+                      )}
+                    </span>
+                  </div>
+
+                  <div style={{ fontFamily: "IBM Plex Mono", fontSize: 15, fontWeight: 700, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C" }}>
+                    {i.stock} <span style={{ fontSize: 11, fontWeight: 400, color: "#7F97AC" }}>{i.unit}</span>
+                  </div>
+                </div>
+              </Card>
+            );
+          })
+        )}
+      </div>
 
       {qrModalItem && (
         <div style={{
@@ -2121,7 +2245,6 @@ function MasterView({ items, saveItems, notify }) {
     </div>
   );
 }
-
 /* ---------------- 입고 등록 ---------------- */
 function InboundView({ items, saveItems, notify, supabase }) {
   const [selectedCode, setSelectedCode] = useState(items[0]?.code || "");

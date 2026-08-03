@@ -132,9 +132,8 @@ function useStorage(key, initial) {
       }
     } catch (e) {
       console.error("Storage load error:", e);
-    } finally {
+    } stroke:
       if (!silent) setLoaded(true);
-    }
   }, [key, tableName]);
 
   useEffect(() => {
@@ -408,7 +407,9 @@ export default function App() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
-  const [tab, setTab] = useState("out");
+  
+  /* 초기 열림 탭을 대시보드("dashboard")로 변경 */
+  const [tab, setTab] = useState("dashboard");
   const [presetItem, setPresetItem] = useState(null);
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -505,7 +506,6 @@ export default function App() {
         .dashboard-recent-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .dashboard-recent-cards { display: none; flex-direction: column; gap: 10px; }
 
-        /* 입고 그리드 컨테이너 기본 (PC) */
         .inbound-grid-container {
           display: grid;
           grid-template-columns: 1.3fr 1fr;
@@ -531,7 +531,6 @@ export default function App() {
           .dashboard-recent-table { display: none; }
           .dashboard-recent-cards { display: flex; }
 
-          /* 모바일에서 수동 입고 그리드를 1열 수직 배치하여 자재 사진창이 폼 밑으로 오도록 설정 */
           .inbound-grid-container {
             grid-template-columns: 1fr;
             gap: 16px;
@@ -2936,7 +2935,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
       <Card style={{ maxWidth: 760, margin: "0 auto", padding: 22 }}>
         <h3 style={{ margin: "0 0 16px 0", color: "#94a3b8", fontSize: 14 }}>개별 자재 수동 입고</h3>
         
-        {/* 모바일 미디어 쿼리 적용 클래스 추가 */}
         <div className="inbound-grid-container">
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <Field label="자재 검색 및 선택">
@@ -3024,7 +3022,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
             </div>
           </div>
 
-          {/* 자재 사진 영역 */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10, padding: 16, height: "100%", minHeight: 200 }}>
             <span style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 10, fontFamily: "IBM Plex Mono", fontWeight: "bold" }}>자재 사진</span>
             {selectedItem && selectedItem.image_url ? (

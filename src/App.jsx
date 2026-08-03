@@ -442,6 +442,11 @@ export default function App() {
           .main-content { flex: 1; padding: 14px 10px; overflow-y: auto; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+          .dash-header-row { flex-direction: column; align-items: stretch !important; gap: 10px !important; }
+          .dash-filter-group { width: 100%; }
+          .dash-filter-item { flex: 1 1 0; min-width: 0; }
+          .dash-filter-item select { width: 100%; }
         }
       `}</style>
 
@@ -661,37 +666,41 @@ function Dashboard({ items, txs }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 20 }}>
         <Card style={{ padding: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div className="dash-header-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 10 }}>
             <SectionLabel>호선별 부자재 소모 현황</SectionLabel>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>호선 선택:</span>
-              <select
-                value={selectedShip}
-                onChange={(e) => setSelectedShip(e.target.value)}
-                style={{
-                  background: "#0B1C2C", border: "1px solid #274460", color: "#38BDF8",
-                  padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
-                  outline: "none", cursor: "pointer"
-                }}
-              >
-                {availableShips.map((ship) => (
-                  <option key={ship} value={ship}>{ship}</option>
-                ))}
-              </select>
-              <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>프로젝트:</span>
-              <select
-                value={selectedProject}
-                onChange={(e) => setSelectedProject(e.target.value)}
-                style={{
-                  background: "#0B1C2C", border: "1px solid #274460", color: "#F5A623",
-                  padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
-                  outline: "none", cursor: "pointer"
-                }}
-              >
-                {availableProjects.map((proj) => (
-                  <option key={proj} value={proj}>{proj}</option>
-                ))}
-              </select>
+            <div className="dash-filter-group" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span className="dash-filter-item" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600, whiteSpace: "nowrap" }}>호선 선택:</span>
+                <select
+                  value={selectedShip}
+                  onChange={(e) => setSelectedShip(e.target.value)}
+                  style={{
+                    background: "#0B1C2C", border: "1px solid #274460", color: "#38BDF8",
+                    padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
+                    outline: "none", cursor: "pointer", minWidth: 0
+                  }}
+                >
+                  {availableShips.map((ship) => (
+                    <option key={ship} value={ship}>{ship}</option>
+                  ))}
+                </select>
+              </span>
+              <span className="dash-filter-item" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600, whiteSpace: "nowrap" }}>프로젝트:</span>
+                <select
+                  value={selectedProject}
+                  onChange={(e) => setSelectedProject(e.target.value)}
+                  style={{
+                    background: "#0B1C2C", border: "1px solid #274460", color: "#F5A623",
+                    padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
+                    outline: "none", cursor: "pointer", minWidth: 0
+                  }}
+                >
+                  {availableProjects.map((proj) => (
+                    <option key={proj} value={proj}>{proj}</option>
+                  ))}
+                </select>
+              </span>
             </div>
           </div>
 

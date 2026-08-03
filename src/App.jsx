@@ -502,6 +502,9 @@ export default function App() {
         .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; min-width: 0; }
         .toast-box { bottom: 26px; left: 50%; transform: translateX(-50%); }
 
+        .dashboard-recent-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .dashboard-recent-cards { display: none; flex-direction: column; gap: 10px; }
+
         /* 입고 그리드 컨테이너 기본 (PC) */
         .inbound-grid-container {
           display: grid;
@@ -524,6 +527,9 @@ export default function App() {
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+          .dashboard-recent-table { display: none; }
+          .dashboard-recent-cards { display: flex; }
 
           /* 모바일에서 수동 입고 그리드를 1열 수직 배치하여 자재 사진창이 폼 밑으로 오도록 설정 */
           .inbound-grid-container {
@@ -879,37 +885,84 @@ function Dashboard({ items, txs }) {
         {recent.length === 0 ? (
           <EmptyState icon={ScanLine} text="입출고 이력이 아직 없습니다." color="#5E86A3" />
         ) : (
-          <div className="mobile-scroll-table">
-            <table>
-              <thead>
-                <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                  <th>구분</th><th>자재</th><th>수량</th><th>호선</th><th>공정</th><th>담당자</th><th>일시</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((t) => (
-                  <tr key={t.id}>
-                    <td>
+          <>
+            {/* PC/태블릿 테이블 뷰 */}
+            <div className="dashboard-recent-table">
+              <table>
+                <thead>
+                  <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
+                    <th>구분</th><th>자재</th><th>수량</th><th>호선</th><th>공정</th><th>담당자</th><th>일시</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map((t) => (
+                    <tr key={t.id}>
+                      <td>
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "IBM Plex Mono", fontSize: 11,
+                          padding: "3px 8px", borderRadius: 10, fontWeight: 600,
+                          color: t.type === "in" ? "#35D08C" : "#F5A623",
+                          background: t.type === "in" ? "#35D08C1a" : "#F5A6231a",
+                        }}>
+                          {t.type === "in" ? "입고" : "출고"}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 600 }}>{t.itemName}</td>
+                      <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600 }}>{t.qty}{t.unit}</td>
+                      <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.shipNo || t.project || "-"}</td>
+                      <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.process || "-"}</td>
+                      <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.worker || "-"}</td>
+                      <td style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>{t.at}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 모바일 가독성 최적화 카드 뷰 */}
+            <div className="dashboard-recent-cards">
+              {recent.map((t) => (
+                <div
+                  key={t.id}
+                  style={{
+                    background: "#0B1C2C",
+                    border: "1px solid #1F3B54",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{
-                        display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "IBM Plex Mono", fontSize: 11,
-                        padding: "3px 8px", borderRadius: 10, fontWeight: 600,
+                        display: "inline-flex", alignItems: "center", fontFamily: "IBM Plex Mono", fontSize: 10.5,
+                        padding: "2px 6px", borderRadius: 6, fontWeight: 600,
                         color: t.type === "in" ? "#35D08C" : "#F5A623",
                         background: t.type === "in" ? "#35D08C1a" : "#F5A6231a",
                       }}>
                         {t.type === "in" ? "입고" : "출고"}
                       </span>
-                    </td>
-                    <td style={{ fontWeight: 600 }}>{t.itemName}</td>
-                    <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600 }}>{t.qty}{t.unit}</td>
-                    <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.shipNo || t.project || "-"}</td>
-                    <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.process || "-"}</td>
-                    <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.worker || "-"}</td>
-                    <td style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>{t.at}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <span style={{ fontWeight: 700, fontSize: 13.5, color: "#E7EEF5" }}>{t.itemName}</span>
+                    </div>
+                    <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13.5, color: t.type === "in" ? "#35D08C" : "#F5A623" }}>
+                      {t.qty} {t.unit}
+                    </span>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#9FB4C7", paddingTop: 4, borderTop: "1px dashed #16293C" }}>
+                    <span>{t.shipNo || t.project || "미지정"} | {t.process || "미지정"}</span>
+                    <span>{t.worker || "담당자 미입력"}</span>
+                  </div>
+
+                  <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", textAlign: "right" }}>
+                    {t.at}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </Card>
     </div>

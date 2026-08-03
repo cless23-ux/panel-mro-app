@@ -1437,6 +1437,81 @@ function StockView({ items, onSelectItem }) {
   );
 }
 
+/* ---------------- QR 라벨 엑셀 내보내기 ----------------
+   기존 "엑셀 백업 다운로드"(CSV)와는 별개 기능입니다. CSV는 이미지를 담을 수 없어서,
+   이미지 삽입이 가능한 ExcelJS 라이브러리를 CDN에서 동적으로 불러와 사용합니다.
+   (이미 있는 XLSX 로딩 방식과 동일한 패턴 - <script> 태그 동적 삽입) */
+function loadExcelJS() {
+  return new Promise((resolve, reject) => {
+    if (window.ExcelJS) { resolve(window.ExcelJS); return; }
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js";
+    script.async = true;
+    script.onload = () => resolve(window.ExcelJS);
+    script.onerror = () => reject(new Error("ExcelJS 로드 실패"));
+    document.body.appendChild(script);
+  });
+}
+
+function fetchQrBase64(code) {
+  const url = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(code)}`;
+  return fetch(url)
+    .then((res) => {
+      if (!res.ok) throw new Error("QR 이미지 요청 실패");
+      return res.blob();
+    })
+    .then((blob) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    }));
+}
+
+async function buildQrLabelWorkbook(items) {
+  const ExcelJS = await loadExcelJS();
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("QR라벨");
+  sheet.columns = [{ width: 16 }, { width: 13 }, { width: 42 }];
+
+  let row = 1;
+  for (const item of items) {
+    const startRow = row;
+    const rows = [
+      ["자재코드 :", item.code],
+      ["품명   :", item.name],
+      ["규격/사양:", item.spec || ""],
+    ];
+    rows.forEach(([label, value]) => {
+      sheet.getCell(`B${row}`).value = label;
+      sheet.getCell(`C${row}`).value = value;
+      sheet.getCell(`C${row}`).font = { bold: true };
+      ["A", "B", "C"].forEach((col) => {
+        sheet.getCell(`${col}${row}`).border = {
+          top: { style: "thin" }, left: { style: "thin" },
+          bottom: { style: "thin" }, right: { style: "thin" },
+        };
+      });
+      row++;
+    });
+    const endRow = row - 1;
+    sheet.mergeCells(`A${startRow}:A${endRow}`);
+    sheet.getCell(`A${startRow}`).alignment = { vertical: "middle", horizontal: "center" };
+
+    try {
+      const base64 = await fetchQrBase64(item.code);
+      const imageId = workbook.addImage({ base64, extension: "png" });
+      sheet.addImage(imageId, { tl: { col: 0, row: startRow - 1 }, br: { col: 1, row: endRow } });
+    } catch (e) {
+      console.error("QR 이미지 생성 실패:", item.code, e);
+    }
+
+    row = endRow + 2; // 항목 사이 빈 줄 한 칸
+  }
+
+  return workbook;
+}
+
 /* ---------------- 자재 마스터 관리 ---------------- */
 function MasterView({ items, saveItems, notify }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "" };
@@ -1551,6 +1626,29 @@ function MasterView({ items, saveItems, notify }) {
     notify("자재 데이터가 엑셀(CSV)로 다운로드 되었습니다.", "ok");
   };
 
+  // [추가됨] QR 이미지가 셀에 삽입된 엑셀(라벨용) 다운로드
+  const [qrExporting, setQrExporting] = useState(false);
+  const exportQRLabelsExcel = async () => {
+    if (items.length === 0) { notify("등록된 자재가 없습니다.", "err"); return; }
+    setQrExporting(true);
+    notify("QR 라벨 엑셀을 생성 중입니다. 자재가 많으면 시간이 걸릴 수 있어요...", "info");
+    try {
+      const workbook = await buildQrLabelWorkbook(items);
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `QR라벨_${nowStr().split(" ")[0]}.xlsx`;
+      link.click();
+      notify("QR 라벨 엑셀이 다운로드되었습니다.", "ok");
+    } catch (e) {
+      console.error(e);
+      notify("QR 라벨 엑셀 생성 중 오류가 발생했습니다.", "err");
+    } finally {
+      setQrExporting(false);
+    }
+  };
+
   const importExcelFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1652,6 +1750,9 @@ function MasterView({ items, saveItems, notify }) {
 
         <div style={{ display: "flex", gap: 8 }}>
           <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업 다운로드</Btn>
+          <Btn onClick={exportQRLabelsExcel} variant="subtle" disabled={qrExporting}>
+            <QrCode size={15} />{qrExporting ? "생성 중..." : "QR 라벨 엑셀 다운로드"}
+          </Btn>
           <label style={{ display: "inline-block" }}>
             <input type="file" accept=".xlsx, .xls, .csv" onChange={importExcelFile} style={{ display: "none" }} />
             <span style={{

@@ -1361,7 +1361,7 @@ function StockView({ items, onSelectItem }) {
 
   const handleCardClick = (item) => {
     if (window.innerWidth <= 768) {
-      return;
+      return; // 모바일에서는 이미지뷰창(상세 선택) 안 띄우도록 설정
     }
     if (onSelectItem) {
       onSelectItem(item);
@@ -1422,7 +1422,7 @@ function StockView({ items, onSelectItem }) {
             return (
               <Card
                 key={item.code}
-                style={{ padding: 14, cursor: onSelectItem ? "pointer" : "default" }}
+                style={{ padding: 14, cursor: window.innerWidth > 768 && onSelectItem ? "pointer" : "default" }}
                 onClick={() => handleCardClick(item)}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>

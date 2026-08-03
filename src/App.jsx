@@ -123,10 +123,11 @@ function Led({ status, size = 10 }) {
   );
 }
 
-function Card({ children, style, className = "" }) {
+function Card({ children, style, className = "", onClick }) {
   return (
     <div
       className={className}
+      onClick={onClick}
       style={{
         background: "linear-gradient(180deg, #122A3F 0%, #0F2233 100%)",
         border: "1px solid #1F3B54",
@@ -297,6 +298,7 @@ export default function App() {
   const [tab, setTab] = useState("out");
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [stockSelectedItem, setStockSelectedItem] = useState(null);
 
   useEffect(() => {
     if (!window.XLSX) {
@@ -476,8 +478,26 @@ export default function App() {
           <>
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
-            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} />}
-            {tab === "stock" && <StockView items={items} />}
+            {tab === "out" && (
+              <OutForm
+                items={items}
+                saveItems={saveItems}
+                txs={txs}
+                saveTxs={saveTxs}
+                notify={notify}
+                presetItem={stockSelectedItem}
+                onConsumePreset={() => setStockSelectedItem(null)}
+              />
+            )}
+            {tab === "stock" && (
+              <StockView
+                items={items}
+                onSelectItem={(item) => {
+                  setStockSelectedItem(item);
+                  setTab("out");
+                }}
+              />
+            )}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
           </>
@@ -786,7 +806,7 @@ function InForm({ items, saveItems, txs, saveTxs, notify }) {
 }
 
 /* ---------------- 출고 (스캔) ---------------- */
-function OutForm({ items, saveItems, txs, saveTxs, notify }) {
+function OutForm({ items, saveItems, txs, saveTxs, notify, presetItem, onConsumePreset }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
   const [shipNo, setShipNo] = useState("");
@@ -804,6 +824,15 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
   const recentOutTxs = useMemo(() => {
     return txs.filter((t) => t.type === "out").slice(-5).reverse();
   }, [txs]);
+
+  // [추가됨] 재고조회 화면에서 자재를 클릭해 넘어온 경우, 해당 자재를 자동으로 선택
+  useEffect(() => {
+    if (presetItem) {
+      setFound(presetItem);
+      notify(`자재 선택됨: ${presetItem.name}`, "ok");
+      if (onConsumePreset) onConsumePreset();
+    }
+  }, [presetItem]);
 
   const findItemByCode = (rawCode) => {
     if (!rawCode) return null;
@@ -1146,7 +1175,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify }) {
 }
 
 /* ---------------- 재고 조회 ---------------- */
-function StockView({ items }) {
+function StockView({ items, onSelectItem }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -1221,7 +1250,11 @@ function StockView({ items }) {
           {filteredItems.map((item) => {
             const st = statusOf(item);
             return (
-              <Card key={item.code} style={{ padding: 14 }}>
+              <Card
+                key={item.code}
+                style={{ padding: 14, cursor: onSelectItem ? "pointer" : "default" }}
+                onClick={() => onSelectItem && onSelectItem(item)}
+              >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>

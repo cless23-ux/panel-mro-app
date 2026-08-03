@@ -1938,7 +1938,412 @@ function MasterView({ items, saveItems, notify }) {
     </div>
   );
 }
+/* ---------------- 입고 등록 컴포넌트 ---------------- */
+function InboundView({ items, saveItems, notify, supabase }) {
+  // 수동 단일 입고 상태
+  const [selectedCode, setSelectedCode] = useState(items[0]?.code || "");
+  const [qty, setQty] = useState(1);
+  const [person, setPerson] = useState("");
 
+  // QR 명세서 스캔 상태
+  const [invoiceQRInput, setInvoiceQRInput] = useState("");
+  const [invoiceData, setInvoiceData] = useState(null); // { key_code, supplier, list: [{ item, docQty, inputQty, checked }] }
+  const [invoicePerson, setInvoicePerson] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const selectedItem = items.find((i) => i.code === selectedCode);
+
+  // 1. 거래명세서 QR 스캔 처리
+  const handleInvoiceQRScan = async (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const rawVal = e.target.value.trim();
+      if (!rawVal) return;
+
+      // KEY_CODE 파싱 (예: {QR_TYPE:QR040,KEY_CODE:17035} -> 17035)
+      let keyCode = rawVal;
+      const match = rawVal.match(/KEY_CODE\s*:\s*([A-Za-z0-9_-]+)/i);
+      if (match && match[1]) {
+        keyCode = match[1];
+      }
+
+      setLoading(true);
+      notify(`명세서 코드 [${keyCode}] 데이터 조회 중...`, "info");
+
+      try {
+        if (!supabase) {
+          notify("Supabase가 연동되어 있지 않습니다.", "err");
+          setLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("invoices")
+          .select("*")
+          .eq("key_code", keyCode)
+          .single();
+
+        if (error || !data) {
+          notify(`[KEY_CODE: ${keyCode}]에 해당하는 거래명세서를 찾을 수 없습니다.`, "err");
+          setInvoiceData(null);
+        } else {
+          // 체크 여부(checked)와 실입고 수량(inputQty) 상태 초기화
+          const parsedList = (data.items || []).map((invItem) => {
+            const masterItem = items.find((i) => i.code === invItem.code);
+            const defaultQty = Number(invItem.qty) || 0;
+            return {
+              code: invItem.code,
+              masterItem: masterItem || null,
+              docQty: defaultQty,    // 명세서 상 수량
+              inputQty: defaultQty,  // 실제 입고 수량 (수정 가능)
+              checked: true,         // 기본 체크 선택
+            };
+          });
+
+          setInvoiceData({
+            key_code: data.key_code,
+            supplier: data.supplier || "미지정 거래처",
+            list: parsedList,
+          });
+          notify(`명세서 [${keyCode}] 불러오기 완료 (${parsedList.length}건)`, "ok");
+        }
+      } catch (err) {
+        console.error(err);
+        notify("거래명세서 조회 중 오류가 발생했습니다.", "err");
+      } finally {
+        setLoading(false);
+        setInvoiceQRInput("");
+      }
+    }
+  };
+
+  // 개별 항목 체크 토글
+  const toggleItemCheck = (idx) => {
+    if (!invoiceData) return;
+    const nextList = [...invoiceData.list];
+    nextList[idx].checked = !nextList[idx].checked;
+    setInvoiceData({ ...invoiceData, list: nextList });
+  };
+
+  // 전체 항목 선택 / 해제
+  const toggleAllCheck = (e) => {
+    if (!invoiceData) return;
+    const isAll = e.target.checked;
+    const nextList = invoiceData.list.map((item) => ({ ...item, checked: isAll }));
+    setInvoiceData({ ...invoiceData, list: nextList });
+  };
+
+  // 실입고 수량 변경 처리
+  const handleQtyChange = (idx, value) => {
+    if (!invoiceData) return;
+    const nextList = [...invoiceData.list];
+    nextList[idx].inputQty = Number(value) || 0;
+    setInvoiceData({ ...invoiceData, list: nextList });
+  };
+
+  // 2-A. [선택 품목만 입고 확정]
+  const handleSelectedInbound = async () => {
+    if (!invoiceData) return;
+    const targetList = invoiceData.list.filter((i) => i.checked);
+
+    if (targetList.length === 0) {
+      notify("입고 처리할 품목을 1개 이상 선택해 주세요.", "err");
+      return;
+    }
+
+    if (!invoicePerson.trim()) {
+      notify("담당자 이름을 입력해 주세요.", "err");
+      return;
+    }
+
+    const updatedItems = [...items];
+    let updateCount = 0;
+
+    targetList.forEach(({ code, masterItem, inputQty }) => {
+      if (masterItem && inputQty > 0) {
+        const idx = updatedItems.findIndex((i) => i.code === code);
+        if (idx !== -1) {
+          updatedItems[idx] = {
+            ...updatedItems[idx],
+            stock: (Number(updatedItems[idx].stock) || 0) + inputQty,
+          };
+          updateCount++;
+        }
+      }
+    });
+
+    if (updateCount === 0) {
+      notify("선택된 자재 중 마스터에 등록된 자재가 없거나 수량이 0입니다.", "err");
+      return;
+    }
+
+    await saveItems(updatedItems);
+    notify(`선택한 ${updateCount}개 품목 입고 처리 완료!`, "ok");
+    setInvoiceData(null);
+    setInvoicePerson("");
+  };
+
+  // 2-B. [전체 품목 일괄 입고 확정]
+  const handleBatchInbound = async () => {
+    if (!invoiceData || !invoiceData.list || invoiceData.list.length === 0) {
+      notify("입고할 명세서 항목이 없습니다.", "err");
+      return;
+    }
+
+    if (!invoicePerson.trim()) {
+      notify("담당자 이름을 입력해 주세요.", "err");
+      return;
+    }
+
+    const updatedItems = [...items];
+    let updateCount = 0;
+
+    invoiceData.list.forEach(({ code, masterItem, docQty }) => {
+      if (masterItem && docQty > 0) {
+        const idx = updatedItems.findIndex((i) => i.code === code);
+        if (idx !== -1) {
+          updatedItems[idx] = {
+            ...updatedItems[idx],
+            stock: (Number(updatedItems[idx].stock) || 0) + docQty,
+          };
+          updateCount++;
+        }
+      }
+    });
+
+    if (updateCount === 0) {
+      notify("마스터에 등록된 자재가 없습니다.", "err");
+      return;
+    }
+
+    await saveItems(updatedItems);
+    notify(`명세서 [${invoiceData.key_code}] 전체 ${updateCount}건 일괄 입고 완료!`, "ok");
+    setInvoiceData(null);
+    setInvoicePerson("");
+  };
+
+  // 3. 개별 자재 수동 입고 확정
+  const handleSingleInbound = async () => {
+    if (!selectedItem) {
+      notify("자재를 선택하세요.", "err");
+      return;
+    }
+    const inputQty = Number(qty);
+    if (!inputQty || inputQty <= 0) {
+      notify("올바른 수량을 입력하세요.", "err");
+      return;
+    }
+    if (!person.trim()) {
+      notify("담당자 이름을 입력하세요.", "err");
+      return;
+    }
+
+    const nextItems = items.map((i) =>
+      i.code === selectedItem.code ? { ...i, stock: (Number(i.stock) || 0) + inputQty } : i
+    );
+
+    await saveItems(nextItems);
+    notify(`[${selectedItem.name}] ${inputQty}${selectedItem.unit} 입고 완료!`, "ok");
+    setQty(1);
+  };
+
+  const isAllChecked = invoiceData?.list.every((i) => i.checked);
+
+  return (
+    <div>
+      <Header title="입고 등록" subtitle="거래명세서 QR 스캔 (선택/일괄 입고) 및 개별 자재 입고 처리" />
+
+      {/* --- 상단: 거래명세서 QR 스캔 영역 --- */}
+      <Card style={{ padding: 20, marginBottom: 24, border: "2px solid #38bdf8", background: "#0b172a" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "1.1rem", fontWeight: 600, color: "#38bdf8", marginBottom: 12 }}>
+          <QrCode size={24} />
+          <span>거래명세서 QR 스캔</span>
+        </div>
+        <input
+          type="text"
+          value={invoiceQRInput}
+          onChange={(e) => setInvoiceQRInput(e.target.value)}
+          onKeyDown={handleInvoiceQRScan}
+          placeholder="거래명세서 우측 상단의 QR코드를 스캔하세요..."
+          disabled={loading}
+          style={{
+            width: "100%",
+            height: 48,
+            fontSize: "1.05rem",
+            fontWeight: "bold",
+            padding: "0 16px",
+            border: "1px solid #0284c7",
+            borderRadius: 8,
+            backgroundColor: "#030712",
+            color: "#ffffff",
+            outline: "none",
+            fontFamily: "'IBM Plex Mono', monospace",
+          }}
+          autoComplete="off"
+        />
+
+        {/* QR 스캔 결과 명세서 상세 목록 */}
+        {invoiceData && (
+          <div style={{ marginTop: 20, background: "#0f172a", padding: 16, borderRadius: 8, border: "1px solid #1e293b" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div>
+                <span style={{ fontSize: 16, fontWeight: "bold", color: "#f59e0b" }}>
+                  명세서 KEY: {invoiceData.key_code}
+                </span>
+                <span style={{ marginLeft: 12, fontSize: 13, color: "#94a3b8" }}>
+                  공급자: {invoiceData.supplier}
+                </span>
+              </div>
+              <Btn onClick={() => setInvoiceData(null)} variant="ghost" style={{ fontSize: 12, padding: "4px 8px" }}>
+                닫기 / 취소
+              </Btn>
+            </div>
+
+            <table style={{ width: "100%", textAlign: "left", marginBottom: 16 }}>
+              <thead>
+                <tr style={{ color: "#64748b", borderBottom: "1px solid #334155", fontSize: 12 }}>
+                  <th style={{ padding: 8, width: 40, textAlign: "center" }}>
+                    <input type="checkbox" checked={isAllChecked} onChange={toggleAllCheck} />
+                  </th>
+                  <th>자재코드</th>
+                  <th>품명 / 규격</th>
+                  <th>명세서 수량</th>
+                  <th style={{ width: 110 }}>실입고 수량</th>
+                  <th>현재고 → 입고 후</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoiceData.list.map(({ code, masterItem, docQty, inputQty, checked }, idx) => {
+                  const currentStock = masterItem ? Number(masterItem.stock) || 0 : 0;
+                  const afterStock = currentStock + (checked ? inputQty : 0);
+                  return (
+                    <tr key={idx} style={{ borderBottom: "1px solid #1e293b", fontSize: 13, opacity: checked ? 1 : 0.4 }}>
+                      <td style={{ padding: 8, textAlign: "center" }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleItemCheck(idx)} />
+                      </td>
+                      <td style={{ fontFamily: "IBM Plex Mono", color: "#38bdf8" }}>{code}</td>
+                      <td>{masterItem ? masterItem.name : <span style={{ color: "#ef4444" }}>미등록 자재</span>}</td>
+                      <td style={{ color: "#94a3b8" }}>{docQty} EA</td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          value={inputQty}
+                          disabled={!checked}
+                          onChange={(e) => handleQtyChange(idx, e.target.value)}
+                          style={{
+                            ...inputStyle,
+                            width: 80,
+                            padding: "4px 8px",
+                            fontSize: 13,
+                            borderColor: checked ? "#38bdf8" : "#334155",
+                          }}
+                        />
+                      </td>
+                      <td style={{ fontFamily: "IBM Plex Mono" }}>
+                        {masterItem ? `${currentStock} → ${afterStock}` : "-"}
+                      </td>
+                      <td>
+                        {masterItem ? (
+                          <span style={{ color: "#10b981", fontSize: 12 }}>✓ 정상</span>
+                        ) : (
+                          <span style={{ color: "#ef4444", fontSize: 12 }}>✕ 마스터 미등록</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {/* 하단 담당자 입력 및 동작 버튼 */}
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+              <input
+                type="text"
+                value={invoicePerson}
+                onChange={(e) => setInvoicePerson(e.target.value)}
+                placeholder="담당자 이름 입력 *"
+                style={{ ...inputStyle, width: 180 }}
+              />
+
+              <div style={{ display: "flex", gap: 8 }}>
+                {/* 1. 선택 품목만 입고 */}
+                <Btn onClick={handleSelectedInbound} style={{ backgroundColor: "#0284c7", color: "#ffffff", fontWeight: "bold" }}>
+                  <Plus size={16} /> 선택 품목 입고 확정
+                </Btn>
+
+                {/* 2. 전체 품목 일괄 입고 */}
+                <Btn onClick={handleBatchInbound} style={{ backgroundColor: "#f59e0b", color: "#000000", fontWeight: "bold" }}>
+                  <Plus size={16} /> 전체 품목 일괄 입고
+                </Btn>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* --- 하단: 개별 자재 수동 입고 영역 --- */}
+      <Card style={{ maxWidth: 600, margin: "0 auto", padding: 24 }}>
+        <h3 style={{ margin: "0 0 16px 0", color: "#94a3b8", fontSize: 14 }}>개별 자재 수동 입고</h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <Field label="자재 검색 선택">
+            <select
+              value={selectedCode}
+              onChange={(e) => setSelectedCode(e.target.value)}
+              style={{ ...inputStyle, width: "100%" }}
+            >
+              {items.map((i) => (
+                <option key={i.code} value={i.code}>
+                  [{i.code}] {i.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {selectedItem && (
+            <div style={{ fontSize: 12, color: "#64748b" }}>
+              규격: {selectedItem.spec || "-"} | 업체: {selectedItem.manufacturer || "-"} | 위치: {selectedItem.location || "-"}
+            </div>
+          )}
+
+          <Field label="입고 수량">
+            <input
+              type="number"
+              min="1"
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+              style={inputStyle}
+            />
+          </Field>
+
+          <Field label="담당자">
+            <input
+              type="text"
+              value={person}
+              onChange={(e) => setPerson(e.target.value)}
+              placeholder="이름 입력"
+              style={inputStyle}
+            />
+          </Field>
+
+          {selectedItem && (
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: "1px solid #1e293b", fontWeight: "bold" }}>
+              <span>현재고 → 입고 후</span>
+              <span style={{ color: "#10b981" }}>
+                {selectedItem.stock}EA → {(Number(selectedItem.stock) || 0) + (Number(qty) || 0)}EA
+              </span>
+            </div>
+          )}
+
+          <Btn onClick={handleSingleInbound} style={{ height: 44, fontSize: 15 }}>
+            ↓ 입고 확정
+          </Btn>
+        </div>
+      </Card>
+    </div>
+  );
+}
 function TrashView({ items, saveItems, notify }) {
   const [trashItems, setTrashItems] = useState([]);
 

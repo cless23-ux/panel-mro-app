@@ -1471,6 +1471,28 @@ function MasterView({ items, saveItems, notify }) {
     setEditingSafetyValue("");
   };
 
+  // [추가됨] 위치 인라인 수정용 상태
+  const [editingLocationCode, setEditingLocationCode] = useState(null);
+  const [editingLocationValue, setEditingLocationValue] = useState("");
+
+  const startEditLocation = (item) => {
+    setEditingLocationCode(item.code);
+    setEditingLocationValue(item.location || "");
+  };
+
+  const cancelEditLocation = () => {
+    setEditingLocationCode(null);
+    setEditingLocationValue("");
+  };
+
+  const commitEditLocation = async (code) => {
+    const nextItems = items.map((i) => (i.code === code ? { ...i, location: editingLocationValue.trim() } : i));
+    await saveItems(nextItems);
+    notify("위치가 수정되었습니다.", "ok");
+    setEditingLocationCode(null);
+    setEditingLocationValue("");
+  };
+
   // 🔴 🔥 [추가된 신규 자재 등록 함수]
   const addItem = async () => {
     if (!form.code.trim() || !form.name.trim()) {
@@ -1735,7 +1757,30 @@ function MasterView({ items, saveItems, notify }) {
                       </span>
                     )}
                   </td>
-                  <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.location || "-"}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>
+                    {editingLocationCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingLocationValue}
+                        onChange={(e) => setEditingLocationValue(e.target.value)}
+                        onBlur={() => commitEditLocation(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditLocation(i.code);
+                          if (e.key === "Escape") cancelEditLocation();
+                        }}
+                        style={{ ...inputStyle, width: 84, padding: "4px 8px", fontSize: 13 }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditLocation(i)}
+                        title="클릭하여 위치 수정"
+                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
+                      >
+                        {i.location || "-"}
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <button
                       onClick={() => setQrModalItem(i)}

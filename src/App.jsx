@@ -587,7 +587,6 @@ export default function App() {
           <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
             선박 생산부
           </span>
-          {/* 상부 로고 옆 자재마스터 아이콘 버튼 */}
           <button
             onClick={() => setTab("master")}
             title="자재마스터 이동"
@@ -600,7 +599,7 @@ export default function App() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: tab === "master" ? "#F5A623" : "#F5A623",
+              color: "#F5A623",
               marginLeft: 4
             }}
           >
@@ -625,7 +624,7 @@ export default function App() {
         ) : (
           <>
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
-            {tab === "in" && <InboundView items={items} saveItems={saveItems} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
+            {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} />}
             {tab === "stock" && <StockView items={items} onSelectItem={(item) => { setPresetItem(item); setTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
@@ -1565,7 +1564,6 @@ function MasterView({ items, saveItems, notify }) {
     }
   };
 
-  // 인라인 수정 상태들
   const [editingSafetyCode, setEditingSafetyCode] = useState(null);
   const [editingSafetyValue, setEditingSafetyValue] = useState("");
 
@@ -2091,7 +2089,6 @@ function MasterView({ items, saveItems, notify }) {
             const st = statusOf(i);
             return (
               <Card key={i.code} style={{ padding: 14 }}>
-                {/* 카드 상단 헤더: 사진, 품명, 코드, 버튼들 */}
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
                   {i.image_url ? (
                     <img
@@ -2134,7 +2131,6 @@ function MasterView({ items, saveItems, notify }) {
                   </div>
                 </div>
 
-                {/* 카드 중간: 거래처 및 위치 */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, background: "#0B1C2C", padding: "8px 10px", borderRadius: 6, fontSize: 12, marginBottom: 10 }}>
                   <div>
                     <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>거래처</span>
@@ -2181,7 +2177,6 @@ function MasterView({ items, saveItems, notify }) {
                   </div>
                 </div>
 
-                {/* 카드 하단: 현재고 / 안전재고 현황 */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #1A3146", paddingTop: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <Led status={st} size={8} />
@@ -2245,8 +2240,9 @@ function MasterView({ items, saveItems, notify }) {
     </div>
   );
 }
-/* ---------------- 입고 등록 ---------------- */
-function InboundView({ items, saveItems, notify, supabase }) {
+
+/* ---------------- 입고 등록 (수정: 입고 이력 저장 및 철회/원복 기능 추가) ---------------- */
+function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
   const [selectedCode, setSelectedCode] = useState(items[0]?.code || "");
   const [qty, setQty] = useState(1);
   const [person, setPerson] = useState("");
@@ -2263,6 +2259,11 @@ function InboundView({ items, saveItems, notify, supabase }) {
   const [quickUnit, setQuickUnit] = useState("EA");
 
   const selectedItem = items.find((i) => i.code === selectedCode);
+
+  // 최근 등록된 입고 목록 (상위 5개)
+  const recentInTxs = useMemo(() => {
+    return (txs || []).filter((t) => t.type === "in").slice(-5).reverse();
+  }, [txs]);
 
   useEffect(() => {
     let html5QrCode = null;
@@ -2432,6 +2433,7 @@ function InboundView({ items, saveItems, notify, supabase }) {
     setQuickRegItem(null);
   };
 
+  // 선택 항목 입고 처리 (트랜잭션 기록 추가)
   const handleSelectedInbound = async () => {
     if (!invoiceData) return;
     const targetList = invoiceData.list.filter((i) => i.checked);
@@ -2447,6 +2449,7 @@ function InboundView({ items, saveItems, notify, supabase }) {
     }
 
     const updatedItems = [...items];
+    const newTxs = [];
     let updateCount = 0;
 
     targetList.forEach(({ code, masterItem, inputQty }) => {
@@ -2458,6 +2461,17 @@ function InboundView({ items, saveItems, notify, supabase }) {
             stock: (Number(updatedItems[idx].stock) || 0) + inputQty,
           };
           updateCount++;
+
+          newTxs.push({
+            id: uid("IN"),
+            type: "in",
+            itemCode: masterItem.code,
+            itemName: masterItem.name,
+            unit: masterItem.unit,
+            qty: inputQty,
+            worker: invoicePerson,
+            at: nowStr(),
+          });
         }
       }
     });
@@ -2468,11 +2482,14 @@ function InboundView({ items, saveItems, notify, supabase }) {
     }
 
     await saveItems(updatedItems);
+    if (saveTxs) await saveTxs([...(txs || []), ...newTxs]);
+
     notify(`선택한 ${updateCount}개 품목 입고 처리 완료!`, "ok");
     setInvoiceData(null);
     setInvoicePerson("");
   };
 
+  // 거래명세서 일괄 입고 (트랜잭션 기록 추가)
   const handleBatchInbound = async () => {
     if (!invoiceData || !invoiceData.list || invoiceData.list.length === 0) {
       notify("입고할 명세서 항목이 없습니다.", "err");
@@ -2485,6 +2502,7 @@ function InboundView({ items, saveItems, notify, supabase }) {
     }
 
     const updatedItems = [...items];
+    const newTxs = [];
     let updateCount = 0;
 
     invoiceData.list.forEach(({ code, masterItem, docQty }) => {
@@ -2496,6 +2514,17 @@ function InboundView({ items, saveItems, notify, supabase }) {
             stock: (Number(updatedItems[idx].stock) || 0) + docQty,
           };
           updateCount++;
+
+          newTxs.push({
+            id: uid("IN"),
+            type: "in",
+            itemCode: masterItem.code,
+            itemName: masterItem.name,
+            unit: masterItem.unit,
+            qty: docQty,
+            worker: invoicePerson,
+            at: nowStr(),
+          });
         }
       }
     });
@@ -2506,11 +2535,14 @@ function InboundView({ items, saveItems, notify, supabase }) {
     }
 
     await saveItems(updatedItems);
+    if (saveTxs) await saveTxs([...(txs || []), ...newTxs]);
+
     notify(`명세서 [${invoiceData.key_code}] 전체 ${updateCount}건 일괄 입고 완료!`, "ok");
     setInvoiceData(null);
     setInvoicePerson("");
   };
 
+  // 단일 개별 입고 (트랜잭션 기록 추가)
   const handleSingleInbound = async () => {
     if (!selectedItem) {
       notify("자재를 선택하세요.", "err");
@@ -2530,9 +2562,51 @@ function InboundView({ items, saveItems, notify, supabase }) {
       i.code === selectedItem.code ? { ...i, stock: (Number(i.stock) || 0) + inputQty } : i
     );
 
+    const tx = {
+      id: uid("IN"),
+      type: "in",
+      itemCode: selectedItem.code,
+      itemName: selectedItem.name,
+      unit: selectedItem.unit,
+      qty: inputQty,
+      worker: person,
+      at: nowStr(),
+    };
+
     await saveItems(nextItems);
+    if (saveTxs) await saveTxs([...(txs || []), tx]);
+
     notify(`[${selectedItem.name}] ${inputQty}${selectedItem.unit} 입고 완료!`, "ok");
     setQty(1);
+  };
+
+  // 입고 철회(원복 및 차감) 함수
+  const cancelInTx = async (targetTx) => {
+    if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 입고 내역을 철회(재고 차감)하시겠습니까?`)) {
+      return;
+    }
+
+    const nextItems = items.map((i) => {
+      if (String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()) {
+        return { ...i, stock: Math.max(0, Number(i.stock) - Number(targetTx.qty)) };
+      }
+      return i;
+    });
+
+    const nextTxs = (txs || []).filter((t) => t.id !== targetTx.id);
+
+    await saveItems(nextItems);
+
+    if (supabase) {
+      const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
+      if (error) {
+        notify("이력 원복 중 오류가 발생했습니다.", "err");
+        return;
+      }
+    }
+
+    if (saveTxs) await saveTxs(nextTxs);
+    notify(`입고가 철회되어 재고 ${targetTx.qty}${targetTx.unit}가 차감되었습니다.`, "info");
   };
 
   const isAllChecked = invoiceData?.list.every((i) => i.checked);
@@ -2787,6 +2861,44 @@ function InboundView({ items, saveItems, notify, supabase }) {
             ↓ 입고 확정
           </Btn>
         </div>
+      </Card>
+
+      {/* 입고 화면 하단: 최근 입고 내역 및 철회 버튼 */}
+      <Card style={{ padding: 16, marginTop: 20 }}>
+        <SectionLabel>최근 등록된 입고 이력 (잘못 등록 시 철회)</SectionLabel>
+        {recentInTxs.length === 0 ? (
+          <EmptyState icon={ScanLine} text="최근 등록된 입고 내역이 없습니다." color="#5E86A3" />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+            {recentInTxs.map((t) => (
+              <div
+                key={t.id}
+                style={{
+                  background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+                  padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#35D08C" }}>
+                    {t.itemName} ({t.qty} {t.unit})
+                  </div>
+                  <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
+                    {t.at} | 담당자: {t.worker || "-"}
+                  </div>
+                </div>
+                <button
+                  onClick={() => cancelInTx(t)}
+                  style={{
+                    background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
+                    padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, flexShrink: 0
+                  }}
+                >
+                  입고 철회
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );

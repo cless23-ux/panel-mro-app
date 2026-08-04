@@ -977,7 +977,7 @@ export default function App() {
           }
           .mobile-bottom-nav {
             height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
-            grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
+            grid-template-columns: repeat(3, 1fr); flex-shrink: 0; z-index: 10;
           }
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }

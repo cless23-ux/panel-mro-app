@@ -391,7 +391,13 @@ function Led({ status, size = 10 }) {
   );
 }
 
-const Card = React.forwardRef(function Card({ children, style, className = "", onClick }, ref) {
+const Card = React.forwardRef(function Card({ children, style, className = "", onClick, neon }, ref) {
+  const neonStyle = neon
+    ? {
+        border: `1px solid ${neon}70`,
+        boxShadow: `0 0 0 1px ${neon}22, 0 0 20px -9px ${neon}80, inset 0 0 26px -22px ${neon}`,
+      }
+    : null;
   return (
     <div
       ref={ref}
@@ -401,6 +407,7 @@ const Card = React.forwardRef(function Card({ children, style, className = "", o
         background: "linear-gradient(180deg, #122A3F 0%, #0F2233 100%)",
         border: "1px solid #1F3B54",
         borderRadius: 12,
+        ...neonStyle,
         ...style,
       }}
     >
@@ -1916,7 +1923,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     <div>
       <Header title="출고 (QR / 바코드 스캔)" subtitle="스캔으로 빠르게 불출 처리" />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
-        <Card style={{ padding: 22 }}>
+        <Card neon="#F5A623" style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
           {!isScanning ? (
             <div style={{
@@ -2006,7 +2013,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           </div>
         )}
 
-        <Card ref={infoCardRef} style={{ padding: 22 }}>
+        <Card ref={infoCardRef} neon="#F5A623" style={{ padding: 22 }}>
           <SectionLabel>2. 불출 정보 입력</SectionLabel>
           {!found ? (
             <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 선택해주세요." color="#5E86A3" />
@@ -2100,10 +2107,9 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             </div>
           )}
         </Card>
-      </div>
 
-      <Card style={{ padding: 16, marginTop: 20 }}>
-        <SectionLabel>최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)</SectionLabel>
+        <Card neon="#F5A623" style={{ padding: 16 }}>
+          <SectionLabel>최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)</SectionLabel>
         {recentOutTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
         ) : (
@@ -2160,7 +2166,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             ))}
           </div>
         )}
-      </Card>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -3536,7 +3543,7 @@ keyCode = String(keyCode)
     <div>
       <Header title="입고 등록" subtitle="거래명세서 QR 스캔 (선택/일괄 입고) 및 개별 자재 입고 처리" />
 
-      <Card style={{ padding: 16, marginBottom: 20, border: "2px solid #38bdf8", background: "#0b172a" }}>
+      <Card neon="#38bdf8" style={{ padding: 16, marginBottom: 20, border: "2px solid #38bdf8", background: "#0b172a" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "1.05rem", fontWeight: 600, color: "#38bdf8", marginBottom: 12 }}>
           <QrCode size={22} />
           <span>거래명세서 QR 스캔</span>
@@ -3742,7 +3749,7 @@ keyCode = String(keyCode)
         </div>
       )}
 
-      <Card style={{ maxWidth: 760, margin: "0 auto", padding: 22 }}>
+      <Card neon="#35D08C" style={{ maxWidth: 760, margin: "0 auto", padding: 22 }}>
         <h3 style={{ margin: "0 0 16px 0", color: "#94a3b8", fontSize: 14 }}>개별 자재 수동 입고</h3>
         
         <div className="inbound-grid-container">
@@ -3871,7 +3878,7 @@ keyCode = String(keyCode)
         </div>
       </Card>
 
-      <Card style={{ padding: 16, marginTop: 20 }}>
+      <Card neon="#35D08C" style={{ padding: 16, marginTop: 20 }}>
         <SectionLabel>최근 등록된 입고 이력 (잘못 등록 시 철회)</SectionLabel>
         {recentInTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 입고 내역이 없습니다." color="#5E86A3" />

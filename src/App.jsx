@@ -7,17 +7,14 @@ import {
   AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star
 } from "lucide-react";
 import { supabase } from './supabaseClient';
-
 /* ---------------- 폰트 및 초기 데이터 ---------------- */
 const FONT_LINK =
 "Rajdhani:wght@500;600;700|Oswald:wght@500;600;700|IBM+Plex+Mono:wght@400;500;600|Inter:wght@400;500;600;700";
-
 const seedItems = [
   { code: "BB-C1100-T3", name: "부스바 (동바)", spec: "C1100 T3 x 20mm", unit: "m", stock: 62, safety: 50, location: "A-01", manufacturer: "대한전선", category: "부스바", image_url: "" },
   { code: "RT-2.5SQ", name: "압착단자", spec: "Ring Terminal 2.5 sq", unit: "EA", stock: 840, safety: 1000, location: "B-04", manufacturer: "KEC", category: "압착단자", image_url: "" },
   { code: "CG-M20-BR", name: "케이블 글랜드", spec: "Brass Gland M20", unit: "EA", stock: 260, safety: 200, location: "B-07", manufacturer: "동아베스텍", category: "케이블 글랜드", image_url: "" },
 ];
-
 function uid(p = "T") {
   return `${p}-${Date.now().toString(36)}${Math.floor(Math.random() * 900 + 100)}`;
 }
@@ -38,11 +35,9 @@ function timeAgoStr(isoOrDate) {
   if (diffHour < 24) return `${diffHour}시간 전`;
   return `${Math.floor(diffHour / 24)}일 전`;
 }
-
 /* ---------------- 이미지 압축 및 Supabase 업로드 유틸 ---------------- */
 async function compressAndUploadImage(file, itemCode) {
   if (!supabase) throw new Error("Supabase 클라이언트가 설정되지 않았습니다.");
-
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -58,40 +53,33 @@ async function compressAndUploadImage(file, itemCode) {
         }
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
-
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
         canvas.toBlob(
           async (blob) => {
             if (!blob) {
               reject(new Error("이미지 압축 실패"));
               return;
             }
-
             try {
               const fileExt = "jpg";
               const safeCode = String(itemCode || "item").replace(/[^a-zA-Z0-9_-]/g, "_");
               const fileName = `${safeCode}_${Date.now()}.${fileExt}`;
               const filePath = `items/${fileName}`;
-
               const { data, error } = await supabase.storage
                 .from("item-images")
                 .upload(filePath, blob, {
                   contentType: "image/jpeg",
                   upsert: true,
                 });
-
               if (error) {
                 console.error("Storage upload error:", error);
                 reject(error);
                 return;
               }
-
               const { data: publicUrlData } = supabase.storage
                 .from("item-images")
                 .getPublicUrl(filePath);
-
               resolve(publicUrlData.publicUrl);
             } catch (err) {
               reject(err);
@@ -106,15 +94,12 @@ async function compressAndUploadImage(file, itemCode) {
     reader.onerror = (err) => reject(err);
   });
 }
-
 const POLL_MS = 8000;
-
 /* ---------------- Supabase 연동 useStorage Hook ---------------- */
 function useStorage(key, initial) {
   const [value, setValue] = useState(initial);
   const [loaded, setLoaded] = useState(false);
   const tableName = key === "panel:items" ? "items" : "transactions";
-
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
@@ -148,13 +133,11 @@ function useStorage(key, initial) {
       if (!silent) setLoaded(true);
     }
   }, [key, tableName]);
-
   useEffect(() => {
     load();
     const t = setInterval(() => load(true), POLL_MS);
     return () => clearInterval(t);
   }, [load]);
-
   const save = useCallback(async (next) => {
     setValue(next);
     try {
@@ -170,17 +153,13 @@ function useStorage(key, initial) {
       console.error("Storage save error:", e);
     }
   }, [key, tableName]);
-
   return [value, save, loaded, load];
 }
-
 /* ---------------- 긴급자재발주요청 ---------------- */
 const URGENT_REQUESTS_CACHE_KEY = "panel:urgentRequests";
-
 function useUrgentRequests() {
   const [requests, setRequests] = useState([]);
   const [loaded, setLoaded] = useState(false);
-
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
@@ -203,13 +182,11 @@ function useUrgentRequests() {
       if (!silent) setLoaded(true);
     }
   }, []);
-
   useEffect(() => {
     load();
     const t = setInterval(() => load(true), POLL_MS);
     return () => clearInterval(t);
   }, [load]);
-
   const addRequest = useCallback(async ({ itemCode, itemName, requester, note }) => {
     const newReq = {
       id: uid("URG"),
@@ -235,7 +212,6 @@ function useUrgentRequests() {
     }
     return newReq;
   }, []);
-
   const resolveRequest = useCallback(async (id) => {
     const resolvedAt = new Date().toISOString();
     setRequests((prev) => {
@@ -251,10 +227,8 @@ function useUrgentRequests() {
       console.error("Urgent request resolve error:", e);
     }
   }, []);
-
   return { requests, loaded, addRequest, resolveRequest, reload: load };
 }
-
 const OUT_FORM_SETTINGS_ROW_ID = 1;
 const DEFAULT_OUT_FORM_SETTINGS = {
   ships: [],
@@ -263,11 +237,9 @@ const DEFAULT_OUT_FORM_SETTINGS = {
   workers: ["울산에이원", "부산에이원", "본사에이원", "수림기전", "생산팀"],
 };
 const OUT_FORM_SETTINGS_CACHE_KEY = "panel:outFormSettings";
-
 /* ---------------- 즐겨찾기 자재 (기기 로컬 전용, 서버 미동기화) ---------------- */
 const FAVORITE_ITEMS_KEY = "panel:favoriteItemCodes";
 const FAVORITE_ITEMS_LIMIT = 15;
-
 function readFavoriteCodes() {
   try {
     const raw = localStorage.getItem(FAVORITE_ITEMS_KEY);
@@ -277,12 +249,9 @@ function readFavoriteCodes() {
     return [];
   }
 }
-
 function useFavoriteItems(notify) {
   const [favoriteCodes, setFavoriteCodes] = useState(readFavoriteCodes);
-
   const isFavorite = useCallback((code) => favoriteCodes.includes(String(code).trim()), [favoriteCodes]);
-
   const toggleFavorite = useCallback((code) => {
     const cleanCode = String(code).trim();
     setFavoriteCodes((prev) => {
@@ -301,14 +270,11 @@ function useFavoriteItems(notify) {
       return next;
     });
   }, [notify]);
-
   return { favoriteCodes, isFavorite, toggleFavorite };
 }
-
 function useOutFormSettings() {
   const [settings, setSettings] = useState(DEFAULT_OUT_FORM_SETTINGS);
   const [loaded, setLoaded] = useState(false);
-
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
@@ -338,13 +304,11 @@ function useOutFormSettings() {
       if (!silent) setLoaded(true);
     }
   }, []);
-
   useEffect(() => {
     load();
     const t = setInterval(() => load(true), POLL_MS);
     return () => clearInterval(t);
   }, [load]);
-
   const saveCategory = useCallback(async (category, nextList) => {
     setSettings((prev) => {
       const next = { ...prev, [category]: nextList };
@@ -361,10 +325,8 @@ function useOutFormSettings() {
       console.error("Out form settings save error:", e);
     }
   }, []);
-
   return [settings, saveCategory, loaded];
 }
-
 function statusOf(item) {
   const safety = Number(item.safety) || 0;
   const stock = Number(item.stock) || 0;
@@ -372,13 +334,11 @@ function statusOf(item) {
   if (stock < safety * 0.5) return "warn";
   return "ok";
 }
-
 const STATUS_META = {
   ok: { label: "정상", color: "#35D08C" },
   warn: { label: "주의", color: "#F5A623" },
   danger: { label: "부족", color: "#EF5350" },
 };
-
 function Led({ status, size = 10 }) {
   const c = STATUS_META[status]?.color || "#35D08C";
   return (
@@ -390,7 +350,6 @@ function Led({ status, size = 10 }) {
     />
   );
 }
-
 const Card = React.forwardRef(function Card({ children, style, className = "", onClick }, ref) {
   return (
     <div
@@ -408,7 +367,6 @@ const Card = React.forwardRef(function Card({ children, style, className = "", o
     </div>
   );
 });
-
 function SectionLabel({ children }) {
   return (
     <div style={{
@@ -421,7 +379,6 @@ function SectionLabel({ children }) {
     </div>
   );
 }
-
 function Btn({ children, onClick, variant = "primary", style, disabled, type = "button" }) {
   const variants = {
     primary: { background: "#F5A623", color: "#0A1622", border: "1px solid #F5A623" },
@@ -447,7 +404,6 @@ function Btn({ children, onClick, variant = "primary", style, disabled, type = "
     </button>
   );
 }
-
 function Field({ label, children }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: "Inter, sans-serif" }}>
@@ -456,15 +412,12 @@ function Field({ label, children }) {
     </label>
   );
 }
-
 const inputStyle = {
   background: "#0B1C2C", border: "1px solid #26445F", borderRadius: 8, color: "#E7EEF5",
   padding: "12px 14px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", outline: "none", width: "100%",
 };
-
 /* ---------------- 긴급 발주 요청 버튼 + 모달 ---------------- */
 const LAST_REQUESTER_KEY = "panel:lastRequester";
-
 function UrgentRequestButton({ item, requests, addRequest, notify, size = "normal" }) {
   const [open, setOpen] = useState(false);
   const [requester, setRequester] = useState(() => {
@@ -472,13 +425,11 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
   });
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
   const existingPending = useMemo(() => {
     return (requests || []).find(
       (r) => r.status === "pending" && String(r.item_code).trim() === String(item.code).trim()
     );
   }, [requests, item.code]);
-
   const submit = async () => {
     if (!requester.trim()) { notify("요청자 이름을 입력해주세요.", "err"); return; }
     setSubmitting(true);
@@ -489,7 +440,6 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
     setNote("");
     notify(`🚨 ${item.name} 긴급 발주 요청을 보냈습니다.`, "ok");
   };
-
   return (
     <>
       <button
@@ -505,7 +455,6 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
       >
         <AlertTriangle size={size === "small" ? 11 : 13} />긴급요청
       </button>
-
       {open && (
         <div
           onClick={(e) => { e.stopPropagation(); setOpen(false); }}
@@ -529,7 +478,6 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
             <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
               코드: {item.code} · 현재고 {item.stock}{item.unit}
             </div>
-
             {existingPending && (
               <div style={{
                 fontSize: 11.5, color: "#F5A623", background: "#F5A62318", border: "1px solid #F5A62344",
@@ -538,7 +486,6 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
                 ⚠ {existingPending.requester}님이 {timeAgoStr(existingPending.created_at)} 이미 요청했어요. 그래도 추가로 요청할 수 있어요.
               </div>
             )}
-
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
               <Field label="요청자 이름">
                 <input style={inputStyle} value={requester} onChange={(e) => setRequester(e.target.value)} placeholder="이름 입력" />
@@ -547,7 +494,6 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
                 <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 이번 주 내 필요" />
               </Field>
             </div>
-
             <div style={{ display: "flex", gap: 8 }}>
               <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setOpen(false)}>취소</Btn>
               <Btn
@@ -564,7 +510,6 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
     </>
   );
 }
-
 function Select({ value, onChange, options, style }) {
   return (
     <select value={value} onChange={onChange} style={{ ...inputStyle, ...style }}>
@@ -572,18 +517,15 @@ function Select({ value, onChange, options, style }) {
     </select>
   );
 }
-
 function AutocompleteInput({ value, onChange, options, placeholder }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
-
   const filtered = useMemo(() => {
     const list = options || [];
     if (!value) return list.slice(0, 30);
     const q = value.toLowerCase().trim();
     return list.filter((o) => String(o).toLowerCase().includes(q)).slice(0, 30);
   }, [options, value]);
-
   useEffect(() => {
     const handleOutside = (e) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
@@ -591,7 +533,6 @@ function AutocompleteInput({ value, onChange, options, placeholder }) {
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
   }, []);
-
   return (
     <div ref={wrapRef} style={{ position: "relative" }}>
       <input
@@ -625,7 +566,6 @@ function AutocompleteInput({ value, onChange, options, placeholder }) {
     </div>
   );
 }
-
 function Toast({ toast }) {
   if (!toast) return null;
   const colors = { ok: "#35D08C", err: "#EF5350", info: "#F5A623" };
@@ -641,30 +581,24 @@ function Toast({ toast }) {
     </div>
   );
 }
-
 export default function App() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
   const { requests: urgentRequests, addRequest: addUrgentRequest, resolveRequest: resolveUrgentRequest } = useUrgentRequests();
   
-  /* 초기 열림 탭을 대시보드("dashboard")로 변경 */
   const [tab, setTab] = useState("dashboard");
   const [presetItem, setPresetItem] = useState(null);
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
-
   const notify = useCallback((msg, type = "ok") => {
     setToast({ text: msg, type });
     setTimeout(() => { setToast(null); }, 2500);
   }, []);
-
   useEffect(() => {
     window.history.pushState({ page: "app" }, "", window.location.href);
-
     const handlePopState = (e) => {
       if (backPressedRef.current) {
         clearTimeout(backTimerRef.current);
@@ -673,20 +607,17 @@ export default function App() {
         backPressedRef.current = true;
         window.history.pushState({ page: "app" }, "", window.location.href);
         notify("뒤로가기를 한 번 더 누르면 종료됩니다.", "info");
-
         backTimerRef.current = setTimeout(() => {
           backPressedRef.current = false;
         }, 2000);
       }
     };
-
     window.addEventListener("popstate", handlePopState);
     return () => {
       window.removeEventListener("popstate", handlePopState);
       if (backTimerRef.current) clearTimeout(backTimerRef.current);
     };
   }, [notify]);
-
   useEffect(() => {
     if (!window.XLSX) {
       const script = document.createElement("script");
@@ -695,21 +626,17 @@ export default function App() {
       document.body.appendChild(script);
     }
   }, []);
-
   const refreshAll = async () => {
     setRefreshing(true);
     await Promise.all([reloadItems(), reloadTxs()]);
     setRefreshing(false);
   };
-
   const alerts = useMemo(() => items.filter((i) => statusOf(i) === "danger"), [items]);
   const warns = useMemo(() => items.filter((i) => statusOf(i) === "warn"), [items]);
   const pendingUrgentCount = useMemo(
     () => urgentRequests.filter((r) => r.status === "pending").length,
     [urgentRequests]
   );
-
-  /* PC 전용: 탭 제목에 긴급요청 대기 건수 표시 */
   const baseTitleRef = useRef(document.title);
   useEffect(() => {
     if (window.innerWidth <= 768) return;
@@ -720,8 +647,6 @@ export default function App() {
     }
     return () => { document.title = baseTitleRef.current; };
   }, [pendingUrgentCount]);
-
-  /* PC 전용: 새 긴급요청 발생 시 알림음 */
   const hasInteractedRef = useRef(false);
   const prevPendingCountRef = useRef(pendingUrgentCount);
   useEffect(() => {
@@ -733,7 +658,6 @@ export default function App() {
       window.removeEventListener("keydown", markInteracted);
     };
   }, []);
-
   useEffect(() => {
     if (window.innerWidth <= 768) { prevPendingCountRef.current = pendingUrgentCount; return; }
     if (pendingUrgentCount > prevPendingCountRef.current && hasInteractedRef.current) {
@@ -752,11 +676,10 @@ export default function App() {
           osc.start();
           osc.stop(ctx.currentTime + 0.4);
         }
-      } catch (e) { /* 알림음 재생 불가 시 조용히 무시 */ }
+      } catch (e) {}
     }
     prevPendingCountRef.current = pendingUrgentCount;
   }, [pendingUrgentCount]);
-
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid },
     { id: "in", label: "입고등록", icon: ArrowDownToLine },
@@ -766,9 +689,7 @@ export default function App() {
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
   ];
-
   const ready = itemsLoaded && txsLoaded && outFormSettingsLoaded;
-
   return (
     <div className="app-container" style={{
       background: "#0A1622", color: "#E7EEF5", fontFamily: "Inter, sans-serif",
@@ -778,8 +699,8 @@ export default function App() {
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body, #root { width: 100%; max-width: none; margin: 0; padding: 0; }
         ::selection { background: #F5A62355; }
-        table { border-collapse: collapse; width: 100%; }
-        th, td { text-align: left; padding: 10px 12px; font-size: 13.5px; }
+        table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+        th, td { text-align: left; padding: 10px 12px; font-size: 13.5px; vertical-align: middle; }
         tbody tr { border-top: 1px solid #17293B; }
         tbody tr:hover { background: #0F2030; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -789,24 +710,20 @@ export default function App() {
         @keyframes urgentMarquee { from { transform: translateX(0); } to { transform: translateX(-100%); } }
         input:focus, select:focus { border-color: #F5A623 !important; }
         button:active { transform: scale(0.98); }
-
         .app-container { display: flex; min-height: 100vh; width: 100%; }
         .pc-sidebar { width: 250px; flex-shrink: 0; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; }
         .mobile-header { display: none; }
         .mobile-bottom-nav { display: none; }
         .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; min-width: 0; }
         .toast-box { bottom: 26px; left: 50%; transform: translateX(-50%); }
-
         .dashboard-recent-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .dashboard-recent-cards { display: none; flex-direction: column; gap: 10px; }
-
         .inbound-grid-container {
           display: grid;
           grid-template-columns: 1.3fr 1fr;
           gap: 20px;
           align-items: start;
         }
-
         @media (max-width: 768px) {
           .pc-only-block { display: none !important; }
           .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
@@ -822,29 +739,25 @@ export default function App() {
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-
           .dashboard-recent-table { display: none; }
           .dashboard-recent-cards { display: flex; }
-
           .inbound-grid-container {
             grid-template-columns: 1fr;
             gap: 16px;
           }
         }
       `}</style>
-
       {/* PC 사이드바 */}
       <div className="pc-sidebar">
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 4px" }}>
-          <div style={{ width: 38, height: 38, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <img src="/Luxco.png" alt="Luxco" style={{ width: "250%", height: "300%", objectFit: "contain" }} />
+          <div style={{ width: 38, height: 38, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+            <img src="/Luxco.png" alt="Luxco" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
           </div>
           <div>
             <div style={{ fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.02em" }}>선박 생산부</div>
             <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5E86A3", letterSpacing: "0.08em" }}>부자재 관리 시스템</div>
           </div>
         </div>
-
         {pendingUrgentCount > 0 && (
           <button
             onClick={() => setTab("dashboard")}
@@ -866,7 +779,6 @@ export default function App() {
             </span>
           </button>
         )}
-
         <button
           onClick={refreshAll}
           style={{
@@ -883,7 +795,6 @@ export default function App() {
             {refreshing ? "동기화..." : "↻ 새로고침"}
           </span>
         </button>
-
         <nav style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {NAV.map((n) => {
             const active = tab === n.id;
@@ -907,7 +818,6 @@ export default function App() {
             );
           })}
         </nav>
-
         <div style={{ marginTop: "auto" }}>
           <Card style={{ padding: 16 }}>
             <SectionLabel>재고 요약</SectionLabel>
@@ -928,7 +838,6 @@ export default function App() {
           </Card>
         </div>
       </div>
-
       {/* 모바일 헤더 */}
       <header className="mobile-header">
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -965,7 +874,6 @@ export default function App() {
           {refreshing ? "동기화..." : "↻ 동기화"}
         </button>
       </header>
-
       {/* 메인 영역 */}
       <main className="main-content">
         {!ready ? (

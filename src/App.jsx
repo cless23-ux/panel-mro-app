@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -170,6 +170,47 @@ const DEFAULT_OUT_FORM_SETTINGS = {
   workers: ["울산에이원", "부산에이원", "본사에이원", "수림기전", "생산팀"],
 };
 const OUT_FORM_SETTINGS_CACHE_KEY = "panel:outFormSettings";
+
+/* ---------------- 즐겨찾기 자재 (기기 로컬 전용, 서버 미동기화) ---------------- */
+const FAVORITE_ITEMS_KEY = "panel:favoriteItemCodes";
+const FAVORITE_ITEMS_LIMIT = 15;
+
+function readFavoriteCodes() {
+  try {
+    const raw = localStorage.getItem(FAVORITE_ITEMS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function useFavoriteItems(notify) {
+  const [favoriteCodes, setFavoriteCodes] = useState(readFavoriteCodes);
+
+  const isFavorite = useCallback((code) => favoriteCodes.includes(String(code).trim()), [favoriteCodes]);
+
+  const toggleFavorite = useCallback((code) => {
+    const cleanCode = String(code).trim();
+    setFavoriteCodes((prev) => {
+      const exists = prev.includes(cleanCode);
+      let next;
+      if (exists) {
+        next = prev.filter((c) => c !== cleanCode);
+      } else {
+        if (prev.length >= FAVORITE_ITEMS_LIMIT) {
+          if (notify) notify(`즐겨찾기는 최대 ${FAVORITE_ITEMS_LIMIT}개까지 등록할 수 있어요.`, "err");
+          return prev;
+        }
+        next = [...prev, cleanCode];
+      }
+      try { localStorage.setItem(FAVORITE_ITEMS_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [notify]);
+
+  return { favoriteCodes, isFavorite, toggleFavorite };
+}
 
 function useOutFormSettings() {
   const [settings, setSettings] = useState(DEFAULT_OUT_FORM_SETTINGS);
@@ -660,7 +701,7 @@ export default function App() {
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} />}
-            {tab === "stock" && <StockView items={items} onSelectItem={(item) => { setPresetItem(item); setTab("out"); }} />}
+            {tab === "stock" && <StockView items={items} notify={notify} onSelectItem={(item) => { setPresetItem(item); setTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
@@ -1065,6 +1106,20 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     return txs.filter((t) => t.type === "out").slice(-5).reverse();
   }, [txs]);
 
+  const { favoriteCodes, isFavorite, toggleFavorite } = useFavoriteItems(notify);
+  const favoriteItems = useMemo(() => {
+    return favoriteCodes
+      .map((code) => items.find((i) => String(i.code).trim() === code))
+      .filter(Boolean);
+  }, [favoriteCodes, items]);
+
+  const selectFavoriteItem = (item) => {
+    setFound(item);
+    setScan("");
+    notify(`자재 선택됨: ${item.name}`, "ok");
+    scrollToInfoCard();
+  };
+
   const findItemByCode = (rawCode) => {
     if (!rawCode) return null;
     const cleanScan = String(rawCode).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
@@ -1278,6 +1333,41 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           )}
         </Card>
 
+        {favoriteItems.length > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+            padding: "10px 14px", background: "#0F2233", border: "1px solid #1F3B54",
+            borderRadius: 10,
+          }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#5E86A3", flexShrink: 0 }}>
+              <Star size={13} color="#F5A623" fill="#F5A623" />즐겨찾기
+            </span>
+            {favoriteItems.map((item) => {
+              const isActive = found && String(found.code).trim() === String(item.code).trim();
+              return (
+                <button
+                  key={item.code}
+                  type="button"
+                  onClick={() => selectFavoriteItem(item)}
+                  style={{
+                    padding: "5px 11px",
+                    borderRadius: 999,
+                    border: isActive ? "1px solid #38BDF8" : "1px solid #274460",
+                    background: isActive ? "rgba(56,189,248,0.15)" : "transparent",
+                    color: isActive ? "#38BDF8" : "#A9BBCC",
+                    fontSize: 11.5,
+                    fontFamily: "IBM Plex Mono",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {item.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <Card ref={infoCardRef} style={{ padding: 22 }}>
           <SectionLabel>2. 불출 정보 입력</SectionLabel>
           {!found ? (
@@ -1304,6 +1394,21 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                   </div>
                   <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => toggleFavorite(found.code)}
+                  aria-label="즐겨찾기 토글"
+                  style={{
+                    flexShrink: 0, background: "none", border: "none", cursor: "pointer",
+                    padding: 4, display: "flex", alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <Star
+                    size={20}
+                    color={isFavorite(found.code) ? "#F5A623" : "#3E5975"}
+                    fill={isFavorite(found.code) ? "#F5A623" : "none"}
+                  />
+                </button>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -1417,9 +1522,10 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 }
 
 /* ---------------- 재고 조회 ---------------- */
-function StockView({ items, onSelectItem }) {
+function StockView({ items, onSelectItem, notify }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const { isFavorite, toggleFavorite } = useFavoriteItems(notify);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -1533,6 +1639,22 @@ function StockView({ items, onSelectItem }) {
                     </div>
                     <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>안전재고: {item.safety} {item.unit}</div>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
+                    aria-label="즐겨찾기 토글"
+                    style={{
+                      flexShrink: 0, background: "none", border: "none", cursor: "pointer",
+                      padding: 6, display: "flex", alignItems: "center", justifyContent: "center",
+                    }}
+                  >
+                    <Star
+                      size={19}
+                      color={isFavorite(item.code) ? "#F5A623" : "#3E5975"}
+                      fill={isFavorite(item.code) ? "#F5A623" : "none"}
+                    />
+                  </button>
                 </div>
               </Card>
             );

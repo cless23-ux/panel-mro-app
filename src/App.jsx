@@ -1350,7 +1350,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                   type="button"
                   onClick={() => selectFavoriteItem(item)}
                   style={{
-                    padding: "5px 11px",
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "5px 11px 5px 5px",
                     borderRadius: 999,
                     border: isActive ? "1px solid #38BDF8" : "1px solid #274460",
                     background: isActive ? "rgba(56,189,248,0.15)" : "transparent",
@@ -1361,6 +1362,20 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                     whiteSpace: "nowrap",
                   }}
                 >
+                  {item.image_url ? (
+                    <img
+                      src={item.image_url}
+                      alt=""
+                      style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+                    />
+                  ) : (
+                    <span style={{
+                      width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                      background: "#152C42", display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <ImageIcon size={12} color="#3E5975" />
+                    </span>
+                  )}
                   {item.name}
                 </button>
               );

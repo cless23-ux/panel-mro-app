@@ -702,6 +702,13 @@ export default function App() {
     setRefreshing(false);
   };
 
+  const alerts = useMemo(() => items.filter((i) => statusOf(i) === "danger"), [items]);
+  const warns = useMemo(() => items.filter((i) => statusOf(i) === "warn"), [items]);
+  const pendingUrgentCount = useMemo(
+    () => urgentRequests.filter((r) => r.status === "pending").length,
+    [urgentRequests]
+  );
+
   /* PC 전용: 탭 제목에 긴급요청 대기 건수 표시 */
   const baseTitleRef = useRef(document.title);
   useEffect(() => {
@@ -749,13 +756,6 @@ export default function App() {
     }
     prevPendingCountRef.current = pendingUrgentCount;
   }, [pendingUrgentCount]);
-
-  const alerts = useMemo(() => items.filter((i) => statusOf(i) === "danger"), [items]);
-  const warns = useMemo(() => items.filter((i) => statusOf(i) === "warn"), [items]);
-  const pendingUrgentCount = useMemo(
-    () => urgentRequests.filter((r) => r.status === "pending").length,
-    [urgentRequests]
-  );
 
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid },

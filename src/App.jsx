@@ -1183,7 +1183,7 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
                     width: 8, height: 8, borderRadius: "50%", background: "#FF3B3B",
                     animation: "urgentBlink 1s infinite",
                   }} />
-                  🚨 속보
+                  🚨 긴급요청
                 </span>
                 <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap" }}>
                   <div style={{

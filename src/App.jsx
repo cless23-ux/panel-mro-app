@@ -1230,7 +1230,13 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
     return Object.values(map);
   }, [txs, selectedShip, selectedProject]);
 
-  const recent = [...txs].slice(-6).reverse();
+  const recent = useMemo(() => {
+    const parseAt = (t) => {
+      const d = new Date(String(t.at || "").replace(" ", "T"));
+      return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    return [...txs].sort((a, b) => parseAt(b) - parseAt(a)).slice(0, 10);
+  }, [txs]);
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
   const pendingUrgent = useMemo(() => (urgentRequests || []).filter((r) => r.status === "pending"), [urgentRequests]);
 
@@ -1337,7 +1343,7 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
               alignItems: "center", gap: 8, flexShrink: 0,
             }}>
               <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
-              재고부족 경보
+              재고부족 경고
             </div>
             {pendingUrgent.length > 0 && (
               <div className="pc-only-block" style={{
@@ -1353,7 +1359,7 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
                     width: 7, height: 7, borderRadius: "50%", background: "#FF3B3B",
                     animation: "urgentBlink 1s infinite",
                   }} />
-                  🚨 속보
+                  🚨 긴급
                 </span>
                 <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap", minWidth: 0 }}>
                   <div style={{
@@ -1600,7 +1606,14 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   }, [workerOptions]);
 
   const recentOutTxs = useMemo(() => {
-    return txs.filter((t) => t.type === "out").slice(-5).reverse();
+    const parseAt = (t) => {
+      const d = new Date(String(t.at || "").replace(" ", "T"));
+      return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    return txs
+      .filter((t) => t.type === "out")
+      .sort((a, b) => parseAt(b) - parseAt(a))
+      .slice(0, 15);
   }, [txs]);
 
   const { favoriteCodes, isFavorite, toggleFavorite } = useFavoriteItems(notify);
@@ -1982,7 +1995,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         {recentOutTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 560, overflowY: "auto" }}>
             {recentOutTxs.map((t) => (
               <div
                 key={t.id}
@@ -3038,7 +3051,14 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
   const selectedItem = items.find((i) => i.code === selectedCode);
 
   const recentInTxs = useMemo(() => {
-    return (txs || []).filter((t) => t.type === "in").slice(-5).reverse();
+    const parseAt = (t) => {
+      const d = new Date(String(t.at || "").replace(" ", "T"));
+      return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    return (txs || [])
+      .filter((t) => t.type === "in")
+      .sort((a, b) => parseAt(b) - parseAt(a))
+      .slice(0, 15);
   }, [txs]);
 
   useEffect(() => {
@@ -3730,7 +3750,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
         {recentInTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 입고 내역이 없습니다." color="#5E86A3" />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10, maxHeight: 560, overflowY: "auto" }}>
             {recentInTxs.map((t) => (
               <div
                 key={t.id}

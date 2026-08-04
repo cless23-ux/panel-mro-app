@@ -1,0 +1,16 @@
+{
+  "name": "LUXCO",
+  "short_name": "LUXCO",
+  "description": "LUXCO 자재관리",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#00122B",
+  "theme_color": "#006DFF",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "1254x1254",
+      "type": "image/png"
+    }
+  ]
+}

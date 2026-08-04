@@ -817,6 +817,37 @@ export default function App() {
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
 
+  /* 모바일 좌우 스와이프로 하단 탭(입고/출고/재고) 전환 */
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const MOBILE_SWIPE_TABS = ["in", "out", "stock"];
+
+  const handleMainTouchStart = (e) => {
+    const t = e.touches[0];
+    touchStartXRef.current = t.clientX;
+    touchStartYRef.current = t.clientY;
+  };
+
+  const handleMainTouchEnd = (e) => {
+    if (typeof window === "undefined" || window.innerWidth > 768) return;
+    const t = e.changedTouches[0];
+    const deltaX = t.clientX - touchStartXRef.current;
+    const deltaY = t.clientY - touchStartYRef.current;
+    const SWIPE_THRESHOLD = 60;
+
+    /* 세로 스크롤과 헷갈리지 않도록 가로 이동량이 세로보다 확실히 클 때만 반응 */
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) < Math.abs(deltaY) * 1.5) return;
+
+    const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
+    if (curIdx === -1) return; // pcOnly 탭(대시보드 등)에서는 스와이프 무시
+
+    if (deltaX < 0 && curIdx < MOBILE_SWIPE_TABS.length - 1) {
+      setTab(MOBILE_SWIPE_TABS[curIdx + 1]); // 왼쪽으로 스와이프 → 다음 탭
+    } else if (deltaX > 0 && curIdx > 0) {
+      setTab(MOBILE_SWIPE_TABS[curIdx - 1]); // 오른쪽으로 스와이프 → 이전 탭
+    }
+  };
+
   const notify = useCallback((msg, type = "ok") => {
     setToast({ text: msg, type });
     setTimeout(() => { setToast(null); }, 2500);
@@ -1159,7 +1190,11 @@ if (showSplash) {
       </header>
 
       {/* 메인 영역 */}
-      <main className="main-content">
+      <main
+        className="main-content"
+        onTouchStart={handleMainTouchStart}
+        onTouchEnd={handleMainTouchEnd}
+      >
         {!ready ? (
           <div style={{ color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", textAlign: "center", padding: 40 }}>Supabase 불러오는 중...</div>
         ) : (
@@ -1610,6 +1645,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     if (presetItem) {
       setFound(presetItem);
       notify(`자재 선택됨: ${presetItem.name}`, "ok");
+      scrollToInfoCard();
       if (onConsumePreset) onConsumePreset();
     }
   }, [presetItem]);

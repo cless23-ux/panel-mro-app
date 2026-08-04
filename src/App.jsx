@@ -796,11 +796,23 @@ export default function App() {
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
   const { requests: urgentRequests, addRequest: addUrgentRequest, resolveRequest: resolveUrgentRequest } = useUrgentRequests();
   
-  /* 초기 열림 탭을 대시보드("dashboard")로 변경 */
-  const [tab, setTab] = useState("dashboard");
+  /* 초기 열림 탭: PC는 대시보드, 모바일은 대시보드가 숨겨져 있으므로 출고(스캔)로 시작 */
+  const [tab, setTab] = useState(() => (typeof window !== "undefined" && window.innerWidth <= 768 ? "out" : "dashboard"));
   const [presetItem, setPresetItem] = useState(null);
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  /* 화면 크기가 모바일로 바뀌었는데 대시보드에 머물러 있으면 출고(스캔)로 이동 */
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth <= 768 && tab === "dashboard") {
+        setTab("out");
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    handleResize();
+    return () => window.removeEventListener("resize", handleResize);
+  }, [tab]);
 
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
@@ -906,7 +918,7 @@ export default function App() {
   }, [pendingUrgentCount]);
 
   const NAV = [
-    { id: "dashboard", label: "대시보드", icon: LayoutGrid },
+    { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
     { id: "in", label: "입고등록", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "stock", label: "재고조회", icon: Boxes },

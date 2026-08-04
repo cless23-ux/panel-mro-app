@@ -842,9 +842,9 @@ export default function App() {
     if (curIdx === -1) return; // pcOnly 탭(대시보드 등)에서는 스와이프 무시
 
     if (deltaX < 0 && curIdx < MOBILE_SWIPE_TABS.length - 1) {
-      setTab(MOBILE_SWIPE_TABS[curIdx + 1]); // 왼쪽으로 스와이프 → 다음 탭
+      goToTab(MOBILE_SWIPE_TABS[curIdx + 1]); // 왼쪽으로 스와이프 → 다음 탭
     } else if (deltaX > 0 && curIdx > 0) {
-      setTab(MOBILE_SWIPE_TABS[curIdx - 1]); // 오른쪽으로 스와이프 → 이전 탭
+      goToTab(MOBILE_SWIPE_TABS[curIdx - 1]); // 오른쪽으로 스와이프 → 이전 탭
     }
   };
 
@@ -957,6 +957,28 @@ export default function App() {
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
   ];
+  const NAV_IDS = NAV.map((n) => n.id);
+
+  /* 탭(메뉴창)별 네온 포인트 컬러 - 테두리/그로우에 사용 */
+  const TAB_NEON = {
+    dashboard: "#38BDF8",
+    in: "#35D08C",
+    out: "#F5A623",
+    stock: "#A78BFA",
+    master: "#F472B6",
+    settings: "#2DD4BF",
+    trash: "#EF5350",
+  };
+
+  const [slideDir, setSlideDir] = useState(1);
+  const goToTab = (next) => {
+    if (next === tab) return;
+    const curIdx = NAV_IDS.indexOf(tab);
+    const nextIdx = NAV_IDS.indexOf(next);
+    setSlideDir(nextIdx >= curIdx ? 1 : -1);
+    setTab(next);
+  };
+
 const [showSplash, setShowSplash] = useState(true);
 
 useEffect(() => {
@@ -1010,6 +1032,8 @@ if (showSplash) {
         @keyframes riseIn { from { opacity:0; transform: translate(-50%,12px);} to {opacity:1; transform: translate(-50%,0);} }
         @keyframes urgentBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
         @keyframes urgentMarquee { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+        @keyframes tabSlideInFromRight { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes tabSlideInFromLeft { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: translateX(0); } }
         input:focus, select:focus { border-color: #F5A623 !important; }
         button:active { transform: scale(0.98); }
 
@@ -1017,8 +1041,19 @@ if (showSplash) {
         .pc-sidebar { width: 250px; flex-shrink: 0; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; }
         .mobile-header { display: none; }
         .mobile-bottom-nav { display: none; }
-        .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; min-width: 0; }
+        .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; min-width: 0; touch-action: pan-y; }
         .toast-box { bottom: 26px; left: 50%; transform: translateX(-50%); }
+
+        .tab-panel {
+          border: 1px solid var(--tab-neon-border, #274460);
+          border-radius: 16px;
+          padding: 18px 20px;
+          background: var(--tab-neon-bg, transparent);
+          box-shadow: 0 0 0 1px var(--tab-neon-border, transparent), 0 0 26px -8px var(--tab-neon-glow, transparent), inset 0 0 40px -30px var(--tab-neon-glow, transparent);
+          animation: tabSlideInFromRight 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: border-color 0.25s ease, box-shadow 0.25s ease;
+        }
+        .tab-panel.dir-back { animation-name: tabSlideInFromLeft; }
 
         .dashboard-recent-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .dashboard-recent-cards { display: none; flex-direction: column; gap: 10px; }
@@ -1042,7 +1077,8 @@ if (showSplash) {
             height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
             grid-template-columns: repeat(3, 1fr); flex-shrink: 0; z-index: 10;
           }
-          .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; }
+          .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; touch-action: pan-y; }
+          .tab-panel { padding: 14px 12px; border-radius: 14px; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
@@ -1070,7 +1106,7 @@ if (showSplash) {
 
         {pendingUrgentCount > 0 && (
           <button
-            onClick={() => setTab("dashboard")}
+            onClick={() => goToTab("dashboard")}
             style={{
               display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
               padding: "10px 14px", borderRadius: 8, border: "1px solid #EF535066",
@@ -1114,7 +1150,7 @@ if (showSplash) {
             return (
               <button
                 key={n.id}
-                onClick={() => setTab(n.id)}
+                onClick={() => goToTab(n.id)}
                 style={{
                   display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 8,
                   border: "1px solid " + (active ? "#F5A62355" : "transparent"),
@@ -1160,7 +1196,7 @@ if (showSplash) {
             선박 생산부
           </span>
           <button
-            onClick={() => setTab("master")}
+            onClick={() => goToTab("master")}
             title="자재마스터 이동"
             style={{
               background: tab === "master" ? "#F5A62322" : "transparent",
@@ -1198,15 +1234,23 @@ if (showSplash) {
         {!ready ? (
           <div style={{ color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", textAlign: "center", padding: 40 }}>Supabase 불러오는 중...</div>
         ) : (
-          <>
+          <div
+            key={tab}
+            className={`tab-panel${slideDir < 0 ? " dir-back" : ""}`}
+            style={{
+              "--tab-neon-border": `${TAB_NEON[tab] || "#274460"}55`,
+              "--tab-neon-glow": `${TAB_NEON[tab] || "#274460"}45`,
+              "--tab-neon-bg": `${TAB_NEON[tab] || "#274460"}0d`,
+            }}
+          >
             {tab === "dashboard" && <Dashboard items={items} txs={txs} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
-            {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); setTab("out"); }} />}
+            {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
-          </>
+          </div>
         )}
       </main>
 
@@ -1218,7 +1262,7 @@ if (showSplash) {
           return (
             <button
               key={n.id}
-              onClick={() => setTab(n.id)}
+              onClick={() => goToTab(n.id)}
               style={{
                 background: "transparent", border: "none", color: active ? "#F5A623" : "#7F97AC",
                 display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",

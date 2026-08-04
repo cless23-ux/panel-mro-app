@@ -3136,10 +3136,24 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
     if (!rawVal) return;
     let keyCode = rawVal.trim();
 
-    const match = rawVal.match(/KEY_CODE\s*:\s*([A-Za-z0-9_-]+)/i);
-    if (match && match[1]) {
-      keyCode = match[1];
-    }
+const patterns = [
+  /KEY_CODE\s*[:=]\s*([A-Za-z0-9_-]+)/i,
+  /["']?KEY_CODE["']?\s*[:=]\s*["']?([A-Za-z0-9_-]+)/i,
+  /\b(\d{4,})\b/
+];
+
+for (const r of patterns) {
+  const m = rawVal.match(r);
+  if (m && m[1]) {
+    keyCode = m[1];
+    break;
+  }
+}
+
+keyCode = String(keyCode)
+  .replace(/[^0-9A-Za-z_-]/g, "")
+  .trim();
+    
 
     setLoading(true);
     notify(`명세서 코드 [${keyCode}] 데이터 조회 중...`, "info");

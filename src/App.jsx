@@ -893,7 +893,7 @@ function Dashboard({ items, txs }) {
         </Card>
 
         <Card style={{ padding: 20 }}>
-          <SectionLabel>재고부족 경보</SectionLabel>
+          <SectionLabel>재고부족 경고</SectionLabel>
           {alertItems.length === 0 ? (
             <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
           ) : (

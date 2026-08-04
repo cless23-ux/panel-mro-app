@@ -26,6 +26,18 @@ function nowStr() {
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+function timeAgoStr(isoOrDate) {
+  if (!isoOrDate) return "";
+  const t = new Date(isoOrDate).getTime();
+  if (Number.isNaN(t)) return "";
+  const diffSec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (diffSec < 60) return "방금 전";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}분 전`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}시간 전`;
+  return `${Math.floor(diffHour / 24)}일 전`;
+}
 
 /* ---------------- 이미지 압축 및 Supabase 업로드 유틸 ---------------- */
 async function compressAndUploadImage(file, itemCode) {
@@ -160,6 +172,87 @@ function useStorage(key, initial) {
   }, [key, tableName]);
 
   return [value, save, loaded, load];
+}
+
+/* ---------------- 긴급자재발주요청 ---------------- */
+const URGENT_REQUESTS_CACHE_KEY = "panel:urgentRequests";
+
+function useUrgentRequests() {
+  const [requests, setRequests] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async (silent = false) => {
+    try {
+      if (supabase) {
+        const { data, error } = await supabase
+          .from("urgent_requests")
+          .select("*")
+          .order("created_at", { ascending: false });
+        if (!error && data) {
+          setRequests(data);
+          localStorage.setItem(URGENT_REQUESTS_CACHE_KEY, JSON.stringify(data));
+          if (!silent) setLoaded(true);
+          return;
+        }
+      }
+      const cached = localStorage.getItem(URGENT_REQUESTS_CACHE_KEY);
+      if (cached) setRequests(JSON.parse(cached));
+    } catch (e) {
+      console.error("Urgent requests load error:", e);
+    } finally {
+      if (!silent) setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(() => load(true), POLL_MS);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const addRequest = useCallback(async ({ itemCode, itemName, requester, note }) => {
+    const newReq = {
+      id: uid("URG"),
+      item_code: itemCode,
+      item_name: itemName,
+      requester: requester || "미입력",
+      note: note || "",
+      status: "pending",
+      created_at: new Date().toISOString(),
+      resolved_at: null,
+    };
+    setRequests((prev) => {
+      const next = [newReq, ...prev];
+      localStorage.setItem(URGENT_REQUESTS_CACHE_KEY, JSON.stringify(next));
+      return next;
+    });
+    try {
+      if (supabase) {
+        await supabase.from("urgent_requests").insert(newReq);
+      }
+    } catch (e) {
+      console.error("Urgent request save error:", e);
+    }
+    return newReq;
+  }, []);
+
+  const resolveRequest = useCallback(async (id) => {
+    const resolvedAt = new Date().toISOString();
+    setRequests((prev) => {
+      const next = prev.map((r) => (r.id === id ? { ...r, status: "resolved", resolved_at: resolvedAt } : r));
+      localStorage.setItem(URGENT_REQUESTS_CACHE_KEY, JSON.stringify(next));
+      return next;
+    });
+    try {
+      if (supabase) {
+        await supabase.from("urgent_requests").update({ status: "resolved", resolved_at: resolvedAt }).eq("id", id);
+      }
+    } catch (e) {
+      console.error("Urgent request resolve error:", e);
+    }
+  }, []);
+
+  return { requests, loaded, addRequest, resolveRequest, reload: load };
 }
 
 const OUT_FORM_SETTINGS_ROW_ID = 1;
@@ -369,6 +462,109 @@ const inputStyle = {
   padding: "12px 14px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", outline: "none", width: "100%",
 };
 
+/* ---------------- 긴급 발주 요청 버튼 + 모달 ---------------- */
+const LAST_REQUESTER_KEY = "panel:lastRequester";
+
+function UrgentRequestButton({ item, requests, addRequest, notify, size = "normal" }) {
+  const [open, setOpen] = useState(false);
+  const [requester, setRequester] = useState(() => {
+    try { return localStorage.getItem(LAST_REQUESTER_KEY) || ""; } catch { return ""; }
+  });
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const existingPending = useMemo(() => {
+    return (requests || []).find(
+      (r) => r.status === "pending" && String(r.item_code).trim() === String(item.code).trim()
+    );
+  }, [requests, item.code]);
+
+  const submit = async () => {
+    if (!requester.trim()) { notify("요청자 이름을 입력해주세요.", "err"); return; }
+    setSubmitting(true);
+    await addRequest({ itemCode: item.code, itemName: item.name, requester: requester.trim(), note: note.trim() });
+    try { localStorage.setItem(LAST_REQUESTER_KEY, requester.trim()); } catch {}
+    setSubmitting(false);
+    setOpen(false);
+    setNote("");
+    notify(`🚨 ${item.name} 긴급 발주 요청을 보냈습니다.`, "ok");
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        style={{
+          display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
+          padding: size === "small" ? "5px 9px" : "7px 12px",
+          borderRadius: 7, border: "1px solid #EF535066", background: "#EF535018",
+          color: "#FF6B6B", fontSize: size === "small" ? 10.5 : 11.5, fontWeight: 700,
+          fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer", whiteSpace: "nowrap",
+        }}
+      >
+        <AlertTriangle size={size === "small" ? 11 : 13} />긴급요청
+      </button>
+
+      {open && (
+        <div
+          onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(6,14,22,0.72)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 380, background: "#0F2233", border: "1px solid #EF535055",
+              borderRadius: 14, padding: 20,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <AlertTriangle size={18} color="#FF6B6B" />
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#FF6B6B" }}>긴급 자재 발주 요청</span>
+            </div>
+            <div style={{ fontSize: 13, color: "#C9DAE8", marginBottom: 4 }}>{item.name}</div>
+            <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
+              코드: {item.code} · 현재고 {item.stock}{item.unit}
+            </div>
+
+            {existingPending && (
+              <div style={{
+                fontSize: 11.5, color: "#F5A623", background: "#F5A62318", border: "1px solid #F5A62344",
+                borderRadius: 8, padding: "8px 10px", marginBottom: 12,
+              }}>
+                ⚠ {existingPending.requester}님이 {timeAgoStr(existingPending.created_at)} 이미 요청했어요. 그래도 추가로 요청할 수 있어요.
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+              <Field label="요청자 이름">
+                <input style={inputStyle} value={requester} onChange={(e) => setRequester(e.target.value)} placeholder="이름 입력" />
+              </Field>
+              <Field label="메모 (선택)">
+                <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 이번 주 내 필요" />
+              </Field>
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setOpen(false)}>취소</Btn>
+              <Btn
+                style={{ flex: 2, background: "#EF5350", border: "1px solid #EF5350", color: "#fff" }}
+                onClick={submit}
+                disabled={submitting}
+              >
+                <AlertTriangle size={16} />요청 보내기
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function Select({ value, onChange, options, style }) {
   return (
     <select value={value} onChange={onChange} style={{ ...inputStyle, ...style }}>
@@ -450,6 +646,7 @@ export default function App() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
+  const { requests: urgentRequests, addRequest: addUrgentRequest, resolveRequest: resolveUrgentRequest } = useUrgentRequests();
   
   /* 초기 열림 탭을 대시보드("dashboard")로 변경 */
   const [tab, setTab] = useState("dashboard");
@@ -505,8 +702,60 @@ export default function App() {
     setRefreshing(false);
   };
 
+  /* PC 전용: 탭 제목에 긴급요청 대기 건수 표시 */
+  const baseTitleRef = useRef(document.title);
+  useEffect(() => {
+    if (window.innerWidth <= 768) return;
+    if (pendingUrgentCount > 0) {
+      document.title = `🚨(${pendingUrgentCount}) ${baseTitleRef.current}`;
+    } else {
+      document.title = baseTitleRef.current;
+    }
+    return () => { document.title = baseTitleRef.current; };
+  }, [pendingUrgentCount]);
+
+  /* PC 전용: 새 긴급요청 발생 시 알림음 */
+  const hasInteractedRef = useRef(false);
+  const prevPendingCountRef = useRef(pendingUrgentCount);
+  useEffect(() => {
+    const markInteracted = () => { hasInteractedRef.current = true; };
+    window.addEventListener("pointerdown", markInteracted, { once: true });
+    window.addEventListener("keydown", markInteracted, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", markInteracted);
+      window.removeEventListener("keydown", markInteracted);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (window.innerWidth <= 768) { prevPendingCountRef.current = pendingUrgentCount; return; }
+    if (pendingUrgentCount > prevPendingCountRef.current && hasInteractedRef.current) {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "square";
+          osc.frequency.value = 880;
+          gain.gain.setValueAtTime(0.001, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.4);
+        }
+      } catch (e) { /* 알림음 재생 불가 시 조용히 무시 */ }
+    }
+    prevPendingCountRef.current = pendingUrgentCount;
+  }, [pendingUrgentCount]);
+
   const alerts = useMemo(() => items.filter((i) => statusOf(i) === "danger"), [items]);
   const warns = useMemo(() => items.filter((i) => statusOf(i) === "warn"), [items]);
+  const pendingUrgentCount = useMemo(
+    () => urgentRequests.filter((r) => r.status === "pending").length,
+    [urgentRequests]
+  );
 
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid },
@@ -536,6 +785,8 @@ export default function App() {
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-thumb { background: #21405B; border-radius: 4px; }
         @keyframes riseIn { from { opacity:0; transform: translate(-50%,12px);} to {opacity:1; transform: translate(-50%,0);} }
+        @keyframes urgentBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+        @keyframes urgentMarquee { from { transform: translateX(0); } to { transform: translateX(-100%); } }
         input:focus, select:focus { border-color: #F5A623 !important; }
         button:active { transform: scale(0.98); }
 
@@ -557,6 +808,7 @@ export default function App() {
         }
 
         @media (max-width: 768px) {
+          .pc-only-block { display: none !important; }
           .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
           .pc-sidebar { display: none; }
           .mobile-header {
@@ -592,6 +844,28 @@ export default function App() {
             <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5E86A3", letterSpacing: "0.08em" }}>부자재 관리 시스템</div>
           </div>
         </div>
+
+        {pendingUrgentCount > 0 && (
+          <button
+            onClick={() => setTab("dashboard")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+              padding: "10px 14px", borderRadius: 8, border: "1px solid #EF535066",
+              background: "linear-gradient(90deg, #3A1414, #1F0B0B)", cursor: "pointer",
+              fontFamily: "'IBM Plex Mono', monospace",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#FF6B6B", fontWeight: 700 }}>
+              🔔 긴급요청 대기중
+            </span>
+            <span style={{
+              minWidth: 20, height: 20, padding: "0 5px", borderRadius: 999, background: "#EF5350",
+              color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              {pendingUrgentCount}
+            </span>
+          </button>
+        )}
 
         <button
           onClick={refreshAll}
@@ -698,10 +972,10 @@ export default function App() {
           <div style={{ color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", textAlign: "center", padding: 40 }}>Supabase 불러오는 중...</div>
         ) : (
           <>
-            {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
+            {tab === "dashboard" && <Dashboard items={items} txs={txs} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
-            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} />}
-            {tab === "stock" && <StockView items={items} notify={notify} onSelectItem={(item) => { setPresetItem(item); setTab("out"); }} />}
+            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
+            {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); setTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
@@ -739,7 +1013,7 @@ export default function App() {
 }
 
 /* ---------------- Dashboard ---------------- */
-function Dashboard({ items, txs }) {
+function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
   const availableShips = useMemo(() => {
     const outTxs = txs.filter((t) => t.type === "out" && t.shipNo && t.shipNo !== "미입력");
     const uniqueShips = Array.from(new Set(outTxs.map((t) => t.shipNo)));
@@ -796,6 +1070,7 @@ function Dashboard({ items, txs }) {
 
   const recent = [...txs].slice(-6).reverse();
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
+  const pendingUrgent = useMemo(() => (urgentRequests || []).filter((r) => r.status === "pending"), [urgentRequests]);
 
   const totalOutQty = txs.filter((t) => t.type === "out").reduce((s, t) => s + Number(t.qty), 0);
   const totalInQty = txs.filter((t) => t.type === "in").reduce((s, t) => s + Number(t.qty), 0);
@@ -893,7 +1168,59 @@ function Dashboard({ items, txs }) {
         </Card>
 
         <Card style={{ padding: 20 }}>
-          <SectionLabel>재고부족 경고</SectionLabel>
+          <SectionLabel>재고부족 경보</SectionLabel>
+          {pendingUrgent.length > 0 && (
+            <div className="pc-only-block" style={{
+              marginBottom: 14, borderRadius: 8, border: "1px solid #EF535066",
+              background: "linear-gradient(90deg, #3A1414, #1F0B0B)", overflow: "hidden",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px" }}>
+                <span style={{
+                  display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+                  fontSize: 11.5, fontWeight: 800, color: "#FF6B6B", letterSpacing: "0.04em",
+                }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: "50%", background: "#FF3B3B",
+                    animation: "urgentBlink 1s infinite",
+                  }} />
+                  🚨 속보
+                </span>
+                <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap" }}>
+                  <div style={{
+                    display: "inline-block", fontSize: 12.5, fontFamily: "IBM Plex Mono", color: "#FFD1D1",
+                    animation: "urgentMarquee 18s linear infinite", paddingLeft: "100%",
+                  }}>
+                    {pendingUrgent.map((r, idx) => (
+                      <span key={r.id} style={{ marginRight: 40 }}>
+                        긴급자재발주요청: {r.item_name} ({r.requester}, {timeAgoStr(r.created_at)})
+                        {idx < pendingUrgent.length - 1 ? "  ·  " : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div style={{ borderTop: "1px solid #EF535033", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                {pendingUrgent.map((r) => (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                    <span style={{ flex: 1, color: "#FFD1D1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <b>{r.item_name}</b> · {r.requester} · {timeAgoStr(r.created_at)}
+                      {r.note ? ` · "${r.note}"` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => resolveUrgentRequest(r.id)}
+                      style={{
+                        flexShrink: 0, padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                        border: "1px solid #35D08C88", background: "#35D08C22", color: "#35D08C", cursor: "pointer",
+                      }}
+                    >
+                      처리완료
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {alertItems.length === 0 ? (
             <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
           ) : (
@@ -1053,7 +1380,7 @@ function Header({ title, subtitle }) {
 }
 
 /* ---------------- 출고 (스캔) ---------------- */
-function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, presetItem, onConsumePreset }) {
+function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, presetItem, onConsumePreset, urgentRequests, addUrgentRequest }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
   const [shipNo, setShipNo] = useState("");
@@ -1389,7 +1716,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 선택해주세요." color="#5E86A3" />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460", flexWrap: "wrap", rowGap: 10 }}>
                 {found.image_url ? (
                   <img src={found.image_url} alt={found.name} style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover" }} />
                 ) : (
@@ -1409,6 +1736,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                   </div>
                   <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
                 </div>
+                <UrgentRequestButton item={found} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
                 <button
                   type="button"
                   onClick={() => toggleFavorite(found.code)}
@@ -1537,7 +1865,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 }
 
 /* ---------------- 재고 조회 ---------------- */
-function StockView({ items, onSelectItem, notify }) {
+function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentRequest }) {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const { isFavorite, toggleFavorite } = useFavoriteItems(notify);
@@ -1654,6 +1982,8 @@ function StockView({ items, onSelectItem, notify }) {
                     </div>
                     <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>안전재고: {item.safety} {item.unit}</div>
                   </div>
+
+                  <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
 
                   <button
                     type="button"

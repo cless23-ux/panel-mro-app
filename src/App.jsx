@@ -1168,59 +1168,50 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
         </Card>
 
         <Card style={{ padding: 20 }}>
-          <SectionLabel>재고부족 경보</SectionLabel>
-          {pendingUrgent.length > 0 && (
-            <div className="pc-only-block" style={{
-              marginBottom: 14, borderRadius: 8, border: "1px solid #EF535066",
-              background: "linear-gradient(90deg, #3A1414, #1F0B0B)", overflow: "hidden",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <SectionLabel>재고부족 경보</SectionLabel>
+            {pendingUrgent.length > 0 && (
+              <div className="pc-only-block" style={{
+                display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 200, maxWidth: 420,
+                padding: "5px 10px", borderRadius: 999, border: "1px solid #EF535066",
+                background: "linear-gradient(90deg, #3A1414, #1F0B0B)", overflow: "hidden",
+              }}>
                 <span style={{
-                  display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
-                  fontSize: 11.5, fontWeight: 800, color: "#FF6B6B", letterSpacing: "0.04em",
+                  display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
+                  fontSize: 10.5, fontWeight: 800, color: "#FF6B6B", letterSpacing: "0.04em",
                 }}>
                   <span style={{
-                    width: 8, height: 8, borderRadius: "50%", background: "#FF3B3B",
+                    width: 7, height: 7, borderRadius: "50%", background: "#FF3B3B",
                     animation: "urgentBlink 1s infinite",
                   }} />
                   🚨 속보
                 </span>
                 <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap" }}>
                   <div style={{
-                    display: "inline-block", fontSize: 12.5, fontFamily: "IBM Plex Mono", color: "#FFD1D1",
+                    display: "inline-block", fontSize: 11.5, fontFamily: "IBM Plex Mono", color: "#FFD1D1",
                     animation: "urgentMarquee 18s linear infinite", paddingLeft: "100%",
                   }}>
                     {pendingUrgent.map((r, idx) => (
-                      <span key={r.id} style={{ marginRight: 40 }}>
+                      <span key={r.id} style={{ marginRight: 32 }}>
                         긴급자재발주요청: {r.item_name} ({r.requester}, {timeAgoStr(r.created_at)})
                         {idx < pendingUrgent.length - 1 ? "  ·  " : ""}
                       </span>
                     ))}
                   </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => resolveUrgentRequest(pendingUrgent[0].id)}
+                  style={{
+                    flexShrink: 0, padding: "3px 9px", borderRadius: 6, fontSize: 10.5, fontWeight: 700,
+                    border: "1px solid #35D08C88", background: "#35D08C22", color: "#35D08C", cursor: "pointer",
+                  }}
+                >
+                  처리완료
+                </button>
               </div>
-              <div style={{ borderTop: "1px solid #EF535033", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-                {pendingUrgent.map((r) => (
-                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                    <span style={{ flex: 1, color: "#FFD1D1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      <b>{r.item_name}</b> · {r.requester} · {timeAgoStr(r.created_at)}
-                      {r.note ? ` · "${r.note}"` : ""}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => resolveUrgentRequest(r.id)}
-                      style={{
-                        flexShrink: 0, padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
-                        border: "1px solid #35D08C88", background: "#35D08C22", color: "#35D08C", cursor: "pointer",
-                      }}
-                    >
-                      처리완료
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
           {alertItems.length === 0 ? (
             <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
           ) : (
@@ -1811,50 +1802,47 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         {recentOutTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
             {recentOutTxs.map((t) => (
               <div
                 key={t.id}
                 style={{
                   background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
-                  padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8,
+                  padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8" }}>{t.itemName}</div>
-                    <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 2 }}>{t.at}</div>
+                <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {t.itemName}
                   </div>
+                  <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>{t.at}</div>
                 </div>
 
-                <div style={{ 
-                  display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, 
-                  paddingTop: 8, borderTop: "1px solid #14283A", fontSize: 12 
-                }}>
+                <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
                   <div>
-                    <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>수량</span>
+                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
                     <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>{t.qty} {t.unit}</span>
                   </div>
                   <div>
-                    <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>호선</span>
+                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
                     <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
                   </div>
                   <div>
-                    <span style={{ color: "#5E86A3", fontSize: 11, display: "block" }}>불출자</span>
+                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>불출자</span>
                     <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
                   </div>
                 </div>
-                
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14, width: "100%" }}>
+
+                <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: "auto" }}>
                   <button
                     onClick={() => cancelOutTx(t)}
-                    style={{ background: "#123626", border: "1px solid #2ECC71", color: "#2ECC71", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+                    style={{ background: "#123626", border: "1px solid #2ECC71", color: "#2ECC71", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
                   >
                     원복
                   </button>
                   <button
                     onClick={() => deleteHistory(t)}
-                    style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+                    style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
                   >
                     삭제
                   </button>
@@ -1958,9 +1946,9 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                   {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover" }} />
+                    <img src={item.image_url} alt={item.name} style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
                   ) : (
-                    <div style={{ width: 50, height: 50, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div style={{ width: 50, height: 50, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <ImageIcon size={20} color="#5E86A3" />
                     </div>
                   )}
@@ -1971,9 +1959,9 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
                         {item.name}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>코드: {item.code}</div>
+                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>코드: {item.code}</div>
                     {item.manufacturer && (
-                      <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2 }}>제조사: {item.manufacturer}</div>
+                      <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>제조사: {item.manufacturer}</div>
                     )}
                   </div>
 
@@ -1986,7 +1974,9 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
                     </div>
                     <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>안전재고: {item.safety} {item.unit}</div>
                   </div>
+                </div>
 
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid #1F3B54", marginTop: 10, paddingTop: 10 }}>
                   <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
 
                   <button

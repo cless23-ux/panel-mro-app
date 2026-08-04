@@ -7,6 +7,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      includeAssets: [
+        'icon.png',
+        'icon-192.png',
+        'icon-512.png',
+        'splash.png'
+      ],
       manifest: {
         name: 'LUXCO',
         short_name: 'LUXCO',
@@ -17,8 +23,13 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: '/icon.png',
-            sizes: '1254x1254',
+            src: '/icon-192.png',
+            sizes: '192x192',
+            type: 'image/png'
+          },
+          {
+            src: '/icon-512.png',
+            sizes: '512x512',
             type: 'image/png'
           }
         ]

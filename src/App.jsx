@@ -1555,6 +1555,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       process: process,
       worker: worker,
       at: nowStr(),
+      deleted: false,
     };
 
     await saveItems(nextItems);
@@ -3073,6 +3074,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
             qty: inputQty,
             worker: invoicePerson,
             at: nowStr(),
+            deleted: false,
           });
         }
       }
@@ -3125,6 +3127,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
             qty: docQty,
             worker: invoicePerson,
             at: nowStr(),
+            deleted: false,
           });
         }
       }
@@ -3171,6 +3174,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
       qty: inputQty,
       worker: person,
       at: nowStr(),
+      deleted: false,
     };
 
     await saveItems(nextItems);

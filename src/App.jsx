@@ -851,7 +851,7 @@ function Dashboard({ items, txs }) {
         </Card>
 
         <Card style={{ padding: 20 }}>
-          <SectionLabel>재고부족 경고</SectionLabel>
+          <SectionLabel>재고부족 경보</SectionLabel>
           {alertItems.length === 0 ? (
             <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
           ) : (
@@ -1057,6 +1057,26 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     return txs.filter((t) => t.type === "out").slice(-5).reverse();
   }, [txs]);
 
+  const frequentItems = useMemo(() => {
+    const counts = {};
+    txs.forEach((t) => {
+      if (t.type !== "out" || !t.itemCode) return;
+      const key = String(t.itemCode).trim();
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([code]) => items.find((i) => String(i.code).trim() === code))
+      .filter(Boolean);
+  }, [txs, items]);
+
+  const selectFrequentItem = (item) => {
+    setFound(item);
+    setScan("");
+    notify(`자재 선택됨: ${item.name}`, "ok");
+  };
+
   const findItemByCode = (rawCode) => {
     if (!rawCode) return null;
     const cleanScan = String(rawCode).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
@@ -1109,7 +1129,9 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           fps: 15, 
           qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const qrboxSize = Math.floor(minEdge * 0.85);
+            // 주변에 QR코드가 여러 개 있을 때 엉뚱한 코드를 잡지 않도록
+            // 인식 범위를 작게 좁혀서 하나의 코드만 정확히 겨냥하도록 함
+            const qrboxSize = Math.max(160, Math.min(230, Math.floor(minEdge * 0.45)));
             return { width: qrboxSize, height: qrboxSize };
           }
         },
@@ -1257,12 +1279,48 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           ) : (
             <div style={{ padding: 10, background: "#0B1C2C", borderRadius: 10, textAlign: "center" }}>
               <div id="reader" style={{ width: "100%", height: 350, background: "#000", borderRadius: 8, overflow: "hidden" }} />
+              <div style={{ fontSize: 11.5, color: "#5E86A3", marginTop: 10 }}>
+                주변에 QR코드가 여러 개 있다면, 인식하려는 코드 하나만 사각 박스 안에 딱 맞춰주세요.
+              </div>
               <Btn onClick={stopCamera} variant="ghost" style={{ marginTop: 12, width: "100%" }}>
                 카메라 끄기
               </Btn>
             </div>
           )}
         </Card>
+
+        {frequentItems.length > 0 && (
+          <Card style={{ padding: 22 }}>
+            <SectionLabel>⭐ 자주 쓰는 자재</SectionLabel>
+            <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 12 }}>
+              눌러서 바로 선택하세요
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {frequentItems.map((item) => {
+                const isActive = found && String(found.code).trim() === String(item.code).trim();
+                return (
+                  <button
+                    key={item.code}
+                    type="button"
+                    onClick={() => selectFrequentItem(item)}
+                    style={{
+                      padding: "9px 14px",
+                      borderRadius: 999,
+                      border: isActive ? "1px solid #38BDF8" : "1px solid #274460",
+                      background: isActive ? "rgba(56,189,248,0.15)" : "#0B1C2C",
+                      color: isActive ? "#38BDF8" : "#C6D4E1",
+                      fontSize: 12.5,
+                      fontFamily: "IBM Plex Mono",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {item.name}
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+        )}
 
         <Card style={{ padding: 22 }}>
           <SectionLabel>2. 불출 정보 입력</SectionLabel>

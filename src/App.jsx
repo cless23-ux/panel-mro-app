@@ -1168,12 +1168,19 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
         </Card>
 
         <Card style={{ padding: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <SectionLabel>재고부족 경보</SectionLabel>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
+            <div style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
+              color: "#5E86A3", textTransform: "uppercase", display: "flex",
+              alignItems: "center", gap: 8, flexShrink: 0,
+            }}>
+              <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
+              재고부족 경보
+            </div>
             {pendingUrgent.length > 0 && (
               <div className="pc-only-block" style={{
-                display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 200, maxWidth: 420,
-                padding: "5px 10px", borderRadius: 999, border: "1px solid #EF535066",
+                display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0,
+                padding: "6px 10px", borderRadius: 6, border: "1px solid #EF535066",
                 background: "linear-gradient(90deg, #3A1414, #1F0B0B)", overflow: "hidden",
               }}>
                 <span style={{
@@ -1186,7 +1193,7 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
                   }} />
                   🚨 속보
                 </span>
-                <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap" }}>
+                <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap", minWidth: 0 }}>
                   <div style={{
                     display: "inline-block", fontSize: 11.5, fontFamily: "IBM Plex Mono", color: "#FFD1D1",
                     animation: "urgentMarquee 18s linear infinite", paddingLeft: "100%",
@@ -1203,7 +1210,7 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
                   type="button"
                   onClick={() => resolveUrgentRequest(pendingUrgent[0].id)}
                   style={{
-                    flexShrink: 0, padding: "3px 9px", borderRadius: 6, fontSize: 10.5, fontWeight: 700,
+                    flexShrink: 0, padding: "3px 9px", borderRadius: 5, fontSize: 10.5, fontWeight: 700,
                     border: "1px solid #35D08C88", background: "#35D08C22", color: "#35D08C", cursor: "pointer",
                   }}
                 >
@@ -1826,6 +1833,10 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                   <div>
                     <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
                     <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>프로젝트</span>
+                    <span style={{ color: "#9FB4C7" }}>{t.project || "-"}</span>
                   </div>
                   <div>
                     <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>불출자</span>

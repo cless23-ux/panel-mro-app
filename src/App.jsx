@@ -457,6 +457,154 @@ function Field({ label, children }) {
   );
 }
 
+/* ---------------- 전체 입고/출고 상세 기록 모달 ---------------- */
+function TxHistoryModal({ type, txs, onClose }) {
+  const [search, setSearch] = useState("");
+  const isOut = type === "out";
+
+  const list = useMemo(() => {
+    const filtered = (txs || []).filter((t) => t.type === type);
+    const q = search.trim().toLowerCase();
+    const searched = q
+      ? filtered.filter((t) =>
+          String(t.itemName || "").toLowerCase().includes(q) ||
+          String(t.itemCode || "").toLowerCase().includes(q) ||
+          String(t.worker || "").toLowerCase().includes(q) ||
+          String(t.shipNo || "").toLowerCase().includes(q)
+        )
+      : filtered;
+    return [...searched].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  }, [txs, type, search]);
+
+  const totalQty = useMemo(() => list.reduce((s, t) => s + (Number(t.qty) || 0), 0), [list]);
+
+  const exportCSV = () => {
+    const headers = isOut
+      ? ["날짜,자재명,코드,수량,단위,호선,프로젝트,공정구분,불출자\n"]
+      : ["날짜,자재명,코드,수량,단위,담당자\n"];
+    const rows = list.map((t) => {
+      if (isOut) {
+        return `"${t.at}","${t.itemName}","${t.itemCode}",${t.qty},"${t.unit}","${t.shipNo || ""}","${t.project || ""}","${t.process || ""}","${t.worker || ""}"\n`;
+      }
+      return `"${t.at}","${t.itemName}","${t.itemCode}",${t.qty},"${t.unit}","${t.worker || ""}"\n`;
+    });
+    const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `MRO_${isOut ? "출고" : "입고"}기록_${nowStr().split(" ")[0]}.csv`;
+    link.click();
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)",
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 900, maxHeight: "85vh", display: "flex", flexDirection: "column",
+          background: "#0F2233", border: "1px solid #274460", borderRadius: 14, padding: 22,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: isOut ? "#F5A623" : "#35D08C" }}>
+              {isOut ? "전체 출고 상세기록" : "전체 입고 상세기록"}
+            </div>
+            <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
+              총 {list.length}건 · 합계 {totalQty.toLocaleString()}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={exportCSV}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8,
+                border: "1px solid #35D08C88", background: "#35D08C1f", color: "#35D08C",
+                fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
+              }}
+            >
+              <Download size={14} />엑셀 다운로드
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="닫기"
+              style={{
+                background: "none", border: "none", cursor: "pointer", color: "#7F97AC",
+                display: "flex", alignItems: "center", justifyContent: "center", padding: 6,
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <input
+          style={{ ...inputStyle, marginBottom: 12 }}
+          placeholder="자재명, 코드, 담당자, 호선으로 검색"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        <div style={{ flex: 1, overflowY: "auto", border: "1px solid #1F3B54", borderRadius: 8 }}>
+          {list.length === 0 ? (
+            <EmptyState icon={isOut ? ArrowUpFromLine : ArrowDownToLine} text="해당하는 기록이 없습니다." color="#5E86A3" />
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ position: "sticky", top: 0, background: "#0B1C2C" }}>
+                  <th style={thStyle}>날짜</th>
+                  <th style={thStyle}>자재명</th>
+                  <th style={thStyle}>코드</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>수량</th>
+                  {isOut ? (
+                    <>
+                      <th style={thStyle}>호선</th>
+                      <th style={thStyle}>프로젝트</th>
+                      <th style={thStyle}>불출자</th>
+                    </>
+                  ) : (
+                    <th style={thStyle}>담당자</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((t) => (
+                  <tr key={t.id} style={{ borderTop: "1px solid #14283A" }}>
+                    <td style={{ ...tdStyle, color: "#7F97AC", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{t.at}</td>
+                    <td style={{ ...tdStyle, color: "#38BDF8", fontWeight: 600 }}>{t.itemName}</td>
+                    <td style={{ ...tdStyle, color: "#7F97AC", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{t.itemCode}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700, color: isOut ? "#F5A623" : "#35D08C" }}>
+                      {t.qty} {t.unit}
+                    </td>
+                    {isOut ? (
+                      <>
+                        <td style={{ ...tdStyle, color: "#9FB4C7" }}>{t.shipNo || "-"}</td>
+                        <td style={{ ...tdStyle, color: "#9FB4C7" }}>{t.project || "-"}</td>
+                        <td style={{ ...tdStyle, color: "#9FB4C7" }}>{t.worker || "-"}</td>
+                      </>
+                    ) : (
+                      <td style={{ ...tdStyle, color: "#9FB4C7" }}>{t.worker || "-"}</td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+const thStyle = { textAlign: "left", padding: "8px 10px", color: "#5E86A3", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap" };
+const tdStyle = { padding: "8px 10px", whiteSpace: "nowrap" };
+
 const inputStyle = {
   background: "#0B1C2C", border: "1px solid #26445F", borderRadius: 8, color: "#E7EEF5",
   padding: "12px 14px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", outline: "none", width: "100%",
@@ -1014,6 +1162,8 @@ export default function App() {
 
 /* ---------------- Dashboard ---------------- */
 function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
+  const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
+
   const availableShips = useMemo(() => {
     const outTxs = txs.filter((t) => t.type === "out" && t.shipNo && t.shipNo !== "미입력");
     const uniqueShips = Array.from(new Set(outTxs.map((t) => t.shipNo)));
@@ -1081,8 +1231,8 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 20 }}>
         <StatCard label="관리 품목 수" value={items.length} unit="종" icon={Package} color="#5EC8FF" />
-        <StatCard label="누적 입고" value={totalInQty.toLocaleString()} unit="" icon={ArrowDownToLine} color="#35D08C" />
-        <StatCard label="누적 출고" value={totalOutQty.toLocaleString()} unit="" icon={ArrowUpFromLine} color="#F5A623" />
+        <StatCard label="누적 입고" value={totalInQty.toLocaleString()} unit="" icon={ArrowDownToLine} color="#35D08C" onClick={() => setHistoryModal("in")} />
+        <StatCard label="누적 출고" value={totalOutQty.toLocaleString()} unit="" icon={ArrowUpFromLine} color="#F5A623" onClick={() => setHistoryModal("out")} />
         <StatCard label="안전재고 미달" value={items.filter((i) => statusOf(i) === "danger").length} unit="종" icon={AlertTriangle} color="#EF5350" />
       </div>
 
@@ -1332,13 +1482,20 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
           </>
         )}
       </Card>
+
+      {historyModal && (
+        <TxHistoryModal type={historyModal} txs={txs} onClose={() => setHistoryModal(null)} />
+      )}
     </div>
   );
 }
 
-function StatCard({ label, value, unit, icon: Icon, color }) {
+function StatCard({ label, value, unit, icon: Icon, color, onClick }) {
   return (
-    <Card style={{ padding: "16px 18px" }}>
+    <Card
+      style={{ padding: "16px 18px", cursor: onClick ? "pointer" : "default" }}
+      onClick={onClick}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 6 }}>{label}</div>
@@ -1355,6 +1512,9 @@ function StatCard({ label, value, unit, icon: Icon, color }) {
           </div>
         )}
       </div>
+      {onClick && (
+        <div style={{ fontSize: 10, color: "#5E86A3", marginTop: 8 }}>클릭해서 상세 기록 보기 →</div>
+      )}
     </Card>
   );
 }

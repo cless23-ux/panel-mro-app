@@ -257,9 +257,10 @@ function Led({ status, size = 10 }) {
   );
 }
 
-function Card({ children, style, className = "", onClick }) {
+const Card = React.forwardRef(function Card({ children, style, className = "", onClick }, ref) {
   return (
     <div
+      ref={ref}
       className={className}
       onClick={onClick}
       style={{
@@ -272,7 +273,7 @@ function Card({ children, style, className = "", onClick }) {
       {children}
     </div>
   );
-}
+});
 
 function SectionLabel({ children }) {
   return (
@@ -1021,6 +1022,13 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [worker, setWorker] = useState("울산에이원");
   const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
+  const infoCardRef = useRef(null);
+
+  const scrollToInfoCard = () => {
+    setTimeout(() => {
+      infoCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+  };
 
   useEffect(() => {
     if (presetItem) {
@@ -1057,26 +1065,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     return txs.filter((t) => t.type === "out").slice(-5).reverse();
   }, [txs]);
 
-  const frequentItems = useMemo(() => {
-    const counts = {};
-    txs.forEach((t) => {
-      if (t.type !== "out" || !t.itemCode) return;
-      const key = String(t.itemCode).trim();
-      counts[key] = (counts[key] || 0) + 1;
-    });
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([code]) => items.find((i) => String(i.code).trim() === code))
-      .filter(Boolean);
-  }, [txs, items]);
-
-  const selectFrequentItem = (item) => {
-    setFound(item);
-    setScan("");
-    notify(`자재 선택됨: ${item.name}`, "ok");
-  };
-
   const findItemByCode = (rawCode) => {
     if (!rawCode) return null;
     const cleanScan = String(rawCode).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
@@ -1106,7 +1094,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const doScan = (val) => {
     const codeVal = val ?? scan;
     const hit = findItemByCode(codeVal);
-    if (hit) { setFound(hit); notify(`자재 선택됨: ${hit.name}`, "ok"); }
+    if (hit) { setFound(hit); notify(`자재 선택됨: ${hit.name}`, "ok"); scrollToInfoCard(); }
     else { setFound(null); notify(`등록되지 않은 자재입니다. (인식값: ${String(codeVal).trim()})`, "err"); }
   };
 
@@ -1142,6 +1130,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             notify(`스캔 성공: ${hit.name}`, "ok");
             html5QrCode.stop().catch(() => {});
             setIsScanning(false);
+            scrollToInfoCard();
           } else {
             notify(`미등록 자재 코드: ${decodedText.replace(/[\r\n]+/g, "").trim()}`, "err");
           }
@@ -1289,40 +1278,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           )}
         </Card>
 
-        {frequentItems.length > 0 && (
-          <Card style={{ padding: 22 }}>
-            <SectionLabel>⭐ 자주 쓰는 자재</SectionLabel>
-            <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 12 }}>
-              눌러서 바로 선택하세요
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {frequentItems.map((item) => {
-                const isActive = found && String(found.code).trim() === String(item.code).trim();
-                return (
-                  <button
-                    key={item.code}
-                    type="button"
-                    onClick={() => selectFrequentItem(item)}
-                    style={{
-                      padding: "9px 14px",
-                      borderRadius: 999,
-                      border: isActive ? "1px solid #38BDF8" : "1px solid #274460",
-                      background: isActive ? "rgba(56,189,248,0.15)" : "#0B1C2C",
-                      color: isActive ? "#38BDF8" : "#C6D4E1",
-                      fontSize: 12.5,
-                      fontFamily: "IBM Plex Mono",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {item.name}
-                  </button>
-                );
-              })}
-            </div>
-          </Card>
-        )}
-
-        <Card style={{ padding: 22 }}>
+        <Card ref={infoCardRef} style={{ padding: 22 }}>
           <SectionLabel>2. 불출 정보 입력</SectionLabel>
           {!found ? (
             <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 선택해주세요." color="#5E86A3" />

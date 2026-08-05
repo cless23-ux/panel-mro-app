@@ -3439,9 +3439,9 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   <Btn
                     variant="ghost"
                     onClick={() => {
-                      const allCodes = cartItems.map(c => `${c.name} (${c.code})`).join("\n");
+                      const allCodes = cartItems.map(c => c.code).join("\n");
                       navigator.clipboard.writeText(allCodes);
-                      notify("전체 자재 목록 및 코드가 복사되었습니다.", "ok");
+                      notify("전체 자재 코드가 복사되었습니다.", "ok");
                     }}
                     style={{ flex: 1, fontSize: 12.5 }}
                   >

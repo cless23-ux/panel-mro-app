@@ -658,12 +658,24 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
 
   const submit = async () => {
     if (!requester.trim()) { notify("요청자 이름을 입력해주세요.", "err"); return; }
+    
+    // [설정된 호선만 작성 가능하도록 검증]
+    const trimmedShip = shipNo.trim();
+    if (!trimmedShip) {
+      notify("호선을 입력해주세요.", "err");
+      return;
+    }
+    if (shipOptions.length > 0 && !shipOptions.includes(trimmedShip)) {
+      notify("등록되지 않은 호선입니다. 저장된 호선만 입력할 수 있어요.", "err");
+      return;
+    }
+
     setSubmitting(true);
     await addRequest({
       itemCode: item.code,
       itemName: item.name,
       requester: requester.trim(),
-      shipNo: shipNo.trim(),
+      shipNo: trimmedShip,
       project: project,
       note: note.trim()
     });
@@ -727,12 +739,12 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
               <Field label="요청자 이름">
                 <input style={inputStyle} value={requester} onChange={(e) => setRequester(e.target.value)} placeholder="이름 입력" />
               </Field>
-              <Field label="호선 선택/작성">
+              <Field label="호선 선택/작성 (등록된 호선만 가능)">
                 <AutocompleteInput
                   value={shipNo}
                   onChange={handleShipNoChange}
                   options={shipOptions}
-                  placeholder="예: H3527 (숫자만 입력시 H자동등록)"
+                  placeholder="예: H3527 (저장된 호선 선택)"
                 />
               </Field>
               <Field label="프로젝트 선택">

@@ -2772,18 +2772,21 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
         .urgent-stack-container {
           display: flex;
           align-items: center;
-          padding: 8px 12px;
+          gap: 10px; /* 카드 사이 간격 확보 */
+          padding: 8px 4px;
           overflow-x: auto;
           width: 100%;
+          white-space: nowrap;
+          -webkit-overflow-scrolling: touch;
         }
         .urgent-stack-item {
-          transition: transform 0.25s ease, margin 0.25s ease, box-shadow 0.25s ease;
+          transition: transform 0.25s ease, box-shadow 0.25s ease;
           cursor: pointer;
           flex-shrink: 0;
+          margin-left: 0 !important; /* 겹침 현상 제거 */
         }
         .urgent-stack-item:hover {
-          transform: translateY(-4px) scale(1.02);
-          z-index: 50 !important;
+          transform: translateY(-2px);
         }
       `}</style>
 

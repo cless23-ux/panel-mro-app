@@ -210,12 +210,14 @@ function useUrgentRequests() {
     return () => clearInterval(t);
   }, [load]);
 
-  const addRequest = useCallback(async ({ itemCode, itemName, requester, note }) => {
+  const addRequest = useCallback(async ({ itemCode, itemName, requester, shipNo, project, note }) => {
     const newReq = {
       id: uid("URG"),
       item_code: itemCode,
       item_name: itemName,
       requester: requester || "미입력",
+      ship_no: shipNo || "",
+      project: project || "",
       note: note || "",
       status: "pending",
       created_at: new Date().toISOString(),
@@ -625,8 +627,20 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
   const [requester, setRequester] = useState(() => {
     try { return localStorage.getItem(LAST_REQUESTER_KEY) || ""; } catch { return ""; }
   });
+  const [shipNo, setShipNo] = useState("");
+  const [project, setProject] = useState("MSBD/LVSB");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const [outFormSettings] = useOutFormSettings();
+  const shipOptions = outFormSettings?.ships || [];
+  const projectOptions = outFormSettings?.projects || [];
+
+  useEffect(() => {
+    if (projectOptions.length > 0 && !projectOptions.includes(project)) {
+      setProject(projectOptions[0]);
+    }
+  }, [projectOptions]);
 
   const existingPending = useMemo(() => {
     return (requests || []).find(
@@ -634,10 +648,25 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
     );
   }, [requests, item.code]);
 
+  const handleShipNoChange = (val) => {
+    let clean = val.trim();
+    if (/^\d+$/.test(clean)) {
+      clean = `H${clean}`;
+    }
+    setShipNo(clean);
+  };
+
   const submit = async () => {
     if (!requester.trim()) { notify("요청자 이름을 입력해주세요.", "err"); return; }
     setSubmitting(true);
-    await addRequest({ itemCode: item.code, itemName: item.name, requester: requester.trim(), note: note.trim() });
+    await addRequest({
+      itemCode: item.code,
+      itemName: item.name,
+      requester: requester.trim(),
+      shipNo: shipNo.trim(),
+      project: project,
+      note: note.trim()
+    });
     try { localStorage.setItem(LAST_REQUESTER_KEY, requester.trim()); } catch {}
     setSubmitting(false);
     setOpen(false);
@@ -697,6 +726,17 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
               <Field label="요청자 이름">
                 <input style={inputStyle} value={requester} onChange={(e) => setRequester(e.target.value)} placeholder="이름 입력" />
+              </Field>
+              <Field label="호선 선택/작성">
+                <AutocompleteInput
+                  value={shipNo}
+                  onChange={handleShipNoChange}
+                  options={shipOptions}
+                  placeholder="예: H3527 (숫자만 입력시 H자동등록)"
+                />
+              </Field>
+              <Field label="프로젝트 선택">
+                <Select value={project} onChange={(e) => setProject(e.target.value)} options={projectOptions} />
               </Field>
               <Field label="메모 (선택)">
                 <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 이번 주 내 필요" />
@@ -3286,6 +3326,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
 
             <div style={{ fontSize: 12.5, display: "flex", flexDirection: "column", gap: 6, color: "#C9DAE8", marginBottom: 18 }}>
               <div><strong>요청자:</strong> {selectedUrgent.requester}</div>
+              {selectedUrgent.ship_no && <div><strong>호선:</strong> {selectedUrgent.ship_no}</div>}
+              {selectedUrgent.project && <div><strong>프로젝트:</strong> {selectedUrgent.project}</div>}
               <div><strong>요청시각:</strong> {selectedUrgent.created_at ? new Date(selectedUrgent.created_at).toLocaleString() : "-"}</div>
               {selectedUrgent.note && <div><strong>메모:</strong> {selectedUrgent.note}</div>}
             </div>

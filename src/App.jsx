@@ -824,35 +824,76 @@ export default function App() {
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
 
-  /* 모바일 좌우 스와이프로 하단 탭(입고/출고/재고) 전환 */
-  const touchStartXRef = useRef(0);
-  const touchStartYRef = useRef(0);
+  /* 모바일 좌우 스와이프로 하단 탭(입고/출고/재고) 전환 - 손가락을 따라오는 드래그 연출 */
+  const mainPanelRef = useRef(null);
+  const dragStateRef = useRef({ startX: 0, startY: 0, dragging: null, deltaX: 0 });
   const MOBILE_SWIPE_TABS = ["in", "out", "stock"];
+  const SWIPE_THRESHOLD = 60;
 
   const handleMainTouchStart = (e) => {
     const t = e.touches[0];
-    touchStartXRef.current = t.clientX;
-    touchStartYRef.current = t.clientY;
+    dragStateRef.current = { startX: t.clientX, startY: t.clientY, dragging: null, deltaX: 0 };
   };
 
-  const handleMainTouchEnd = (e) => {
+  const handleMainTouchMove = (e) => {
     if (typeof window === "undefined" || window.innerWidth > 768) return;
-    const t = e.changedTouches[0];
-    const deltaX = t.clientX - touchStartXRef.current;
-    const deltaY = t.clientY - touchStartYRef.current;
-    const SWIPE_THRESHOLD = 60;
+    const ds = dragStateRef.current;
+    const t = e.touches[0];
+    const deltaX = t.clientX - ds.startX;
+    const deltaY = t.clientY - ds.startY;
 
-    /* 세로 스크롤과 헷갈리지 않도록 가로 이동량이 세로보다 확실히 클 때만 반응 */
-    if (Math.abs(deltaX) < SWIPE_THRESHOLD || Math.abs(deltaX) < Math.abs(deltaY) * 1.5) return;
+    if (ds.dragging === null) {
+      if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) return; // 의도 파악 전
+      const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
+      ds.dragging = curIdx !== -1 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2;
+    }
+    if (!ds.dragging) return;
 
     const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
-    if (curIdx === -1) return; // pcOnly 탭(대시보드 등)에서는 스와이프 무시
+    const atFirst = curIdx <= 0;
+    const atLast = curIdx >= MOBILE_SWIPE_TABS.length - 1;
+    /* 더 넘어갈 탭이 없는 방향으로는 고무줄처럼 저항감 부여 */
+    const resisted = (deltaX > 0 && atFirst) || (deltaX < 0 && atLast) ? deltaX * 0.35 : deltaX;
+    ds.deltaX = resisted;
 
-    if (deltaX < 0 && curIdx < MOBILE_SWIPE_TABS.length - 1) {
-      goToTab(MOBILE_SWIPE_TABS[curIdx + 1]); // 왼쪽으로 스와이프 → 다음 탭
-    } else if (deltaX > 0 && curIdx > 0) {
-      goToTab(MOBILE_SWIPE_TABS[curIdx - 1]); // 오른쪽으로 스와이프 → 이전 탭
+    const el = mainPanelRef.current;
+    if (el) {
+      el.style.transition = "none";
+      el.style.transform = `translateX(${resisted}px)`;
+      el.style.opacity = String(Math.max(0.7, 1 - Math.abs(resisted) / 600));
     }
+  };
+
+  const handleMainTouchEnd = () => {
+    const ds = dragStateRef.current;
+    const el = mainPanelRef.current;
+
+    if (!ds.dragging) {
+      dragStateRef.current = { startX: 0, startY: 0, dragging: null, deltaX: 0 };
+      return;
+    }
+
+    const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
+    const goNext = ds.deltaX <= -SWIPE_THRESHOLD && curIdx < MOBILE_SWIPE_TABS.length - 1;
+    const goPrev = ds.deltaX >= SWIPE_THRESHOLD && curIdx > 0;
+
+    if (goNext || goPrev) {
+      /* 임계값을 넘겼으면 즉시 다음 탭으로 - 새 창이 슬라이드 애니메이션으로 이어받음 */
+      if (el) { el.style.transition = ""; el.style.transform = ""; el.style.opacity = ""; }
+      goToTab(MOBILE_SWIPE_TABS[curIdx + (goNext ? 1 : -1)]);
+    } else if (el) {
+      /* 임계값 미달 - 손을 뗀 원위치로 고무줄처럼 되돌아옴 */
+      el.style.transition = "transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease";
+      el.style.transform = "translateX(0px)";
+      el.style.opacity = "1";
+      const cleanup = () => {
+        if (mainPanelRef.current === el) el.style.transition = "";
+        el.removeEventListener("transitionend", cleanup);
+      };
+      el.addEventListener("transitionend", cleanup);
+    }
+
+    dragStateRef.current = { startX: 0, startY: 0, dragging: null, deltaX: 0 };
   };
 
   const notify = useCallback((msg, type = "ok") => {
@@ -1072,6 +1113,13 @@ if (showSplash) {
           align-items: start;
         }
 
+        .outform-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+          gap: 20px;
+          width: 100%;
+        }
+
         @media (max-width: 768px) {
           .pc-only-block { display: none !important; }
           .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
@@ -1095,6 +1143,11 @@ if (showSplash) {
           .inbound-grid-container {
             grid-template-columns: 1fr;
             gap: 16px;
+          }
+
+          .outform-grid {
+            grid-template-columns: 1fr;
+            gap: 14px;
           }
         }
       `}</style>
@@ -1236,6 +1289,7 @@ if (showSplash) {
       <main
         className="main-content"
         onTouchStart={handleMainTouchStart}
+        onTouchMove={handleMainTouchMove}
         onTouchEnd={handleMainTouchEnd}
       >
         {!ready ? (
@@ -1243,6 +1297,7 @@ if (showSplash) {
         ) : (
           <div
             key={tab}
+            ref={mainPanelRef}
             className={`tab-panel${slideDir < 0 ? " dir-back" : ""}`}
             style={{
               "--tab-neon-border": `${TAB_NEON[tab] || "#274460"}55`,
@@ -1922,7 +1977,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   return (
     <div>
       <Header title="출고 (QR / 바코드 스캔)" subtitle="스캔으로 빠르게 불출 처리" />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
+      <div className="outform-grid">
         <Card neon="#F5A623" style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
           {!isScanning ? (

@@ -1089,7 +1089,7 @@ if (showSplash) {
         .pc-sidebar { width: 250px; flex-shrink: 0; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; }
         .mobile-header { display: none; }
         .mobile-bottom-nav { display: none; }
-        .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; min-width: 0; touch-action: pan-y; }
+        .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; overflow-x: hidden; min-width: 0; touch-action: pan-y; }
         .toast-box { bottom: 26px; left: 50%; transform: translateX(-50%); }
 
         .tab-panel {
@@ -1100,6 +1100,8 @@ if (showSplash) {
           box-shadow: 0 0 0 1px var(--tab-neon-border, transparent), 0 0 26px -8px var(--tab-neon-glow, transparent), inset 0 0 40px -30px var(--tab-neon-glow, transparent);
           animation: tabSlideInFromRight 0.32s cubic-bezier(0.22, 1, 0.36, 1);
           transition: border-color 0.25s ease, box-shadow 0.25s ease;
+          overflow-x: hidden;
+          max-width: 100%;
         }
         .tab-panel.dir-back { animation-name: tabSlideInFromLeft; }
 
@@ -1112,6 +1114,7 @@ if (showSplash) {
           gap: 20px;
           align-items: start;
         }
+        .inbound-grid-container > * { min-width: 0; }
 
         .outform-grid {
           display: grid;
@@ -1119,6 +1122,7 @@ if (showSplash) {
           gap: 20px;
           width: 100%;
         }
+        .outform-grid > * { min-width: 0; }
 
         @media (max-width: 768px) {
           .pc-only-block { display: none !important; }
@@ -1132,7 +1136,7 @@ if (showSplash) {
             height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
             grid-template-columns: repeat(3, 1fr); flex-shrink: 0; z-index: 10;
           }
-          .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; touch-action: pan-y; }
+          .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
           .tab-panel { padding: 14px 12px; border-radius: 14px; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }

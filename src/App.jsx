@@ -2889,14 +2889,15 @@ function MasterView({ items, saveItems, notify }) {
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>사진</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                <th>No.</th><th>사진</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((i) => {
+              {items.map((i, index) => {
                 const st = statusOf(i);
                 return (
                 <tr key={i.code}>
+                  <td>{index + 1}</td>
                   <td>
                     {i.image_url ? (
                       <img

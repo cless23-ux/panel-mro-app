@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -334,7 +334,7 @@ function useOutFormSettings() {
       if (cached) setSettings(JSON.parse(cached));
     } catch (e) {
       console.error("Out form settings load error:", e);
-    } finally {
+    }  finally {
       if (!silent) setLoaded(true);
     }
   }, []);
@@ -803,6 +803,36 @@ export default function App() {
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
   const { requests: urgentRequests, addRequest: addUrgentRequest, resolveRequest: resolveUrgentRequest } = useUrgentRequests();
   
+  /* 발주 장바구니 상태 (자재코드 및 정보 담기) */
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem("panel:orderCart");
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  const addToCart = useCallback((item) => {
+    setCartItems(prev => {
+      if (prev.some(c => c.code === item.code)) return prev;
+      const next = [...prev, item];
+      try { localStorage.setItem("panel:orderCart", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const removeFromCart = useCallback((code) => {
+    setCartItems(prev => {
+      const next = prev.filter(c => c.code !== code);
+      try { localStorage.setItem("panel:orderCart", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const clearCart = useCallback(() => {
+    setCartItems([]);
+    try { localStorage.removeItem("panel:orderCart"); } catch {}
+  }, []);
+
   /* 초기 열림 탭: PC는 대시보드, 모바일은 대시보드가 숨겨져 있으므로 출고(스캔)로 시작 */
   const [tab, setTab] = useState(() => (typeof window !== "undefined" && window.innerWidth <= 768 ? "out" : "dashboard"));
   const [presetItem, setPresetItem] = useState(null);
@@ -1079,7 +1109,6 @@ if (showSplash) {
         ::-webkit-scrollbar-thumb { background: #21405B; border-radius: 4px; }
         @keyframes riseIn { from { opacity:0; transform: translate(-50%,12px);} to {opacity:1; transform: translate(-50%,0);} }
         @keyframes urgentBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
-        @keyframes urgentMarquee { from { transform: translateX(0); } to { transform: translateX(-100%); } }
         @keyframes tabSlideInFromRight { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes tabSlideInFromLeft { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: translateX(0); } }
         input:focus, select:focus { border-color: #F5A623 !important; }
@@ -1168,9 +1197,10 @@ if (showSplash) {
           </div>
         </div>
 
+        {/* [수정 2] 클릭 시 자재마스터 화면('master')으로 이동하도록 onClick 변경 */}
         {pendingUrgentCount > 0 && (
           <button
-            onClick={() => goToTab("dashboard")}
+            onClick={() => goToTab("master")}
             style={{
               display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
               padding: "10px 14px", borderRadius: 8, border: "1px solid #EF535066",
@@ -1309,11 +1339,11 @@ if (showSplash) {
               "--tab-neon-bg": `${TAB_NEON[tab] || "#274460"}0d`,
             }}
           >
-            {tab === "dashboard" && <Dashboard items={items} txs={txs} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} />}
+            {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
-            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
           </div>
@@ -1350,7 +1380,7 @@ if (showSplash) {
 }
 
 /* ---------------- Dashboard ---------------- */
-function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
+function Dashboard({ items, txs }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
 
   const availableShips = useMemo(() => {
@@ -1415,7 +1445,6 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
     return [...txs].sort((a, b) => parseAt(b) - parseAt(a)).slice(0, 10);
   }, [txs]);
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
-  const pendingUrgent = useMemo(() => (urgentRequests || []).filter((r) => r.status === "pending"), [urgentRequests]);
 
   const totalOutQty = txs.filter((t) => t.type === "out").reduce((s, t) => s + Number(t.qty), 0);
   const totalInQty = txs.filter((t) => t.type === "in").reduce((s, t) => s + Number(t.qty), 0);
@@ -1423,6 +1452,8 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
   return (
     <div>
       <Header title="대시보드" subtitle="실시간 재고 · 호선별 소모 현황" />
+
+      {/* [수정 1] 대시보드 상단 경고창 완전 삭제 */}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 20 }}>
         <StatCard label="관리 품목 수" value={items.length} unit="종" icon={Package} color="#5EC8FF" />
@@ -1522,47 +1553,6 @@ function Dashboard({ items, txs, urgentRequests, resolveUrgentRequest }) {
               <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
               재고부족 경고
             </div>
-            {pendingUrgent.length > 0 && (
-              <div className="pc-only-block" style={{
-                display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0,
-                padding: "6px 10px", borderRadius: 6, border: "1px solid #EF535066",
-                background: "linear-gradient(90deg, #3A1414, #1F0B0B)", overflow: "hidden",
-              }}>
-                <span style={{
-                  display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
-                  fontSize: 10.5, fontWeight: 800, color: "#FF6B6B", letterSpacing: "0.04em",
-                }}>
-                  <span style={{
-                    width: 7, height: 7, borderRadius: "50%", background: "#FF3B3B",
-                    animation: "urgentBlink 1s infinite",
-                  }} />
-                  🚨 긴급
-                </span>
-                <div style={{ flex: 1, overflow: "hidden", whiteSpace: "nowrap", minWidth: 0 }}>
-                  <div style={{
-                    display: "inline-block", fontSize: 11.5, fontFamily: "IBM Plex Mono", color: "#FFD1D1",
-                    animation: "urgentMarquee 18s linear infinite", paddingLeft: "100%",
-                  }}>
-                    {pendingUrgent.map((r, idx) => (
-                      <span key={r.id} style={{ marginRight: 32 }}>
-                        긴급자재발주요청: {r.item_name} ({r.requester}, {timeAgoStr(r.created_at)})
-                        {idx < pendingUrgent.length - 1 ? "  ·  " : ""}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => resolveUrgentRequest(pendingUrgent[0].id)}
-                  style={{
-                    flexShrink: 0, padding: "3px 9px", borderRadius: 5, fontSize: 10.5, fontWeight: 700,
-                    border: "1px solid #35D08C88", background: "#35D08C22", color: "#35D08C", cursor: "pointer",
-                  }}
-                >
-                  처리완료
-                </button>
-              </div>
-            )}
           </div>
           {alertItems.length === 0 ? (
             <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
@@ -1860,8 +1850,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           fps: 15, 
           qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            // 주변에 QR코드가 여러 개 있을 때 엉뚱한 코드를 잡지 않도록
-            // 인식 범위를 작게 좁혀서 하나의 코드만 정확히 겨냥하도록 함
             const qrboxSize = Math.max(160, Math.min(230, Math.floor(minEdge * 0.45)));
             return { width: qrboxSize, height: qrboxSize };
           }
@@ -2452,13 +2440,21 @@ async function buildQrLabelWorkbook(items) {
 }
 
 /* ---------------- 자재 마스터 관리 ---------------- */
-function MasterView({ items, saveItems, notify }) {
+function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", image_url: "" };
   const [form, setForm] = useState(blank);
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
-  const [masterQRInput, setMasterQRInput] = useState("");
   
+  /* 경고 및 정보창(모달), 장바구니 모달 상태 */
+  const [selectedUrgent, setSelectedUrgent] = useState(null);
+  const [showCartModal, setShowCartModal] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const pendingUrgentList = useMemo(() => {
+    return (urgentRequests || []).filter((r) => r.status === "pending");
+  }, [urgentRequests]);
+
   const [uploadingImage, setUploadingImage] = useState(false);
   const liveCameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
@@ -2700,30 +2696,6 @@ function MasterView({ items, saveItems, notify }) {
     }
   };
 
-  const handleMasterQRKeyDown = (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const rawVal = e.target.value;
-      if (!rawVal) return;
-      const cleanQuery = rawVal.trim().replace(/[\r\n]+/g, "").toLowerCase();
-
-      const matched = items.find(i => {
-        const cCode = String(i.code).replace(/[\r\n]+/g, "").trim().toLowerCase();
-        return cCode === cleanQuery || cleanQuery.includes(cCode);
-      });
-
-      if (matched) {
-        notify(`[QR 스캔 성공] ${matched.name} (${matched.code})`, "ok");
-        if (window.innerWidth > 768) {
-          setQrModalItem(matched);
-        }
-      } else {
-        notify(`[미등록 자재] "${cleanQuery}" 코드를 찾을 수 없습니다.`, "err");
-      }
-      setMasterQRInput("");
-    }
-  };
-
   const triggerPhotoUpload = (code) => {
     setTargetItemForPhoto(code);
     if (window.confirm("사진 등록 방식을 선택하세요.\n확인: 라이브 촬영 / 취소: 갤러리")) {
@@ -2732,6 +2704,19 @@ function MasterView({ items, saveItems, notify }) {
       editGalleryInputRef.current.click();
     }
   };
+
+  const copyCodeToClipboard = (code) => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      notify("자재코드가 클립보드에 복사되었습니다.", "ok");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const currentUrgentMasterItem = useMemo(() => {
+    if (!selectedUrgent) return null;
+    return items.find((i) => String(i.code).trim() === String(selectedUrgent.item_code).trim()) || null;
+  }, [selectedUrgent, items]);
 
   return (
     <div>
@@ -2742,6 +2727,23 @@ function MasterView({ items, saveItems, notify }) {
         @media (max-width: 768px) {
           .master-table-view { display: none; }
           .master-cards-view { display: flex; }
+        }
+
+        .urgent-stack-container {
+          display: flex;
+          align-items: center;
+          padding: 8px 12px;
+          overflow-x: auto;
+          width: 100%;
+        }
+        .urgent-stack-item {
+          transition: transform 0.25s ease, margin 0.25s ease, box-shadow 0.25s ease;
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+        .urgent-stack-item:hover {
+          transform: translateY(-4px) scale(1.02);
+          z-index: 50 !important;
         }
       `}</style>
 
@@ -2771,7 +2773,28 @@ function MasterView({ items, saveItems, notify }) {
           </Btn>
         </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          {/* 발주 장바구니 버튼 */}
+          <button
+            onClick={() => setShowCartModal(true)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "10px 16px", borderRadius: 8,
+              background: "#38BDF822", border: "1px solid #38BDF8", color: "#38BDF8",
+              fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace"
+            }}
+          >
+            <ShoppingCart size={16} />
+            발주 장바구니
+            {cartItems.length > 0 && (
+              <span style={{
+                background: "#38BDF8", color: "#0A1622", borderRadius: 999,
+                padding: "2px 7px", fontSize: 11, fontWeight: 800, marginLeft: 2
+              }}>
+                {cartItems.length}
+              </span>
+            )}
+          </button>
+
           <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업</Btn>
           <Btn onClick={exportQRLabelsExcel} variant="subtle" disabled={qrExporting}>
             <QrCode size={15} />{qrExporting ? "생성 중..." : "QR 라벨"}
@@ -2789,29 +2812,70 @@ function MasterView({ items, saveItems, notify }) {
         </div>
       </div>
 
+      {/* 긴급요청 경고 바 */}
       <div style={{
-        background: "#111c38", border: "1px solid #1e293b", padding: "14px 18px",
-        borderRadius: 12, marginBottom: 20, display: "flex", alignItems: "center",
-        justifyContent: "space-between", gap: 12, flexWrap: "wrap"
+        background: pendingUrgentList.length > 0 ? "linear-gradient(90deg, #2A1010 0%, #150B0B 100%)" : "#0B1C2C",
+        border: `1px solid ${pendingUrgentList.length > 0 ? "#EF535066" : "#1E3A5F"}`,
+        borderRadius: 12, padding: "12px 16px", marginBottom: 20,
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 64
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.95rem", fontWeight: 600, color: "#38bdf8", fontFamily: "'IBM Plex Mono', monospace" }}>
-          <QrCode size={20} />
-          <span>QR / 코드 입력:</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <AlertTriangle size={18} color={pendingUrgentList.length > 0 ? "#FF6B6B" : "#5E86A3"} />
+            <span style={{
+              fontSize: 13.5, fontWeight: 700,
+              color: pendingUrgentList.length > 0 ? "#FF6B6B" : "#5E86A3",
+              fontFamily: "'IBM Plex Mono', monospace"
+            }}>
+              긴급발주 요청 ({pendingUrgentList.length})
+            </span>
+          </div>
+
+          {pendingUrgentList.length === 0 ? (
+            <span style={{ fontSize: 12.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace" }}>
+              현재 접수된 긴급 발주 요청이 없습니다.
+            </span>
+          ) : (
+            <div className="urgent-stack-container">
+              {pendingUrgentList.map((req, index) => {
+                const overlapMargin = index > 0 ? "-32px" : "0px";
+                return (
+                  <div
+                    key={req.id}
+                    onClick={() => setSelectedUrgent(req)}
+                    className="urgent-stack-item"
+                    style={{
+                      marginLeft: overlapMargin,
+                      zIndex: pendingUrgentList.length - index,
+                      background: "#1E0F0F",
+                      border: "1px solid #EF5350AA",
+                      borderRadius: 8,
+                      padding: "8px 14px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      minWidth: 190
+                    }}
+                  >
+                    <span style={{
+                      width: 6, height: 6, borderRadius: "50%", background: "#FF5252",
+                      boxShadow: "0 0 6px #FF5252", flexShrink: 0
+                    }} />
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: "#FFD1D1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {req.item_name}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#FFA8A8", fontFamily: "IBM Plex Mono" }}>
+                        {req.requester} · {timeAgoStr(req.created_at)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-        <input 
-          type="text" 
-          value={masterQRInput}
-          onChange={(e) => setMasterQRInput(e.target.value)}
-          onKeyDown={handleMasterQRKeyDown}
-          placeholder="스캐너 스캔..." 
-          style={{
-            flex: 1, minWidth: 160, height: 42, fontSize: "1rem", fontWeight: "bold",
-            padding: "0 14px", border: "2px solid #38bdf8", borderRadius: 8,
-            backgroundColor: "#0b1329", color: "#ffffff", outline: "none",
-            fontFamily: "'IBM Plex Mono', monospace"
-          }}
-          autoComplete="off"
-        />
       </div>
 
       {showForm && (
@@ -3157,6 +3221,182 @@ function MasterView({ items, saveItems, notify }) {
           })
         )}
       </div>
+
+      {/* 긴급 요청 상세 정보 모달 */}
+      {selectedUrgent && (
+        <div
+          onClick={() => setSelectedUrgent(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(6,14,22,0.82)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: 20
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 440, background: "#0F2233", border: "1px solid #EF5350AA",
+              borderRadius: 14, padding: 22, color: "#E7EEF5", boxShadow: "0 12px 32px rgba(0,0,0,0.6)"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#FF6B6B", fontWeight: 700, fontSize: 16 }}>
+                <AlertTriangle size={20} />
+                긴급 자재 발주 상세 정보
+              </div>
+              <button
+                onClick={() => setSelectedUrgent(null)}
+                style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4 }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#38BDF8", marginBottom: 6 }}>
+                {selectedUrgent.item_name}
+              </div>
+              
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, background: "#152C42", padding: "6px 10px", borderRadius: 6 }}>
+                <span style={{ fontSize: 12, color: "#9FB4C7", fontFamily: "IBM Plex Mono" }}>
+                  코드: <strong style={{ color: "#FFF" }}>{selectedUrgent.item_code}</strong>
+                </span>
+                <button
+                  onClick={() => copyCodeToClipboard(selectedUrgent.item_code)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4, background: "#274460", border: "none",
+                    color: copied ? "#35D08C" : "#C9DAE8", padding: "4px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer"
+                  }}
+                >
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                  {copied ? "복사됨" : "코드 복사"}
+                </button>
+              </div>
+
+              {currentUrgentMasterItem ? (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, color: "#9FB4C7" }}>
+                  <div>규격: {currentUrgentMasterItem.spec || "-"}</div>
+                  <div>거래처: {currentUrgentMasterItem.manufacturer || "-"}</div>
+                  <div>현재고: <strong style={{ color: "#EF5350" }}>{currentUrgentMasterItem.stock} {currentUrgentMasterItem.unit}</strong></div>
+                  <div>안전재고: {currentUrgentMasterItem.safety} {currentUrgentMasterItem.unit}</div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: "#5E86A3" }}>※ 자재 마스터에 등록된 기본 상세 정보를 불러올 수 없습니다.</div>
+              )}
+            </div>
+
+            <div style={{ fontSize: 12.5, display: "flex", flexDirection: "column", gap: 6, color: "#C9DAE8", marginBottom: 18 }}>
+              <div><strong>요청자:</strong> {selectedUrgent.requester}</div>
+              <div><strong>요청시각:</strong> {selectedUrgent.created_at ? new Date(selectedUrgent.created_at).toLocaleString() : "-"}</div>
+              {selectedUrgent.note && <div><strong>메모:</strong> {selectedUrgent.note}</div>}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Btn
+                variant="subtle"
+                style={{ flex: 1, fontSize: 13 }}
+                onClick={() => {
+                  const targetItem = currentUrgentMasterItem || { code: selectedUrgent.item_code, name: selectedUrgent.item_name, stock: 0, unit: "EA" };
+                  addToCart(targetItem);
+                  notify(`[${targetItem.name}] 자재를 발주 장바구니에 담았습니다.`, "ok");
+                }}
+              >
+                <ShoppingCart size={15} /> 발주 장바구니 담기
+              </Btn>
+              <Btn
+                style={{ flex: 1, background: "#35D08C", border: "1px solid #35D08C", color: "#0A1622", fontSize: 13 }}
+                onClick={async () => {
+                  await resolveUrgentRequest(selectedUrgent.id);
+                  notify("긴급요청 처리가 완료되었습니다.", "ok");
+                  setSelectedUrgent(null);
+                }}
+              >
+                <CheckCircle2 size={15} /> 처리완료 완료
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 발주 장바구니 모달 */}
+      {showCartModal && (
+        <div
+          onClick={() => setShowCartModal(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(6,14,22,0.82)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: 20
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 500, background: "#0F2233", border: "1px solid #38BDF8AA",
+              borderRadius: 14, padding: 22, color: "#E7EEF5", boxShadow: "0 12px 32px rgba(0,0,0,0.6)"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#38BDF8", fontWeight: 700, fontSize: 16 }}>
+                <ShoppingCart size={20} />
+                한번에 몰아서 발주하기 (장바구니)
+              </div>
+              <button onClick={() => setShowCartModal(false)} style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4 }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {cartItems.length === 0 ? (
+              <EmptyState icon={ShoppingCart} text="장바구니에 담긴 자재가 없습니다." color="#5E86A3" />
+            ) : (
+              <div>
+                <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                  {cartItems.map((cItem) => (
+                    <div key={cItem.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0B1C2C", padding: "10px 12px", borderRadius: 8, border: "1px solid #1F3B54" }}>
+                      <div>
+                        <div style={{ fontWeight: 700, color: "#38BDF8", fontSize: 13.5 }}>{cItem.name}</div>
+                        <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{cItem.code}</div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <button
+                          onClick={() => copyCodeToClipboard(cItem.code)}
+                          style={{ background: "#16324A", border: "1px solid #274460", color: "#C9DAE8", padding: "4px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
+                        >
+                          <Copy size={12} /> 복사
+                        </button>
+                        <button
+                          onClick={() => removeFromCart(cItem.code)}
+                          style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer" }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Btn
+                    variant="ghost"
+                    onClick={() => {
+                      const allCodes = cartItems.map(c => `${c.name} (${c.code})`).join("\n");
+                      navigator.clipboard.writeText(allCodes);
+                      notify("전체 자재 목록 및 코드가 복사되었습니다.", "ok");
+                    }}
+                    style={{ flex: 1, fontSize: 12.5 }}
+                  >
+                    <Copy size={14} /> 전체 목록 복사
+                  </Btn>
+                  <Btn
+                    variant="danger"
+                    onClick={() => { clearCart(); notify("장바구니가 비워졌습니다.", "info"); }}
+                    style={{ fontSize: 12.5 }}
+                  >
+                    비우기
+                  </Btn>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {qrModalItem && window.innerWidth > 768 && (
         <div style={{

@@ -174,7 +174,7 @@ function useStorage(key, initial) {
   return [value, save, loaded, load];
 }
 
-/* ---------------- 긴급자재발주요청 ---------------- */
+/* ---------------- 긴급자재발주요청 Hook ---------------- */
 const URGENT_REQUESTS_CACHE_KEY = "panel:urgentRequests";
 
 function useUrgentRequests() {
@@ -223,17 +223,24 @@ function useUrgentRequests() {
       created_at: new Date().toISOString(),
       resolved_at: null,
     };
-    setRequests((prev) => {
-      const next = [newReq, ...prev];
-      localStorage.setItem(URGENT_REQUESTS_CACHE_KEY, JSON.stringify(next));
-      return next;
-    });
+
     try {
       if (supabase) {
-        await supabase.from("urgent_requests").insert(newReq);
+        const { error } = await supabase.from("urgent_requests").insert(newReq);
+        if (error) {
+          console.error("Supabase insert error:", error);
+          throw error;
+        }
       }
+
+      setRequests((prev) => {
+        const next = [newReq, ...prev];
+        localStorage.setItem(URGENT_REQUESTS_CACHE_KEY, JSON.stringify(next));
+        return next;
+      });
     } catch (e) {
       console.error("Urgent request save error:", e);
+      alert("긴급 발주 저장 중 오류가 발생했습니다. Supabase 테이블 컬럼(ship_no, project)을 확인해 주세요.");
     }
     return newReq;
   }, []);
@@ -256,7 +263,6 @@ function useUrgentRequests() {
 
   return { requests, loaded, addRequest, resolveRequest, reload: load };
 }
-
 const OUT_FORM_SETTINGS_ROW_ID = 1;
 const DEFAULT_OUT_FORM_SETTINGS = {
   ships: [],
@@ -675,7 +681,7 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
       itemCode: item.code,
       itemName: item.name,
       requester: requester.trim(),
-      shipNo: trimmedShip,
+      shipNo: shipNo.trim(),
       project: project,
       note: note.trim()
     });

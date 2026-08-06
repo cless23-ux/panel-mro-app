@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -476,6 +476,7 @@ function Field({ label, children }) {
 function TxHistoryModal({ type, txs, onClose }) {
   const [search, setSearch] = useState("");
   const isOut = type === "out";
+  const isReturn = type === "return";
 
   const list = useMemo(() => {
     const filtered = (txs || []).filter((t) => t.type === type);
@@ -912,10 +913,10 @@ export default function App() {
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
 
-  /* 모바일 좌우 스와이프로 하단 탭(입고/출고/재고) 전환 - 손가락을 따라오는 드래그 연출 */
+  /* 모바일 좌우 스와이프로 하단 탭(입고/출고/반납/재고) 전환 - 손가락을 따라오는 드래그 연출 */
   const mainPanelRef = useRef(null);
   const dragStateRef = useRef({ startX: 0, startY: 0, dragging: null, deltaX: 0 });
-  const MOBILE_SWIPE_TABS = ["in", "out", "stock"];
+  const MOBILE_SWIPE_TABS = ["in", "out", "return", "stock"];
   const SWIPE_THRESHOLD = 60;
 
   const handleMainTouchStart = (e) => {
@@ -1088,6 +1089,7 @@ export default function App() {
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
     { id: "in", label: "입고등록", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
+    { id: "return", label: "자재반납", icon: RotateCcw },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
@@ -1100,6 +1102,7 @@ export default function App() {
     dashboard: "#38BDF8",
     in: "#35D08C",
     out: "#F5A623",
+    return: "#22D3EE",
     stock: "#A78BFA",
     master: "#F472B6",
     settings: "#2DD4BF",
@@ -1221,7 +1224,7 @@ if (showSplash) {
           }
           .mobile-bottom-nav {
             height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
-            grid-template-columns: repeat(3, 1fr); flex-shrink: 0; z-index: 10;
+            grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
           }
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
           .tab-panel { padding: 14px 12px; border-radius: 14px; }
@@ -1400,6 +1403,7 @@ if (showSplash) {
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
+            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
             {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
@@ -1661,10 +1665,10 @@ function Dashboard({ items, txs }) {
                         <span style={{
                           display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "IBM Plex Mono", fontSize: 11,
                           padding: "3px 8px", borderRadius: 10, fontWeight: 600,
-                          color: t.type === "in" ? "#35D08C" : "#F5A623",
-                          background: t.type === "in" ? "#35D08C1a" : "#F5A6231a",
+                          color: t.type === "in" ? "#35D08C" : t.type === "return" ? "#22D3EE" : "#F5A623",
+                          background: t.type === "in" ? "#35D08C1a" : t.type === "return" ? "#22D3EE1a" : "#F5A6231a",
                         }}>
-                          {t.type === "in" ? "입고" : "출고"}
+                          {t.type === "in" ? "입고" : t.type === "return" ? "반납" : "출고"}
                         </span>
                       </td>
                       <td style={{ fontWeight: 600 }}>{t.itemName}</td>
@@ -1699,14 +1703,14 @@ function Dashboard({ items, txs }) {
                       <span style={{
                         display: "inline-flex", alignItems: "center", fontFamily: "IBM Plex Mono", fontSize: 10.5,
                         padding: "2px 6px", borderRadius: 6, fontWeight: 600,
-                        color: t.type === "in" ? "#35D08C" : "#F5A623",
-                        background: t.type === "in" ? "#35D08C1a" : "#F5A6231a",
+                        color: t.type === "in" ? "#35D08C" : t.type === "return" ? "#22D3EE" : "#F5A623",
+                        background: t.type === "in" ? "#35D08C1a" : t.type === "return" ? "#22D3EE1a" : "#F5A6231a",
                       }}>
-                        {t.type === "in" ? "입고" : "출고"}
+                        {t.type === "in" ? "입고" : t.type === "return" ? "반납" : "출고"}
                       </span>
                       <span style={{ fontWeight: 700, fontSize: 13.5, color: "#E7EEF5" }}>{t.itemName}</span>
                     </div>
-                    <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13.5, color: t.type === "in" ? "#35D08C" : "#F5A623" }}>
+                    <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13.5, color: t.type === "in" ? "#35D08C" : t.type === "return" ? "#22D3EE" : "#F5A623" }}>
                       {t.qty} {t.unit}
                     </span>
                   </div>
@@ -2271,6 +2275,396 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             ))}
           </div>
         )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- 자재 반납 ---------------- */
+const RETURN_REASONS = ["미사용 잔량", "수량 착오", "자재 상이", "프로젝트 취소/변경", "기타"];
+
+function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings }) {
+  const [mode, setMode] = useState("history"); // "history" | "manual"
+
+  // 공통 입력값
+  const [qty, setQty] = useState("");
+  const [reason, setReason] = useState(RETURN_REASONS[0]);
+  const [worker, setWorker] = useState("");
+  const [note, setNote] = useState("");
+
+  // 이력 기반 모드
+  const [historySearch, setHistorySearch] = useState("");
+  const [selectedOutTx, setSelectedOutTx] = useState(null);
+
+  // 자유 검색 모드
+  const [manualSearch, setManualSearch] = useState("");
+  const [manualDropdownOpen, setManualDropdownOpen] = useState(false);
+  const [manualItem, setManualItem] = useState(null);
+  const [manualShip, setManualShip] = useState("");
+  const [manualProject, setManualProject] = useState("");
+  const manualWrapRef = useRef(null);
+
+  const shipOptions = outFormSettings?.ships || [];
+  const projectOptions = outFormSettings?.projects || [];
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (manualWrapRef.current && !manualWrapRef.current.contains(e.target)) setManualDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
+
+  /* 출고건별 이미 반납된 누적 수량 계산 */
+  const returnedQtyByOutTxId = useMemo(() => {
+    const map = {};
+    (txs || []).forEach((t) => {
+      if (t.type === "return" && t.linkedOutTxId) {
+        map[t.linkedOutTxId] = (map[t.linkedOutTxId] || 0) + (Number(t.qty) || 0);
+      }
+    });
+    return map;
+  }, [txs]);
+
+  const outTxList = useMemo(() => {
+    const parseAt = (t) => {
+      const d = new Date(String(t.at || "").replace(" ", "T"));
+      return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    const q = historySearch.trim().toLowerCase();
+    return (txs || [])
+      .filter((t) => t.type === "out")
+      .filter((t) => {
+        if (!q) return true;
+        return (
+          String(t.itemName || "").toLowerCase().includes(q) ||
+          String(t.itemCode || "").toLowerCase().includes(q) ||
+          String(t.shipNo || "").toLowerCase().includes(q)
+        );
+      })
+      .map((t) => ({ ...t, returned: returnedQtyByOutTxId[t.id] || 0 }))
+      .filter((t) => t.returned < Number(t.qty)) // 전량 반납된 건은 목록에서 제외
+      .sort((a, b) => parseAt(b) - parseAt(a))
+      .slice(0, 40);
+  }, [txs, historySearch, returnedQtyByOutTxId]);
+
+  const recentReturnTxs = useMemo(() => {
+    const parseAt = (t) => {
+      const d = new Date(String(t.at || "").replace(" ", "T"));
+      return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    return (txs || [])
+      .filter((t) => t.type === "return")
+      .sort((a, b) => parseAt(b) - parseAt(a))
+      .slice(0, 15);
+  }, [txs]);
+
+  const filteredManualItems = useMemo(() => {
+    const list = items || [];
+    if (!manualSearch.trim()) return list.slice(0, 30);
+    const q = manualSearch.toLowerCase().trim();
+    return list.filter((i) =>
+      String(i.name).toLowerCase().includes(q) ||
+      String(i.code).toLowerCase().includes(q)
+    ).slice(0, 30);
+  }, [items, manualSearch]);
+
+  const selectOutTx = (t) => {
+    setSelectedOutTx(t);
+    setQty("");
+  };
+
+  const maxReturnQty = selectedOutTx ? Number(selectedOutTx.qty) - (returnedQtyByOutTxId[selectedOutTx.id] || 0) : null;
+
+  const resetForm = () => {
+    setQty(""); setReason(RETURN_REASONS[0]); setNote("");
+    setSelectedOutTx(null); setHistorySearch("");
+    setManualItem(null); setManualSearch(""); setManualShip(""); setManualProject("");
+  };
+
+  const submit = async () => {
+    const targetItem = mode === "history"
+      ? (selectedOutTx && items.find((i) => String(i.code).trim() === String(selectedOutTx.itemCode).trim()))
+      : manualItem;
+
+    if (mode === "history" && !selectedOutTx) { notify("반납할 출고 이력을 선택해주세요.", "err"); return; }
+    if (mode === "manual" && !manualItem) { notify("반납할 자재를 검색해서 선택해주세요.", "err"); return; }
+    if (!targetItem) { notify("자재 마스터에서 해당 자재를 찾을 수 없습니다.", "err"); return; }
+
+    const qtyNum = Number(qty);
+    if (!qtyNum || qtyNum <= 0) { notify("반납 수량을 입력해주세요.", "err"); return; }
+    if (mode === "history" && qtyNum > maxReturnQty) {
+      notify(`반납 가능 수량(${maxReturnQty}${selectedOutTx.unit})을 초과했습니다.`, "err");
+      return;
+    }
+    if (!worker.trim()) { notify("반납자를 입력해주세요.", "err"); return; }
+
+    const nextItems = items.map((i) =>
+      String(i.code).trim() === String(targetItem.code).trim()
+        ? { ...i, stock: (Number(i.stock) || 0) + qtyNum }
+        : i
+    );
+
+    const tx = {
+      id: uid("RET"),
+      type: "return",
+      itemCode: targetItem.code,
+      itemName: targetItem.name,
+      unit: targetItem.unit,
+      qty: qtyNum,
+      shipNo: mode === "history" ? (selectedOutTx.shipNo || "") : (manualShip || ""),
+      project: mode === "history" ? (selectedOutTx.project || "") : (manualProject || ""),
+      reason,
+      worker: worker.trim(),
+      note: note.trim(),
+      linkedOutTxId: mode === "history" ? selectedOutTx.id : null,
+      at: nowStr(),
+      deleted: false,
+    };
+
+    await saveItems(nextItems);
+    await saveTxs([...(txs || []), tx]);
+    notify(`${targetItem.name} ${qtyNum}${targetItem.unit} 반납 완료 · 재고 반영됨`, "ok");
+    resetForm();
+  };
+
+  const cancelReturnTx = async (targetTx) => {
+    if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 반납 내역을 취소하시겠습니까? (재고에서 다시 차감됩니다)`)) {
+      return;
+    }
+    const nextItems = items.map((i) =>
+      String(i.code).trim() === String(targetTx.itemCode).trim()
+        ? { ...i, stock: Math.max(0, Number(i.stock) - Number(targetTx.qty)) }
+        : i
+    );
+    const nextTxs = (txs || []).filter((t) => t.id !== targetTx.id);
+
+    await saveItems(nextItems);
+    if (supabase) {
+      const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
+      if (error) { notify("반납 취소 중 오류가 발생했습니다.", "err"); return; }
+    }
+    await saveTxs(nextTxs);
+    notify(`반납이 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 다시 차감되었습니다.`, "info");
+  };
+
+  const modeBtnStyle = (active) => ({
+    flex: 1, padding: "10px 14px", borderRadius: 8, cursor: "pointer",
+    border: active ? "1px solid #22D3EE" : "1px solid #274460",
+    background: active ? "#22D3EE1f" : "#0B1C2C",
+    color: active ? "#22D3EE" : "#7F97AC",
+    fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13,
+  });
+
+  return (
+    <div>
+      <Header title="자재 반납" subtitle="출고된 자재의 미사용분·오출고분을 재고로 되돌립니다" />
+      <div className="outform-grid">
+        <Card neon="#22D3EE" style={{ padding: 22 }}>
+          <SectionLabel>1. 반납 대상 선택</SectionLabel>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <button type="button" style={modeBtnStyle(mode === "history")} onClick={() => { setMode("history"); resetForm(); }}>
+              출고 이력에서 선택
+            </button>
+            <button type="button" style={modeBtnStyle(mode === "manual")} onClick={() => { setMode("manual"); resetForm(); }}>
+              자재 직접 검색
+            </button>
+          </div>
+
+          {mode === "history" ? (
+            <div>
+              <input
+                style={{ ...inputStyle, marginBottom: 10 }}
+                placeholder="자재명, 코드, 호선으로 검색"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+              />
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" }}>
+                {outTxList.length === 0 ? (
+                  <EmptyState icon={ArrowUpFromLine} text="반납 가능한 출고 이력이 없습니다." color="#5E86A3" />
+                ) : (
+                  outTxList.map((t) => {
+                    const active = selectedOutTx && selectedOutTx.id === t.id;
+                    const remain = Number(t.qty) - t.returned;
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => selectOutTx(t)}
+                        style={{
+                          padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                          border: active ? "1px solid #22D3EE" : "1px solid #1F3B54",
+                          background: active ? "#22D3EE14" : "#0B1C2C",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {t.itemName}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
+                              {t.shipNo || "-"} · {t.project || "-"} · {t.at}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right", flexShrink: 0, fontFamily: "IBM Plex Mono" }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#22D3EE" }}>{remain}{t.unit}</div>
+                            <div style={{ fontSize: 10, color: "#5E86A3" }}>반납가능(출고 {t.qty}{t.unit})</div>
+                          </div>
+                        </div>
+                        {t.returned > 0 && (
+                          <div style={{ fontSize: 10.5, color: "#F5A623", marginTop: 6 }}>
+                            ※ 이미 {t.returned}{t.unit} 반납됨
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ) : (
+            <div ref={manualWrapRef} style={{ position: "relative" }}>
+              <input
+                style={inputStyle}
+                value={manualSearch}
+                onChange={(e) => { setManualSearch(e.target.value); setManualItem(null); setManualDropdownOpen(true); }}
+                onFocus={() => setManualDropdownOpen(true)}
+                placeholder="자재명 또는 코드를 검색하세요"
+                autoComplete="off"
+              />
+              {manualDropdownOpen && filteredManualItems.length > 0 && (
+                <div style={{
+                  position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+                  background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
+                  marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", maxHeight: 260, overflowY: "auto",
+                }}>
+                  {filteredManualItems.map((i) => (
+                    <div
+                      key={i.code}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setManualItem(i);
+                        setManualSearch(`[${i.code}] ${i.name}`);
+                        setManualDropdownOpen(false);
+                      }}
+                      style={{ padding: "10px 12px", borderBottom: "1px solid #16293C", cursor: "pointer", fontSize: 13 }}
+                    >
+                      <div style={{ fontWeight: 600, color: "#38BDF8" }}>{i.name}</div>
+                      <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.code} · 현재고 {i.stock}{i.unit}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {manualItem && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+                  <Field label="호선 (선택)">
+                    <AutocompleteInput value={manualShip} onChange={setManualShip} options={shipOptions} placeholder="예: H-2024" />
+                  </Field>
+                  <Field label="프로젝트 (선택)">
+                    <Select value={manualProject || projectOptions[0] || ""} onChange={(e) => setManualProject(e.target.value)} options={projectOptions.length ? projectOptions : ["-"]} />
+                  </Field>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+
+        <Card neon="#22D3EE" style={{ padding: 22 }}>
+          <SectionLabel>2. 반납 정보 입력</SectionLabel>
+          {(mode === "history" && !selectedOutTx) || (mode === "manual" && !manualItem) ? (
+            <EmptyState icon={RotateCcw} text="먼저 반납할 자재를 선택해주세요." color="#5E86A3" />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8" }}>
+                  {mode === "history" ? selectedOutTx.itemName : manualItem.name}
+                </div>
+                <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 4 }}>
+                  {mode === "history"
+                    ? `호선 ${selectedOutTx.shipNo || "-"} · 프로젝트 ${selectedOutTx.project || "-"} · 반납가능 ${maxReturnQty}${selectedOutTx.unit}`
+                    : `코드: ${manualItem.code} · 현재고 ${manualItem.stock}${manualItem.unit}`}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label={`반납 수량 (${mode === "history" ? selectedOutTx.unit : manualItem.unit})`}>
+                  <input
+                    style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
+                    type="number" min="1" max={mode === "history" ? maxReturnQty : undefined}
+                    value={qty} onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+                  />
+                </Field>
+                <Field label="반납 사유">
+                  <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
+                </Field>
+              </div>
+
+              <Field label="반납자">
+                <input style={inputStyle} value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="이름 입력" />
+              </Field>
+
+              <Field label="비고 (선택)">
+                <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 규격 상이로 미사용" />
+              </Field>
+
+              <Btn
+                onClick={submit}
+                style={{ marginTop: 8, width: "100%", background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: "bold", fontSize: 15 }}
+              >
+                <RotateCcw size={18} />반납 확정
+              </Btn>
+            </div>
+          )}
+        </Card>
+
+        <Card neon="#22D3EE" style={{ padding: 16 }}>
+          <SectionLabel>최근 반납 이력 (잘못 등록 시 취소)</SectionLabel>
+          {recentReturnTxs.length === 0 ? (
+            <EmptyState icon={RotateCcw} text="최근 등록된 반납 내역이 없습니다." color="#5E86A3" />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 560, overflowY: "auto" }}>
+              {recentReturnTxs.map((t) => (
+                <div
+                  key={t.id}
+                  style={{
+                    background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+                    padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {t.itemName}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>
+                      {t.reason} · {t.at}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
+                    <div>
+                      <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
+                      <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#22D3EE" }}>{t.qty} {t.unit}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
+                      <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>반납자</span>
+                      <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => cancelReturnTx(t)}
+                    style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600, marginLeft: "auto", flexShrink: 0 }}
+                  >
+                    취소
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
     </div>

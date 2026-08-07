@@ -2499,7 +2499,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return (txs || [])
-      .filter((t) => t.type === "return" && t.returnConfirmed !== true)
+      .filter((t) => t.type === "return" && !String(t.note || "").includes("[반납확인]"))
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -2510,7 +2510,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return (txs || [])
-      .filter((t) => t.type === "return" && t.returnConfirmed === true)
+      .filter((t) => t.type === "return" && String(t.note || "").includes("[반납확인]"))
       .sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
 
@@ -2613,7 +2613,6 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     const tx = {
       id: uid("RET"),
       type: "return",
-      returnConfirmed: false,
       itemCode: targetItem.code,
       itemName: targetItem.name,
       unit: targetItem.unit,
@@ -2681,7 +2680,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     const nextTxs = (txs || []).map((t) => {
       if (t.id !== targetTx.id) return t;
       const currentNote = String(t.note || "").trim();
-      return { ...t, returnConfirmed: true, note: currentNote.includes("[반납확인]") ? currentNote : `${currentNote}${currentNote ? " " : ""}[반납확인]` };
+      return { ...t, note: currentNote.includes("[반납확인]") ? currentNote : `${currentNote}${currentNote ? " " : ""}[반납확인]` };
     });
 
     await saveTxs(nextTxs);
@@ -3437,9 +3436,6 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
         .map((t) => String(t.itemCode || "").trim())
         .filter(Boolean)
     );
-    (items || []).forEach((i) => {
-      if (i.manualReturnRegistered) codes.add(String(i.code || "").trim());
-    });
     return codes;
   }, [txs, items]);
 

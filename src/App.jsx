@@ -133,11 +133,43 @@ function useStorage(key, initial) {
               [...data, ...cached, ...prev].forEach(item => {
                 if (item && item.id) map.set(item.id, item);
               });
-              const merged = Array.from(map.values());
+              const merged = Array.from(map.values()).map((item) => {
+                if (tableName === "transactions" && item?.type === "return") {
+                  return { ...item, returnConfirmed: item.returnConfirmed === true || String(item.note || "").includes("[반납확인]") };
+                }
+                return item;
+              });
               localStorage.setItem(key, JSON.stringify(merged));
+
+              // PC에만 남아 있던 반납 이력도 최초 동기화 시 Supabase로 올립니다.
+              // DB에는 기존 컬럼만 전송하므로 returnConfirmed 컬럼이 없어도 저장됩니다.
+              if (tableName === "transactions" && supabase && cached.length) {
+                const dbCachedTxs = cached.map((tx) => {
+                  const { returnConfirmed, ...dbTx } = tx || {};
+                  if (tx?.type === "return" && returnConfirmed === true && !String(dbTx.note || "").includes("[반납확인]")) {
+                    dbTx.note = `${String(dbTx.note || "").trim()}${String(dbTx.note || "").trim() ? " " : ""}[반납확인]`;
+                  }
+                  return dbTx;
+                });
+                supabase.from("transactions").upsert(dbCachedTxs, { onConflict: "id" }).then(({ error }) => {
+                  if (error) console.error("반납 이력 동기화 오류:", error);
+                });
+              }
               return merged;
             });
           } else {
+            // PC에만 남아 있던 직접입력 반납 자재가 있으면 Supabase에 먼저 동기화합니다.
+            try {
+              const raw = localStorage.getItem(key);
+              const cachedItems = raw ? JSON.parse(raw) : [];
+              const pendingReturnItems = (cachedItems || []).filter((item) => item && item.manualReturnRegistered === true);
+              if (pendingReturnItems.length && supabase) {
+                const dbPendingItems = pendingReturnItems.map(({ manualReturnRegistered, ...item }) => item);
+                supabase.from("items").upsert(dbPendingItems, { onConflict: "code" }).then(({ error }) => {
+                  if (error) console.error("반납 자재 동기화 오류:", error);
+                });
+              }
+            } catch {}
             setValue(data);
             localStorage.setItem(key, JSON.stringify(data));
           }
@@ -168,9 +200,19 @@ function useStorage(key, initial) {
       localStorage.setItem(key, JSON.stringify(next));
       if (supabase) {
         if (tableName === "items") {
-          await supabase.from("items").upsert(next, { onConflict: "code" });
+          const dbItems = (next || []).map(({ manualReturnRegistered, ...item }) => item);
+          const { error } = await supabase.from("items").upsert(dbItems, { onConflict: "code" });
+          if (error) console.error("Supabase items save error:", error);
         } else if (tableName === "transactions") {
-          await supabase.from("transactions").upsert(next, { onConflict: "id" });
+          const dbTxs = (next || []).map((tx) => {
+            const { returnConfirmed, ...dbTx } = tx || {};
+            if (tx?.type === "return" && returnConfirmed === true && !String(dbTx.note || "").includes("[반납확인]")) {
+              dbTx.note = `${String(dbTx.note || "").trim()}${String(dbTx.note || "").trim() ? " " : ""}[반납확인]`;
+            }
+            return dbTx;
+          });
+          const { error } = await supabase.from("transactions").upsert(dbTxs, { onConflict: "id" });
+          if (error) console.error("Supabase transactions save error:", error);
         }
       }
     } catch (e) {
@@ -2632,14 +2674,15 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
         category: "원자재",
         image_url: "",
         deleted: false,
-        manualReturnRegistered: true,
       };
       await saveItems([newReturnItem, ...(items || [])]);
     }
 
-    const nextTxs = (txs || []).map((t) =>
-      t.id === targetTx.id ? { ...t, returnConfirmed: true } : t
-    );
+    const nextTxs = (txs || []).map((t) => {
+      if (t.id !== targetTx.id) return t;
+      const currentNote = String(t.note || "").trim();
+      return { ...t, returnConfirmed: true, note: currentNote.includes("[반납확인]") ? currentNote : `${currentNote}${currentNote ? " " : ""}[반납확인]` };
+    });
 
     await saveTxs(nextTxs);
     notify(`${targetTx.itemName} 반납 내역이 저장목록으로 이동되었습니다.`, "ok");

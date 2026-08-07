@@ -2549,8 +2549,6 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
         category: "원자재",
         image_url: "",
         deleted: false,
-        // 직접입력 반납으로 생성된 자재임을 자재 자체에도 영구 표시
-        manualReturnRegistered: true,
       };
     }
 
@@ -2615,6 +2613,30 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   };
 
   const confirmReturnTx = async (targetTx) => {
+    // 직접입력 반납 자재는 "확인(저장)" 시점에도 자재마스터에 반드시 존재하도록 보장합니다.
+    // 기존 자재가 있으면 그대로 두고, 없을 때만 신규 등록합니다.
+    const targetCode = String(targetTx.itemCode || "").trim();
+    const isManualReturn = String(targetTx.note || "").startsWith("[직접입력반납]") || !targetTx.linkedOutTxId;
+    const exists = (items || []).some((i) => String(i.code || "").trim() === targetCode);
+
+    if (isManualReturn && targetCode && !exists) {
+      const newReturnItem = {
+        code: targetCode,
+        name: String(targetTx.itemName || "").trim(),
+        spec: "",
+        unit: targetTx.unit || "EA",
+        stock: Number(targetTx.qty) || 0,
+        safety: 0,
+        location: "",
+        manufacturer: "",
+        category: "원자재",
+        image_url: "",
+        deleted: false,
+        manualReturnRegistered: true,
+      };
+      await saveItems([newReturnItem, ...(items || [])]);
+    }
+
     const nextTxs = (txs || []).map((t) =>
       t.id === targetTx.id ? { ...t, returnConfirmed: true } : t
     );
@@ -3366,29 +3388,17 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
   const [editingReturnedItem, setEditingReturnedItem] = useState(null);
   const [returnedEditForm, setReturnedEditForm] = useState(null);
   const returnedMaterialCodes = useMemo(() => {
-    const codes = new Set();
-
-    // ① 자재 자체에 저장된 직접입력 반납 표시를 우선 사용
-    (items || []).forEach((item) => {
-      if (item?.manualReturnRegistered === true || String(item.code || "").trim().startsWith("1-RET-")) {
-        const code = String(item.code || "").trim();
-        if (code) codes.add(code);
-      }
+    const codes = new Set(
+      (txs || [])
+        .filter((t) => t.type === "return" && (!t.linkedOutTxId || String(t.note || "").startsWith("[직접입력반납]")))
+        .map((t) => String(t.itemCode || "").trim())
+        .filter(Boolean)
+    );
+    (items || []).forEach((i) => {
+      if (i.manualReturnRegistered) codes.add(String(i.code || "").trim());
     });
-
-    // ② 기존에 등록된 데이터와의 호환: 반납 거래 기록에서도 확인
-    (txs || [])
-      .filter((t) =>
-        t.type === "return" &&
-        (t.manualReturnRegistered === true || !t.linkedOutTxId || String(t.note || "").startsWith("[직접입력반납]"))
-      )
-      .forEach((t) => {
-        const code = String(t.itemCode || "").trim();
-        if (code) codes.add(code);
-      });
-
     return codes;
-  }, [items, txs]);
+  }, [txs, items]);
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"

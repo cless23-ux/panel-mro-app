@@ -1888,6 +1888,23 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const processOptions = outFormSettings?.processes || [];
   const workerOptions = outFormSettings?.workers || [];
 
+  // 호선 설정값의 번호 부분과 완전히 일치하는 숫자만 입력했을 때 설정값으로 자동 변환합니다.
+  // 예: 설정값 "H-2024" + 입력 "2024" → "H-2024"
+  // 숫자가 하나라도 다르면 사용자가 입력한 값을 그대로 유지합니다.
+  const handleShipNoChange = (value) => {
+    const raw = String(value ?? "");
+    const trimmed = raw.trim();
+    if (/^\d+$/.test(trimmed)) {
+      const matched = shipOptions.find((option) => {
+        const optionDigits = String(option ?? "").replace(/\D/g, "");
+        return optionDigits === trimmed;
+      });
+      setShipNo(matched || raw);
+      return;
+    }
+    setShipNo(raw);
+  };
+
   useEffect(() => {
     if (projectOptions.length > 0 && !projectOptions.includes(project)) {
       setProject(projectOptions[0]);
@@ -2245,7 +2262,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                 <Field label="1. 호선">
                   <AutocompleteInput
                     value={shipNo}
-                    onChange={setShipNo}
+                    onChange={handleShipNoChange}
                     options={shipOptions}
                     placeholder="예: H-2024 (직접 입력 또는 목록 검색)"
                   />
@@ -2378,6 +2395,14 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
+  const workerOptions = outFormSettings?.workers || [];
+
+  // 반납자는 불출 설정에서 등록한 목록만 선택할 수 있도록 합니다.
+  useEffect(() => {
+    if (workerOptions.length > 0 && !workerOptions.includes(worker)) {
+      setWorker(workerOptions[0]);
+    }
+  }, [workerOptions, worker]);
 
   /* 직접 입력한 코드가 기존 자재인지 자동 확인.
      기존 자재면 기존 재고에 반납하고, 없으면 반납 확정 시 자재마스터에도 신규 등록합니다. */
@@ -2781,7 +2806,11 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
               </Field>
 
               <Field label="반납자">
-                <input style={inputStyle} value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="이름 입력" />
+                <Select
+                  value={worker}
+                  onChange={(e) => setWorker(e.target.value)}
+                  options={workerOptions}
+                />
               </Field>
 
               <Field label="비고 (선택)">

@@ -381,6 +381,23 @@ function statusOf(item) {
   return "ok";
 }
 
+/* ---------------- 원자재 / 부자재 구분 (자재코드 접두사 기준) ---------------- */
+/* 원자재: 코드가 "1"로 시작 (예: 1-CG-M20-BR) / 부자재: 코드가 "2"로 시작 (예: 2-CG-M20-BR) */
+function getMaterialType(code) {
+  const c = String(code || "").trim();
+  if (c.startsWith("1")) return "raw";
+  if (c.startsWith("2")) return "sub";
+  return "etc";
+}
+const MATERIAL_TYPE_META = {
+  raw: { label: "원자재", color: "#38BDF8" },
+  sub: { label: "부자재", color: "#A78BFA" },
+  etc: { label: "미분류", color: "#7F97AC" },
+};
+function isRawMaterial(code) {
+  return getMaterialType(code) === "raw";
+}
+
 const STATUS_META = {
   ok: { label: "정상", color: "#35D08C" },
   warn: { label: "주의", color: "#F5A623" },
@@ -514,6 +531,7 @@ function TxHistoryModal({ type, txs, onClose }) {
   return (
     <div
       onClick={onClose}
+      className="app-modal-overlay"
       style={{
         position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)",
         display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20,
@@ -712,6 +730,7 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
       {open && (
         <div
           onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+          className="app-modal-overlay"
           style={{
             position: "fixed", inset: 0, background: "rgba(6,14,22,0.72)",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 20,
@@ -919,13 +938,24 @@ export default function App() {
   const MOBILE_SWIPE_TABS = ["in", "out", "return", "stock"];
   const SWIPE_THRESHOLD = 60;
 
+  /* 모달(긴급요청/이력/QR 등)이 열려 있는 동안에는 스와이프를 완전히 무시한다.
+     tab-panel에 transform이 걸리면 그 안에 렌더된 position:fixed 모달이
+     뷰포트 기준이 아니라 tab-panel 기준으로 갇혀버려서 화면 밖으로 밀려나 보이는
+     버그가 있었음 (재고조회 > 긴급요청 모달 후 스와이프 시 모달이 아래로 내려가던 문제) */
+  const isInsideModal = (target) => !!(target && target.closest && target.closest(".app-modal-overlay"));
+
   const handleMainTouchStart = (e) => {
+    if (isInsideModal(e.target)) {
+      dragStateRef.current = { startX: 0, startY: 0, dragging: false, deltaX: 0 };
+      return;
+    }
     const t = e.touches[0];
     dragStateRef.current = { startX: t.clientX, startY: t.clientY, dragging: null, deltaX: 0 };
   };
 
   const handleMainTouchMove = (e) => {
     if (typeof window === "undefined" || window.innerWidth > 768) return;
+    if (isInsideModal(e.target)) return;
     const ds = dragStateRef.current;
     const t = e.touches[0];
     const deltaX = t.clientX - ds.startX;
@@ -1089,7 +1119,7 @@ export default function App() {
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
     { id: "in", label: "입고등록", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
-    { id: "return", label: "자재반납", icon: RotateCcw },
+    { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
@@ -2335,6 +2365,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     const q = historySearch.trim().toLowerCase();
     return (txs || [])
       .filter((t) => t.type === "out")
+      .filter((t) => isRawMaterial(t.itemCode)) // 원자재만 반납 대상
       .filter((t) => {
         if (!q) return true;
         return (
@@ -2361,7 +2392,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   }, [txs]);
 
   const filteredManualItems = useMemo(() => {
-    const list = items || [];
+    const list = (items || []).filter((i) => isRawMaterial(i.code)); // 원자재만 반납 대상
     if (!manualSearch.trim()) return list.slice(0, 30);
     const q = manualSearch.toLowerCase().trim();
     return list.filter((i) =>
@@ -2369,6 +2400,29 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       String(i.code).toLowerCase().includes(q)
     ).slice(0, 30);
   }, [items, manualSearch]);
+
+  /* 반납 이력 전체를 CSV로 다운로드 (최근 15건 제한 없이 전체 export) */
+  const exportReturnCSV = () => {
+    const allReturnTxs = (txs || [])
+      .filter((t) => t.type === "return")
+      .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+
+    if (allReturnTxs.length === 0) {
+      notify("다운로드할 반납 이력이 없습니다.", "err");
+      return;
+    }
+
+    const headers = ["날짜,자재명,코드,수량,단위,호선,프로젝트,반납사유,반납자,비고\n"];
+    const rows = allReturnTxs.map((t) =>
+      `"${t.at}","${t.itemName}","${t.itemCode}",${t.qty},"${t.unit}","${t.shipNo || ""}","${t.project || ""}","${t.reason || ""}","${t.worker || ""}","${t.note || ""}"\n`
+    );
+    const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `MRO_원자재반납기록_${nowStr().split(" ")[0]}.csv`;
+    link.click();
+    notify("반납 이력이 엑셀(CSV)로 다운로드 되었습니다.", "ok");
+  };
 
   const selectOutTx = (t) => {
     setSelectedOutTx(t);
@@ -2459,7 +2513,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
   return (
     <div>
-      <Header title="자재 반납" subtitle="출고된 자재의 미사용분·오출고분을 재고로 되돌립니다" />
+      <Header title="원자재 반납" subtitle="출고된 원자재(코드 1-)의 미사용분·오출고분만 재고로 되돌립니다 · 부자재는 대상이 아닙니다" />
       <div className="outform-grid">
         <Card neon="#22D3EE" style={{ padding: 22 }}>
           <SectionLabel>1. 반납 대상 선택</SectionLabel>
@@ -2618,7 +2672,27 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
         </Card>
 
         <Card neon="#22D3EE" style={{ padding: 16 }}>
-          <SectionLabel>최근 반납 이력 (잘못 등록 시 취소)</SectionLabel>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+            <div style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
+              color: "#5E86A3", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
+              최근 반납 이력 (잘못 등록 시 취소)
+            </div>
+            <button
+              type="button"
+              onClick={exportReturnCSV}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8,
+                border: "1px solid #35D08C88", background: "#35D08C1f", color: "#35D08C",
+                fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
+                whiteSpace: "nowrap", flexShrink: 0,
+              }}
+            >
+              <Download size={13} />엑셀 다운로드
+            </button>
+          </div>
           {recentReturnTxs.length === 0 ? (
             <EmptyState icon={RotateCcw} text="최근 등록된 반납 내역이 없습니다." color="#5E86A3" />
           ) : (
@@ -2895,9 +2969,17 @@ async function buildQrLabelWorkbook(items) {
 function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", image_url: "" };
   const [form, setForm] = useState(blank);
+  const [formMaterialType, setFormMaterialType] = useState("raw"); // "raw"(원자재) | "sub"(부자재)
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
-  
+
+  /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
+  const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
+  const displayedItems = useMemo(() => {
+    if (materialFilter === "all") return items;
+    return items.filter((i) => getMaterialType(i.code) === materialFilter);
+  }, [items, materialFilter]);
+
   /* 경고 및 정보창(모달), 장바구니 모달 상태 */
   const [selectedUrgent, setSelectedUrgent] = useState(null);
   const [showCartModal, setShowCartModal] = useState(false);
@@ -3008,6 +3090,15 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       return;
     }
 
+    const expectedPrefix = formMaterialType === "raw" ? "1" : "2";
+    if (!form.code.trim().startsWith(expectedPrefix)) {
+      notify(
+        `${formMaterialType === "raw" ? "원자재" : "부자재"} 코드는 "${expectedPrefix}"로 시작해야 합니다. 예: ${expectedPrefix}-CG-M20-BR`,
+        "err"
+      );
+      return;
+    }
+
     const exists = items.some((i) => i.code.trim() === form.code.trim());
     if (exists) {
       notify("이미 존재하는 자재 코드입니다.", "err");
@@ -3025,6 +3116,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     await saveItems(nextItems);
     notify(`[${newItem.name}] 자재가 성공적으로 등록되었습니다.`, "ok");
     setForm(blank);
+    setFormMaterialType("raw");
     setShowForm(false);
   };
 
@@ -3267,6 +3359,29 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
         </div>
       </div>
 
+      {/* 원자재 / 부자재 구분 필터 탭 */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        {[
+          { id: "all", label: `전체 (${items.length})` },
+          { id: "raw", label: `원자재 (${items.filter((i) => getMaterialType(i.code) === "raw").length})` },
+          { id: "sub", label: `부자재 (${items.filter((i) => getMaterialType(i.code) === "sub").length})` },
+        ].map((f) => (
+          <button
+            key={f.id}
+            onClick={() => setMaterialFilter(f.id)}
+            style={{
+              padding: "8px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+              border: materialFilter === f.id ? `1px solid ${MATERIAL_TYPE_META[f.id]?.color || "#38BDF8"}` : "1px solid #1F3B54",
+              background: materialFilter === f.id ? `${MATERIAL_TYPE_META[f.id]?.color || "#38BDF8"}1f` : "#0B1C2C",
+              color: materialFilter === f.id ? (MATERIAL_TYPE_META[f.id]?.color || "#38BDF8") : "#7F97AC",
+              cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {/* 긴급요청 경고 바 */}
       <div style={{
         background: pendingUrgentList.length > 0 ? "linear-gradient(90deg, #2A1010 0%, #150B0B 100%)" : "#0B1C2C",
@@ -3336,7 +3451,21 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       {showForm && (
         <Card style={{ padding: 22, marginBottom: 20 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
-            <Field label="자재코드 *"><input style={inputStyle} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="예: CG-M32-BR" /></Field>
+            <Field label="구분 *">
+              <Select
+                value={formMaterialType === "raw" ? "원자재" : "부자재"}
+                onChange={(e) => setFormMaterialType(e.target.value === "원자재" ? "raw" : "sub")}
+                options={["원자재", "부자재"]}
+              />
+            </Field>
+            <Field label="자재코드 *">
+              <input
+                style={inputStyle}
+                value={form.code}
+                onChange={(e) => setForm({ ...form, code: e.target.value })}
+                placeholder={formMaterialType === "raw" ? "예: 1-CG-M32-BR" : "예: 2-CG-M32-BR"}
+              />
+            </Field>
             <Field label="품명 *"><input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="예: 케이블 글랜드" /></Field>
             <Field label="규격"><input style={inputStyle} value={form.spec} onChange={(e) => setForm({ ...form, spec: e.target.value })} placeholder="예: Brass Gland M32" /></Field>
             <Field label="거래처"><input style={inputStyle} value={form.manufacturer} onChange={(e) => setForm({ ...form, manufacturer: e.target.value })} placeholder="예: 동아베스텍" /></Field>
@@ -3408,12 +3537,13 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>No.</th><th>사진</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                <th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((i, index) => {
+              {displayedItems.map((i, index) => {
                 const st = statusOf(i);
+                const mType = getMaterialType(i.code);
                 return (
                 <tr key={i.code}>
                   <td>{index + 1}</td>
@@ -3435,6 +3565,15 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                         <Camera size={14} />
                       </button>
                     )}
+                  </td>
+                  <td>
+                    <span style={{
+                      display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10.5, fontWeight: 700,
+                      color: MATERIAL_TYPE_META[mType].color, background: `${MATERIAL_TYPE_META[mType].color}1f`,
+                      fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+                    }}>
+                      {MATERIAL_TYPE_META[mType].label}
+                    </span>
                   </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
                   <td>
@@ -3539,13 +3678,14 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
 
       {/* 2) 모바일 전용 카드 뷰 */}
       <div className="master-cards-view">
-        {items.length === 0 ? (
+        {displayedItems.length === 0 ? (
           <Card style={{ padding: 20 }}>
             <EmptyState icon={Package} text="등록된 자재가 없습니다." color="#5E86A3" />
           </Card>
         ) : (
-          items.map((i) => {
+          displayedItems.map((i) => {
             const st = statusOf(i);
+            const mType = getMaterialType(i.code);
             return (
               <Card key={i.code} style={{ padding: 14 }}>
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
@@ -3566,8 +3706,17 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   )}
 
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", wordBreak: "break-all" }}>
-                      {i.name}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                      <span style={{
+                        display: "inline-block", padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+                        color: MATERIAL_TYPE_META[mType].color, background: `${MATERIAL_TYPE_META[mType].color}1f`,
+                        fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0,
+                      }}>
+                        {MATERIAL_TYPE_META[mType].label}
+                      </span>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", wordBreak: "break-all" }}>
+                        {i.name}
+                      </div>
                     </div>
                     <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
                       {i.code} {i.spec ? `| ${i.spec}` : ""}
@@ -3681,6 +3830,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       {selectedUrgent && (
         <div
           onClick={() => setSelectedUrgent(null)}
+          className="app-modal-overlay"
           style={{
             position: "fixed", inset: 0, background: "rgba(6,14,22,0.82)",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: 20
@@ -3778,6 +3928,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       {showCartModal && (
         <div
           onClick={() => setShowCartModal(false)}
+          className="app-modal-overlay"
           style={{
             position: "fixed", inset: 0, background: "rgba(6,14,22,0.82)",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: 20
@@ -3856,7 +4007,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       )}
 
       {qrModalItem && window.innerWidth > 768 && (
-        <div style={{
+        <div className="app-modal-overlay" style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.75)",
           display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20,
         }}>
@@ -4473,7 +4624,7 @@ keyCode = String(keyCode)
       </Card>
 
       {quickRegItem && (
-        <div style={{
+        <div className="app-modal-overlay" style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)",
           display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16,
         }}>

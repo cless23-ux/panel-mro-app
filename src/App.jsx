@@ -141,28 +141,8 @@ function useStorage(key, initial) {
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
-        // 기존 기기의 localStorage에만 남아 있는 데이터를 최초 1회 Supabase로 올립니다.
-        // 이후 화면 데이터는 반드시 Supabase에서 다시 읽습니다.
-        let cached = [];
-        try {
-          const raw = localStorage.getItem(key);
-          cached = raw ? JSON.parse(raw) : [];
-        } catch {}
-
-        if (cached.length) {
-          if (tableName === "transactions") {
-            const pending = cached.map(normalizeTxForDb);
-            const { error } = await supabase.from("transactions").upsert(pending, { onConflict: "id" });
-            if (error) console.error("transactions 초기 동기화 오류:", error);
-          } else {
-            // 직접입력 반납으로 생성된 자재를 기존 items 테이블에 동기화합니다.
-            const pending = cached.filter(x => x && x.manualReturnRegistered === true).map(normalizeItemForDb);
-            if (pending.length) {
-              const { error } = await supabase.from("items").upsert(pending, { onConflict: "code" });
-              if (error) console.error("items 초기 동기화 오류:", error);
-            }
-          }
-        }
+        // PC/모바일 간 데이터 충돌을 막기 위해 localStorage 내용을 서버에 자동 재업로드하지 않습니다.
+        // 서버(Supabase)가 항상 원본이며 localStorage는 화면 캐시/오프라인 fallback 용도로만 사용합니다.
 
         const { data, error } = await supabase.from(tableName).select("*").eq("deleted", false);
         if (error) {
@@ -219,9 +199,8 @@ function useStorage(key, initial) {
         return fresh;
       } catch (e) {
         console.error("Supabase save error:", e);
-        // 서버 저장 실패 시 로컬에만 저장하지 않고 기존 화면 상태도 유지합니다.
-        setValue(next);
-        localStorage.setItem(key, JSON.stringify(next));
+        // 서버 저장 실패 시 실패한 데이터를 localStorage에 덮어쓰지 않습니다.
+        // 그래야 다음 동기화에서 잘못된 모바일/PC 기록이 되살아나지 않습니다.
         throw e;
       }
     }
@@ -1515,7 +1494,7 @@ if (showSplash) {
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
-            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
+            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} supabaseClient={typeof supabase !== "undefined" ? supabase : null} />}
             {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} txs={txs} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
@@ -2425,7 +2404,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 /* ---------------- 자재 반납 ---------------- */
 const RETURN_REASONS = ["미사용 잔량", "수량 착오", "자재 상이", "프로젝트 취소/변경", "기타"];
 
-function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings }) {
+function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, supabaseClient }) {
   const [mode, setMode] = useState("history"); // "history" | "manual"
 
   // 공통 입력값
@@ -2641,8 +2620,32 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       deleted: false,
     };
 
+    // 반납 거래는 모바일/PC가 반드시 같은 Supabase transactions 행을 보도록 단일 행으로 저장합니다.
     await saveItems(nextItems);
-    await saveTxs([...(txs || []), tx]);
+    if (supabaseClient) {
+      const dbTx = { ...tx };
+      const { error: txSaveError } = await supabaseClient
+        .from("transactions")
+        .upsert([dbTx], { onConflict: "id" });
+      if (txSaveError) {
+        console.error("반납 거래 Supabase 저장 오류:", txSaveError);
+        notify(`반납 기록 저장 실패: ${txSaveError.message || "Supabase transactions 저장 오류"}`, "err");
+        return;
+      }
+      // 저장 성공 후 서버 전체 목록을 다시 읽어 현재 기기 상태도 서버와 맞춥니다.
+      const { data: freshTxs, error: txReadError } = await supabaseClient
+        .from("transactions")
+        .select("*")
+        .eq("deleted", false);
+      if (txReadError) {
+        console.error("반납 거래 재조회 오류:", txReadError);
+        notify(`반납 기록 재조회 실패: ${txReadError.message || "Supabase 조회 오류"}`, "err");
+        return;
+      }
+      await saveTxs(freshTxs || []);
+    } else {
+      await saveTxs([...(txs || []), tx]);
+    }
 
     const completion = {
       itemName: targetItem.name,
@@ -3441,14 +3444,15 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
   const [editingReturnedItem, setEditingReturnedItem] = useState(null);
   const [returnedEditForm, setReturnedEditForm] = useState(null);
   const returnedMaterialCodes = useMemo(() => {
-    const codes = new Set(
+    // 자재마스터의 수정 버튼은 서버에 실제 저장된 반납 거래가 있는지만 봅니다.
+    // 모바일/PC에서 linkedOutTxId 또는 note 표현이 달라도 반납 거래면 동일하게 처리합니다.
+    return new Set(
       (txs || [])
-        .filter((t) => t.type === "return" && (!t.linkedOutTxId || String(t.note || "").startsWith("[직접입력반납]")))
+        .filter((t) => t.type === "return")
         .map((t) => String(t.itemCode || "").trim())
         .filter(Boolean)
     );
-    return codes;
-  }, [txs, items]);
+  }, [txs]);
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"

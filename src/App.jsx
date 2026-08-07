@@ -123,7 +123,14 @@ function useStorage(key, initial) {
           if (tableName === "transactions") {
             setValue(prev => {
               const map = new Map();
-              [...data, ...prev].forEach(item => {
+              // Supabase에 아직 반영되지 않은 거래가 있어도 같은 기기에서는
+              // localStorage 캐시를 함께 복원하여 반납 등록 표시가 사라지지 않도록 합니다.
+              let cached = [];
+              try {
+                const raw = localStorage.getItem(key);
+                cached = raw ? JSON.parse(raw) : [];
+              } catch {}
+              [...data, ...cached, ...prev].forEach(item => {
                 if (item && item.id) map.set(item.id, item);
               });
               const merged = Array.from(map.values());
@@ -2536,8 +2543,11 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       project: mode === "history" ? (selectedOutTx.project || "") : (manualProject || ""),
       reason,
       worker: worker.trim(),
-      note: note.trim(),
       linkedOutTxId: mode === "history" ? selectedOutTx.id : null,
+      // 직접 입력 반납 여부를 기존 note 컬럼에 저장하여 재실행 후에도 유지
+      note: mode === "manual"
+        ? `[직접입력반납]${note.trim() ? ` ${note.trim()}` : ""}`
+        : note.trim(),
       at: nowStr(),
       deleted: false,
     };
@@ -3180,7 +3190,15 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
   const [qrModalItem, setQrModalItem] = useState(null);
   const [editingReturnedItem, setEditingReturnedItem] = useState(null);
   const [returnedEditForm, setReturnedEditForm] = useState(null);
-  const returnedMaterialCodes = useMemo(() => new Set((txs || []).filter((t) => t.type === "return" && !t.linkedOutTxId).map((t) => String(t.itemCode || "").trim()).filter(Boolean)), [txs]);
+  const returnedMaterialCodes = useMemo(() => {
+    const codes = new Set(
+      (txs || [])
+        .filter((t) => t.type === "return" && (!t.linkedOutTxId || String(t.note || "").startsWith("[직접입력반납]")))
+        .map((t) => String(t.itemCode || "").trim())
+        .filter(Boolean)
+    );
+    return codes;
+  }, [txs]);
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"

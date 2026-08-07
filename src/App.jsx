@@ -118,11 +118,24 @@ function useStorage(key, initial) {
   // PC/모바일 공통 데이터는 Supabase를 단일 원본으로 사용합니다.
   // localStorage는 Supabase가 없을 때의 오프라인 fallback으로만 사용합니다.
   const normalizeTxForDb = useCallback((tx) => {
-    const { returnConfirmed, ...dbTx } = tx || {};
-    if (dbTx?.type === "return" && returnConfirmed === true) {
-      const note = String(dbTx.note || "").trim();
-      if (!note.includes("[반납확인]")) dbTx.note = `${note}${note ? " " : ""}[반납확인]`;
+    // Supabase transactions 테이블에는 linkedOutTxId 컬럼이 없으므로
+    // DB에는 해당 값을 직접 보내지 않고 note 안에 안전하게 보관합니다.
+    // 이렇게 하면 PC/모바일 모두 동일한 transactions 스키마를 사용하면서
+    // 출고 이력과 연결된 반납 기능도 그대로 유지됩니다.
+    const { returnConfirmed, linkedOutTxId, ...dbTx } = tx || {};
+    let note = String(dbTx.note || "").trim();
+
+    if (dbTx?.type === "return" && linkedOutTxId) {
+      // 기존 연결 정보가 중복으로 붙지 않도록 기존 마커를 제거 후 추가
+      note = note.replace(/\[반납연결:[^\]]+\]/g, "").trim();
+      note = `${note}${note ? " " : ""}[반납연결:${linkedOutTxId}]`;
     }
+
+    if (dbTx?.type === "return" && returnConfirmed === true) {
+      if (!note.includes("[반납확인]")) note = `${note}${note ? " " : ""}[반납확인]`;
+    }
+
+    if (dbTx?.type === "return") dbTx.note = note;
     return dbTx;
   }, []);
 
@@ -133,7 +146,13 @@ function useStorage(key, initial) {
 
   const hydrateTx = useCallback((tx) => {
     if (tx?.type === "return") {
-      return { ...tx, returnConfirmed: String(tx.note || "").includes("[반납확인]") };
+      const note = String(tx.note || "");
+      const linkedMatch = note.match(/\[반납연결:([^\]]+)\]/);
+      return {
+        ...tx,
+        linkedOutTxId: linkedMatch ? linkedMatch[1] : null,
+        returnConfirmed: note.includes("[반납확인]"),
+      };
     }
     return tx;
   }, []);

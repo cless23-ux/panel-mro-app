@@ -130,7 +130,10 @@ function useStorage(key, initial) {
                 const raw = localStorage.getItem(key);
                 cached = raw ? JSON.parse(raw) : [];
               } catch {}
-              [...data, ...cached, ...prev].forEach(item => {
+              // 같은 거래가 로컬 캐시와 Supabase 양쪽에 있으면
+              // Supabase 데이터를 최우선으로 사용합니다.
+              // 그래야 모바일에서 저장한 반납 기록/확인 상태가 PC의 오래된 localStorage에 의해 덮어써지지 않습니다.
+              [...cached, ...prev, ...data].forEach(item => {
                 if (item && item.id) map.set(item.id, item);
               });
               const merged = Array.from(map.values()).map((item) => {
@@ -212,7 +215,13 @@ function useStorage(key, initial) {
             return dbTx;
           });
           const { error } = await supabase.from("transactions").upsert(dbTxs, { onConflict: "id" });
-          if (error) console.error("Supabase transactions save error:", error);
+          if (error) {
+            console.error("Supabase transactions save error:", error);
+          } else {
+            // 저장 직후 Supabase 기준으로 다시 읽어 PC/모바일 동일 상태를 유지합니다.
+            // 다음 주기 동기화에서도 Supabase 데이터가 로컬 캐시보다 우선됩니다.
+            await load(true);
+          }
         }
       }
     } catch (e) {

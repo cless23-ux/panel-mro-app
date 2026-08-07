@@ -2625,6 +2625,17 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
               </div>
             </div>
           ) : (
+            <div style={{ padding: "14px 12px", background: "#22D3EE0d", border: "1px solid #22D3EE33", borderRadius: 8, color: "#9FB4C7", fontSize: 12, lineHeight: 1.6 }}>
+              <strong style={{ color: "#22D3EE" }}>자재 직접 입력</strong>을 선택했습니다.<br />
+              아래 <strong>「2. 반납 정보 입력」</strong>에서 자재코드, 자재명, 단위, 수량을 입력해주세요.
+            </div>
+          )}
+        </Card>
+
+        <Card neon="#22D3EE" style={{ padding: 22 }}>
+          <SectionLabel>2. 반납 정보 입력</SectionLabel>
+
+          {mode === "manual" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ padding: "10px 12px", background: "#22D3EE0d", border: "1px solid #22D3EE33", borderRadius: 8, color: "#9FB4C7", fontSize: 11.5, lineHeight: 1.5 }}>
                 등록된 자재를 검색하지 않고 <strong style={{ color: "#22D3EE" }}>자재코드와 자재명을 직접 입력</strong>할 수 있습니다.<br />
@@ -2694,42 +2705,36 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                 </Field>
               </div>
             </div>
-          )}
-        </Card>
-
-        <Card neon="#22D3EE" style={{ padding: 22 }}>
-          <SectionLabel>2. 반납 정보 입력</SectionLabel>
-          {(mode === "history" && !selectedOutTx) || (mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))) ? (
-            <EmptyState icon={RotateCcw} text="먼저 반납할 자재 정보를 입력해주세요." color="#5E86A3" />
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            selectedOutTx ? (
               <div style={{ padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", lineHeight: 1.35 }}>
-                  {mode === "history" ? selectedOutTx.itemName : manualTargetName}
+                  {selectedOutTx.itemName}
                 </div>
                 <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 4 }}>
-                  {mode === "history"
-                    ? `호선 ${selectedOutTx.shipNo || "-"} · 프로젝트 ${selectedOutTx.project || "-"} · 반납가능 ${maxReturnQty}${selectedOutTx.unit}`
-                    : matchedManualItem
-                      ? `코드: ${matchedManualItem.code} · 현재고 ${matchedManualItem.stock}${matchedManualItem.unit}`
-                      : `코드: ${manualCode.trim()} · 신규 자재 · 단위 ${manualUnit || "EA"}`}
+                  호선 {selectedOutTx.shipNo || "-"} · 프로젝트 {selectedOutTx.project || "-"} · 반납가능 {maxReturnQty}{selectedOutTx.unit}
                 </div>
               </div>
+            ) : (
+              <EmptyState icon={RotateCcw} text="먼저 반납할 자재를 선택해주세요." color="#5E86A3" />
+            )
+          )}
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {mode === "history" && (
-                  <Field label={`반납 수량 (${selectedOutTx.unit})`}>
-                    <input
-                      style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
-                      type="number" min="1" max={maxReturnQty}
-                      value={qty} onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
-                    />
-                  </Field>
-                )}
-                <Field label="반납 사유" style={mode === "history" ? undefined : { gridColumn: "1 / -1" }}>
-                  <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
+          {(mode === "manual" || selectedOutTx) && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 14 }}>
+              {mode === "history" && selectedOutTx && (
+                <Field label={`반납 수량 (${selectedOutTx.unit})`}>
+                  <input
+                    style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
+                    type="number" min="1" max={maxReturnQty}
+                    value={qty} onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+                  />
                 </Field>
-              </div>
+              )}
+
+              <Field label="반납 사유">
+                <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
+              </Field>
 
               <Field label="반납자">
                 <input style={inputStyle} value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="이름 입력" />
@@ -2741,7 +2746,11 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
               <Btn
                 onClick={submit}
-                disabled={mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))}
+                disabled={
+                  (mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))) ||
+                  !qty || Number(qty) <= 0 ||
+                  !worker.trim()
+                }
                 style={{ marginTop: 8, width: "100%", background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: "bold", fontSize: 15 }}
               >
                 <RotateCcw size={18} />반납 확정

@@ -1435,7 +1435,7 @@ if (showSplash) {
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
             {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
-            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
+            {tab === "master" && <MasterView items={items} saveItems={saveItems} txs={txs} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
           </div>
@@ -2438,9 +2438,8 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     if (mode === "history" && !selectedOutTx) { notify("반납할 출고 이력을 선택해주세요.", "err"); return; }
 
     if (mode === "manual") {
-      if (!manualCode.trim()) { notify("자재코드를 입력해주세요.", "err"); return; }
       if (!manualName.trim() && !matchedManualItem) { notify("자재명을 입력해주세요.", "err"); return; }
-      if (!manualCode.trim().startsWith("1")) {
+      if (manualCode.trim() && !manualCode.trim().startsWith("1")) {
         notify("원자재 반납이므로 자재코드는 1로 시작해야 합니다. 예: 1-CG-M20-BR", "err");
         return;
       }
@@ -2460,8 +2459,9 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
     // 미등록 자재라면 반납 확정과 동시에 자재마스터에 신규 등록
     if (mode === "manual" && !matchedManualItem) {
+      const generatedCode = manualCode.trim() || `1-RET-${Date.now()}`;
       targetItem = {
-        code: manualCode.trim(),
+        code: generatedCode,
         name: manualName.trim(),
         spec: "",
         unit: manualUnit || "EA",
@@ -2638,17 +2638,17 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
           {mode === "manual" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ padding: "10px 12px", background: "#22D3EE0d", border: "1px solid #22D3EE33", borderRadius: 8, color: "#9FB4C7", fontSize: 11.5, lineHeight: 1.5 }}>
-                등록된 자재를 검색하지 않고 <strong style={{ color: "#22D3EE" }}>자재코드와 자재명을 직접 입력</strong>할 수 있습니다.<br />
-                기존 코드면 기존 자재 재고에 반영되고, 없는 코드면 반납 확정과 동시에 새 자재로 등록됩니다.
+                등록된 자재를 검색하지 않고 <strong style={{ color: "#22D3EE" }}>자재명과 자재정보를 직접 입력</strong>할 수 있습니다.<br />
+                자재코드는 선택사항이며 비워두면 반납 등록 시 자동으로 생성됩니다.
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 10 }}>
-                <Field label="자재코드">
+                <Field label="자재코드 (선택)">
                   <input
                     style={inputStyle}
                     value={manualCode}
                     onChange={(e) => setManualCode(e.target.value)}
-                    placeholder="예: 1-CG-M20-BR"
+                    placeholder="선택 입력 · 비워두면 자동 생성"
                     autoComplete="off"
                   />
                 </Field>
@@ -2690,9 +2690,9 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                   ✓ 등록된 자재입니다. <strong>{matchedManualItem.name}</strong> / 현재고 {matchedManualItem.stock}{matchedManualItem.unit}<br />
                   반납 확정 시 기존 자재의 재고에 반납 수량이 더해집니다.
                 </div>
-              ) : manualCode.trim() ? (
+              ) : manualName.trim() ? (
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: "#F5A62312", border: "1px solid #F5A62355", color: "#F5A623", fontSize: 12, lineHeight: 1.5 }}>
-                  + 미등록 자재입니다. 반납 확정하면 <strong>{manualName.trim() || "입력한 자재"}</strong>가 자재마스터에 신규 등록됩니다.
+                  + 신규 자재입니다. 반납 확정하면 <strong>{manualName.trim() || "입력한 자재"}</strong>가 자재마스터에 등록됩니다.{!manualCode.trim() && " 자재코드는 자동 생성됩니다."}
                 </div>
               ) : null}
 
@@ -2747,7 +2747,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
               <Btn
                 onClick={submit}
                 disabled={
-                  (mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))) ||
+                  (mode === "manual" && (!manualName.trim() && !matchedManualItem)) ||
                   !qty || Number(qty) <= 0 ||
                   !worker.trim()
                 }
@@ -3138,12 +3138,15 @@ async function buildQrLabelWorkbook(items) {
 }
 
 /* ---------------- 자재 마스터 관리 ---------------- */
-function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
+function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", image_url: "" };
   const [form, setForm] = useState(blank);
   const [formMaterialType, setFormMaterialType] = useState("raw"); // "raw"(원자재) | "sub"(부자재)
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
+  const [editingReturnedItem, setEditingReturnedItem] = useState(null);
+  const [returnedEditForm, setReturnedEditForm] = useState(null);
+  const returnedMaterialCodes = useMemo(() => new Set((txs || []).filter((t) => t.type === "return" && !t.linkedOutTxId).map((t) => String(t.itemCode || "").trim()).filter(Boolean)), [txs]);
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
@@ -3254,6 +3257,24 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     notify("거래처가 수정되었습니다.", "ok");
     setEditingManufacturerCode(null);
     setEditingManufacturerValue("");
+  };
+
+  const startEditReturnedItem = (item) => {
+    if (!item || !returnedMaterialCodes.has(String(item.code || "").trim())) return;
+    setEditingReturnedItem(item);
+    setReturnedEditForm({ code: item.code || "", name: item.name || "", spec: item.spec || "", unit: item.unit || "EA", category: item.category || "원자재", manufacturer: item.manufacturer || "", location: item.location || "", safety: Number(item.safety) || 0 });
+  };
+
+  const saveReturnedItemEdit = async () => {
+    if (!editingReturnedItem || !returnedEditForm) return;
+    if (!returnedEditForm.name.trim()) { notify("품명을 입력해주세요.", "err"); return; }
+    const nextItems = items.map((i) => String(i.code).trim() === String(editingReturnedItem.code).trim()
+      ? { ...i, name: returnedEditForm.name.trim(), spec: returnedEditForm.spec.trim(), unit: returnedEditForm.unit.trim() || "EA", category: returnedEditForm.category.trim() || "원자재", manufacturer: returnedEditForm.manufacturer.trim(), location: returnedEditForm.location.trim(), safety: Number(returnedEditForm.safety) || 0 }
+      : i
+    );
+    await saveItems(nextItems);
+    notify("반납 등록 자재 정보가 수정되었습니다.", "ok");
+    setEditingReturnedItem(null); setReturnedEditForm(null);
   };
 
   const addItem = async () => {
@@ -3709,7 +3730,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                <th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>수정</th><th>삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -3836,6 +3857,11 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                     </button>
                   </td>
                   <td>
+                    {returnedMaterialCodes.has(String(i.code || "").trim()) ? (
+                      <button onClick={() => startEditReturnedItem(i)} title="반납 등록 자재 수정" style={{ background: "#22D3EE1A", border: "1px solid #22D3EE66", color: "#22D3EE", cursor: "pointer", padding: "5px 8px", borderRadius: 6, fontSize: 11.5 }}>수정</button>
+                    ) : null}
+                  </td>
+                  <td>
                     <button onClick={() => removeItem(i.code)} style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 4 }}>
                       <Trash2 size={15} />
                     </button>
@@ -3906,6 +3932,9 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                     >
                       <QrCode size={14} />
                     </button>
+                    {returnedMaterialCodes.has(String(i.code || "").trim()) && (
+                      <button onClick={() => startEditReturnedItem(i)} title="반납 등록 자재 수정" style={{ background: "#22D3EE1A", border: "1px solid #22D3EE66", color: "#22D3EE", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>수정</button>
+                    )}
                     <button
                       onClick={() => removeItem(i.code)}
                       style={{ background: "#2A1818", border: "1px solid #4A2A2A", color: "#EF5350", padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
@@ -3997,6 +4026,31 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
           })
         )}
       </div>
+
+      {editingReturnedItem && returnedEditForm && (
+        <div onClick={() => { setEditingReturnedItem(null); setReturnedEditForm(null); }} className="app-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(6,14,22,0.82)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1200, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, background: "#0F2233", border: "1px solid #22D3EE66", borderRadius: 14, padding: 22, color: "#E7EEF5" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div><div style={{ fontSize: 18, fontWeight: 800, color: "#22D3EE" }}>반납 등록 자재 수정</div><div style={{ marginTop: 4, fontSize: 11.5, color: "#7F97AC" }}>자재코드는 기존 거래 이력 보호를 위해 수정하지 않습니다.</div></div>
+              <button onClick={() => { setEditingReturnedItem(null); setReturnedEditForm(null); }} style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer" }}><X size={20} /></button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label="자재코드"><input style={{ ...inputStyle, opacity: 0.65 }} value={returnedEditForm.code} readOnly /></Field>
+              <Field label="자재명 *"><input style={inputStyle} value={returnedEditForm.name} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, name: e.target.value })} /></Field>
+              <Field label="규격"><input style={inputStyle} value={returnedEditForm.spec} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, spec: e.target.value })} /></Field>
+              <Field label="단위"><input style={inputStyle} value={returnedEditForm.unit} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, unit: e.target.value.toUpperCase() })} /></Field>
+              <Field label="거래처"><input style={inputStyle} value={returnedEditForm.manufacturer} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, manufacturer: e.target.value })} /></Field>
+              <Field label="카테고리"><input style={inputStyle} value={returnedEditForm.category} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, category: e.target.value })} /></Field>
+              <Field label="저장 위치"><input style={inputStyle} value={returnedEditForm.location} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, location: e.target.value })} /></Field>
+              <Field label="안전재고"><input style={inputStyle} type="number" min="0" value={returnedEditForm.safety} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, safety: e.target.value })} /></Field>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
+              <Btn variant="ghost" onClick={() => { setEditingReturnedItem(null); setReturnedEditForm(null); }}>취소</Btn>
+              <Btn onClick={saveReturnedItemEdit} style={{ background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: 800 }}>수정 저장</Btn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 긴급 요청 상세 정보 모달 */}
       {selectedUrgent && (

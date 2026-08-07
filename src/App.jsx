@@ -1129,7 +1129,7 @@ export default function App() {
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
-    { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
+    { id: "settings", label: "정보설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
   ];
   const NAV_IDS = NAV.map((n) => n.id);
@@ -5285,6 +5285,18 @@ function OptionListEditor({ title, description, category, options, saveCategory,
     notify(`[${val}] 항목이 삭제되었습니다.`, "info");
   };
 
+  const removeAllOptions = async () => {
+    if (options.length === 0) {
+      notify("삭제할 항목이 없습니다.", "info");
+      return;
+    }
+    if (!window.confirm(`현재 [${title}]의 ${options.length}개 항목을 모두 삭제하시겠습니까?\n\n삭제 후에는 목록을 다시 등록해야 합니다.`)) return;
+    setSaving(true);
+    await saveCategory(category, []);
+    setSaving(false);
+    notify(`[${title}] 전체 항목이 삭제되었습니다.`, "info");
+  };
+
   return (
     <Card style={{ padding: 20 }}>
       <SectionLabel>{title}</SectionLabel>
@@ -5302,8 +5314,18 @@ function OptionListEditor({ title, description, category, options, saveCategory,
         />
         <Btn onClick={addOption} variant="subtle" disabled={saving}><Plus size={16} />추가</Btn>
       </div>
-      <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 14, fontFamily: "IBM Plex Mono" }}>
-        여러 개를 한 번에 추가하려면 줄바꿈 또는 쉼표(,)로 구분된 목록을 이 칸에 붙여넣으세요.
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono" }}>
+          여러 개를 한 번에 추가하려면 줄바꿈 또는 쉼표(,)로 구분된 목록을 이 칸에 붙여넣으세요.
+        </div>
+        <Btn
+          onClick={removeAllOptions}
+          variant="danger"
+          disabled={saving || options.length === 0}
+          style={{ flexShrink: 0, padding: "7px 12px", fontSize: 12 }}
+        >
+          <Trash2 size={14} /> 전체삭제
+        </Btn>
       </div>
       {options.length === 0 ? (
         <EmptyState icon={Package} text="등록된 항목이 없습니다." color="#5E86A3" />
@@ -5334,7 +5356,7 @@ function OptionListEditor({ title, description, category, options, saveCategory,
 function OutFormSettingsView({ settings, saveCategory, notify }) {
   return (
     <div>
-      <Header title="불출 설정 관리" subtitle="출고(스캔) 화면의 호선 · 프로젝트 · 공정구분 · 불출자 목록을 관리합니다 (PC 전용 · 전 기기 자동 동기화)" />
+      <Header title="정보 설정 관리" subtitle="출고(스캔) 화면의 호선 · 프로젝트 · 공정구분 · 불출자 목록을 관리합니다 (PC 전용 · 전 기기 자동 동기화)" />
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <OptionListEditor
           title="호선 목록"

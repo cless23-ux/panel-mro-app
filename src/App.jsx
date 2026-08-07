@@ -2457,7 +2457,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return (txs || [])
-      .filter((t) => t.type === "return")
+      .filter((t) => t.type === "return" && t.returnConfirmed !== true)
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -2468,7 +2468,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return (txs || [])
-      .filter((t) => t.type === "return")
+      .filter((t) => t.type === "return" && t.returnConfirmed === true)
       .sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
 
@@ -2571,6 +2571,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     const tx = {
       id: uid("RET"),
       type: "return",
+      returnConfirmed: false,
       itemCode: targetItem.code,
       itemName: targetItem.name,
       unit: targetItem.unit,
@@ -2609,6 +2610,16 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     );
     resetForm();
     setReturnComplete(completion);
+  };
+
+  const confirmReturnTx = async (targetTx) => {
+    const nextTxs = (txs || []).map((t) =>
+      t.id === targetTx.id ? { ...t, returnConfirmed: true } : t
+    );
+
+    await saveTxs(nextTxs);
+    notify(`${targetTx.itemName} 반납 내역이 저장목록으로 이동되었습니다.`, "ok");
+    setReturnListModal(true);
   };
 
   const cancelReturnTx = async (targetTx) => {
@@ -2901,12 +2912,22 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => cancelReturnTx(t)}
-                    style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600, marginLeft: "auto", flexShrink: 0 }}
-                  >
-                    취소
-                  </button>
+                  <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => confirmReturnTx(t)}
+                      style={{ background: "#123A32", border: "1px solid #35D08C", color: "#35D08C", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}
+                    >
+                      확인
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => cancelReturnTx(t)}
+                      style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
+                    >
+                      취소
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

@@ -2327,24 +2327,27 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   const [historySearch, setHistorySearch] = useState("");
   const [selectedOutTx, setSelectedOutTx] = useState(null);
 
-  // 자유 검색 모드
-  const [manualSearch, setManualSearch] = useState("");
-  const [manualDropdownOpen, setManualDropdownOpen] = useState(false);
-  const [manualItem, setManualItem] = useState(null);
+  // 자재 직접 입력 모드
+  const [manualCode, setManualCode] = useState("");
+  const [manualName, setManualName] = useState("");
+  const [manualUnit, setManualUnit] = useState("EA");
   const [manualShip, setManualShip] = useState("");
   const [manualProject, setManualProject] = useState("");
-  const manualWrapRef = useRef(null);
 
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
 
-  useEffect(() => {
-    const handleOutside = (e) => {
-      if (manualWrapRef.current && !manualWrapRef.current.contains(e.target)) setManualDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
-  }, []);
+  /* 직접 입력한 코드가 기존 자재인지 자동 확인.
+     기존 자재면 기존 재고에 반납하고, 없으면 반납 확정 시 자재마스터에도 신규 등록합니다. */
+  const matchedManualItem = useMemo(() => {
+    const code = manualCode.trim();
+    if (!code) return null;
+    return (items || []).find((i) => String(i.code || "").trim() === code) || null;
+  }, [items, manualCode]);
+
+  const manualTargetName = matchedManualItem?.name || manualName.trim();
+  const manualTargetUnit = matchedManualItem?.unit || manualUnit || "EA";
+  const isNewManualItem = !!manualCode.trim() && !matchedManualItem;
 
   /* 출고건별 이미 반납된 누적 수량 계산 */
   const returnedQtyByOutTxId = useMemo(() => {
@@ -2375,7 +2378,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
         );
       })
       .map((t) => ({ ...t, returned: returnedQtyByOutTxId[t.id] || 0 }))
-      .filter((t) => t.returned < Number(t.qty)) // 전량 반납된 건은 목록에서 제외
+      .filter((t) => t.returned < Number(t.qty))
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 40);
   }, [txs, historySearch, returnedQtyByOutTxId]);
@@ -2391,17 +2394,6 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       .slice(0, 15);
   }, [txs]);
 
-  const filteredManualItems = useMemo(() => {
-    const list = (items || []).filter((i) => isRawMaterial(i.code)); // 원자재만 반납 대상
-    if (!manualSearch.trim()) return list.slice(0, 30);
-    const q = manualSearch.toLowerCase().trim();
-    return list.filter((i) =>
-      String(i.name).toLowerCase().includes(q) ||
-      String(i.code).toLowerCase().includes(q)
-    ).slice(0, 30);
-  }, [items, manualSearch]);
-
-  /* 반납 이력 전체를 CSV로 다운로드 (최근 15건 제한 없이 전체 export) */
   const exportReturnCSV = () => {
     const allReturnTxs = (txs || [])
       .filter((t) => t.type === "return")
@@ -2434,17 +2426,28 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   const resetForm = () => {
     setQty(""); setReason(RETURN_REASONS[0]); setNote("");
     setSelectedOutTx(null); setHistorySearch("");
-    setManualItem(null); setManualSearch(""); setManualShip(""); setManualProject("");
+    setManualCode(""); setManualName(""); setManualUnit("EA"); setManualShip(""); setManualProject("");
   };
 
   const submit = async () => {
-    const targetItem = mode === "history"
+    let targetItem = mode === "history"
       ? (selectedOutTx && items.find((i) => String(i.code).trim() === String(selectedOutTx.itemCode).trim()))
-      : manualItem;
+      : matchedManualItem;
 
     if (mode === "history" && !selectedOutTx) { notify("반납할 출고 이력을 선택해주세요.", "err"); return; }
-    if (mode === "manual" && !manualItem) { notify("반납할 자재를 검색해서 선택해주세요.", "err"); return; }
-    if (!targetItem) { notify("자재 마스터에서 해당 자재를 찾을 수 없습니다.", "err"); return; }
+
+    if (mode === "manual") {
+      if (!manualCode.trim()) { notify("자재코드를 입력해주세요.", "err"); return; }
+      if (!manualName.trim() && !matchedManualItem) { notify("자재명을 입력해주세요.", "err"); return; }
+      if (!manualCode.trim().startsWith("1")) {
+        notify("원자재 반납이므로 자재코드는 1로 시작해야 합니다. 예: 1-CG-M20-BR", "err");
+        return;
+      }
+      if (matchedManualItem && !isRawMaterial(matchedManualItem.code)) {
+        notify("부자재 코드는 원자재 반납 대상이 아닙니다.", "err");
+        return;
+      }
+    }
 
     const qtyNum = Number(qty);
     if (!qtyNum || qtyNum <= 0) { notify("반납 수량을 입력해주세요.", "err"); return; }
@@ -2454,11 +2457,38 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     }
     if (!worker.trim()) { notify("반납자를 입력해주세요.", "err"); return; }
 
-    const nextItems = items.map((i) =>
-      String(i.code).trim() === String(targetItem.code).trim()
-        ? { ...i, stock: (Number(i.stock) || 0) + qtyNum }
-        : i
-    );
+    // 미등록 자재라면 반납 확정과 동시에 자재마스터에 신규 등록
+    if (mode === "manual" && !matchedManualItem) {
+      targetItem = {
+        code: manualCode.trim(),
+        name: manualName.trim(),
+        spec: "",
+        unit: manualUnit || "EA",
+        stock: 0,
+        safety: 0,
+        location: "",
+        manufacturer: "",
+        category: "원자재",
+        image_url: "",
+        deleted: false,
+      };
+    }
+
+    if (!targetItem) { notify("입력한 자재 정보를 확인해주세요.", "err"); return; }
+
+    const nextItems = matchedManualItem
+      ? items.map((i) =>
+          String(i.code).trim() === String(targetItem.code).trim()
+            ? { ...i, stock: (Number(i.stock) || 0) + qtyNum }
+            : i
+        )
+      : mode === "manual"
+        ? [{ ...targetItem, stock: qtyNum }, ...items]
+        : items.map((i) =>
+            String(i.code).trim() === String(targetItem.code).trim()
+              ? { ...i, stock: (Number(i.stock) || 0) + qtyNum }
+              : i
+          );
 
     const tx = {
       id: uid("RET"),
@@ -2479,7 +2509,10 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
     await saveItems(nextItems);
     await saveTxs([...(txs || []), tx]);
-    notify(`${targetItem.name} ${qtyNum}${targetItem.unit} 반납 완료 · 재고 반영됨`, "ok");
+    notify(
+      `${targetItem.name} ${qtyNum}${targetItem.unit} 반납 완료 · ${matchedManualItem ? "기존 자재 재고 반영" : mode === "manual" ? "신규 자재도 마스터에 등록" : "재고 반영"}`,
+      "ok"
+    );
     resetForm();
   };
 
@@ -2513,7 +2546,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
   return (
     <div>
-      <Header title="원자재 반납" subtitle="출고된 원자재(코드 1-)의 미사용분·오출고분만 재고로 되돌립니다 · 부자재는 대상이 아닙니다" />
+      <Header title="원자재 반납" subtitle="출고된 원자재(코드 1-)의 미사용분·오출고분을 반납합니다 · 미등록 자재도 직접 입력하여 등록할 수 있습니다" />
       <div className="outform-grid">
         <Card neon="#22D3EE" style={{ padding: 22 }}>
           <SectionLabel>1. 반납 대상 선택</SectionLabel>
@@ -2522,7 +2555,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
               출고 이력에서 선택
             </button>
             <button type="button" style={modeBtnStyle(mode === "manual")} onClick={() => { setMode("manual"); resetForm(); }}>
-              자재 직접 검색
+              자재 직접 입력
             </button>
           </div>
 
@@ -2553,7 +2586,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", lineHeight: 1.35 }}>
                               {t.itemName}
                             </div>
                             <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
@@ -2577,71 +2610,87 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
               </div>
             </div>
           ) : (
-            <div ref={manualWrapRef} style={{ position: "relative" }}>
-              <input
-                style={inputStyle}
-                value={manualSearch}
-                onChange={(e) => { setManualSearch(e.target.value); setManualItem(null); setManualDropdownOpen(true); }}
-                onFocus={() => setManualDropdownOpen(true)}
-                placeholder="자재명 또는 코드를 검색하세요"
-                autoComplete="off"
-              />
-              {manualDropdownOpen && filteredManualItems.length > 0 && (
-                <div style={{
-                  position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
-                  background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
-                  marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", maxHeight: 260, overflowY: "auto",
-                }}>
-                  {filteredManualItems.map((i) => (
-                    <div
-                      key={i.code}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        setManualItem(i);
-                        setManualSearch(`[${i.code}] ${i.name}`);
-                        setManualDropdownOpen(false);
-                      }}
-                      style={{ padding: "10px 12px", borderBottom: "1px solid #16293C", cursor: "pointer", fontSize: 13 }}
-                    >
-                      <div style={{ fontWeight: 600, color: "#38BDF8" }}>{i.name}</div>
-                      <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.code} · 현재고 {i.stock}{i.unit}</div>
-                    </div>
-                  ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ padding: "10px 12px", background: "#22D3EE0d", border: "1px solid #22D3EE33", borderRadius: 8, color: "#9FB4C7", fontSize: 11.5, lineHeight: 1.5 }}>
+                등록된 자재를 검색하지 않고 <strong style={{ color: "#22D3EE" }}>자재코드와 자재명을 직접 입력</strong>할 수 있습니다.<br />
+                기존 코드면 기존 자재 재고에 반영되고, 없는 코드면 반납 확정과 동시에 새 자재로 등록됩니다.
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 10 }}>
+                <Field label="자재코드">
+                  <input
+                    style={inputStyle}
+                    value={manualCode}
+                    onChange={(e) => setManualCode(e.target.value)}
+                    placeholder="예: 1-CG-M20-BR"
+                    autoComplete="off"
+                  />
+                </Field>
+                <Field label="자재명">
+                  <input
+                    style={inputStyle}
+                    value={manualName}
+                    onChange={(e) => setManualName(e.target.value)}
+                    placeholder="예: 케이블 글랜드"
+                    disabled={!!matchedManualItem}
+                  />
+                </Field>
+              </div>
+
+              <Field label="단위">
+                <input
+                  style={inputStyle}
+                  value={matchedManualItem?.unit || manualUnit}
+                  onChange={(e) => setManualUnit(e.target.value.toUpperCase())}
+                  placeholder="EA"
+                  disabled={!!matchedManualItem}
+                />
+              </Field>
+
+              {matchedManualItem ? (
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: "#35D08C12", border: "1px solid #35D08C55", color: "#35D08C", fontSize: 12, lineHeight: 1.5 }}>
+                  ✓ 등록된 자재입니다. <strong>{matchedManualItem.name}</strong> / 현재고 {matchedManualItem.stock}{matchedManualItem.unit}<br />
+                  반납 확정 시 기존 자재의 재고에 반납 수량이 더해집니다.
                 </div>
-              )}
-              {manualItem && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
-                  <Field label="호선 (선택)">
-                    <AutocompleteInput value={manualShip} onChange={setManualShip} options={shipOptions} placeholder="예: H-2024" />
-                  </Field>
-                  <Field label="프로젝트 (선택)">
-                    <Select value={manualProject || projectOptions[0] || ""} onChange={(e) => setManualProject(e.target.value)} options={projectOptions.length ? projectOptions : ["-"]} />
-                  </Field>
+              ) : manualCode.trim() ? (
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: "#F5A62312", border: "1px solid #F5A62355", color: "#F5A623", fontSize: 12, lineHeight: 1.5 }}>
+                  + 미등록 자재입니다. 반납 확정하면 <strong>{manualName.trim() || "입력한 자재"}</strong>가 자재마스터에 신규 등록됩니다.
                 </div>
-              )}
+              ) : null}
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label="호선 (선택)">
+                  <AutocompleteInput value={manualShip} onChange={setManualShip} options={shipOptions} placeholder="예: H-2024" />
+                </Field>
+                <Field label="프로젝트 (선택)">
+                  <Select value={manualProject || projectOptions[0] || ""} onChange={(e) => setManualProject(e.target.value)} options={projectOptions.length ? projectOptions : ["-"]} />
+                </Field>
+              </div>
             </div>
           )}
         </Card>
 
         <Card neon="#22D3EE" style={{ padding: 22 }}>
           <SectionLabel>2. 반납 정보 입력</SectionLabel>
-          {(mode === "history" && !selectedOutTx) || (mode === "manual" && !manualItem) ? (
-            <EmptyState icon={RotateCcw} text="먼저 반납할 자재를 선택해주세요." color="#5E86A3" />
+          {(mode === "history" && !selectedOutTx) || (mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))) ? (
+            <EmptyState icon={RotateCcw} text="먼저 반납할 자재 정보를 입력해주세요." color="#5E86A3" />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
-                <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8" }}>
-                  {mode === "history" ? selectedOutTx.itemName : manualItem.name}
+                <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", lineHeight: 1.35 }}>
+                  {mode === "history" ? selectedOutTx.itemName : manualTargetName}
                 </div>
                 <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 4 }}>
                   {mode === "history"
                     ? `호선 ${selectedOutTx.shipNo || "-"} · 프로젝트 ${selectedOutTx.project || "-"} · 반납가능 ${maxReturnQty}${selectedOutTx.unit}`
-                    : `코드: ${manualItem.code} · 현재고 ${manualItem.stock}${manualItem.unit}`}
+                    : matchedManualItem
+                      ? `코드: ${matchedManualItem.code} · 현재고 ${matchedManualItem.stock}${matchedManualItem.unit}`
+                      : `코드: ${manualCode.trim()} · 신규 자재 · 단위 ${manualUnit || "EA"}`}
                 </div>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <Field label={`반납 수량 (${mode === "history" ? selectedOutTx.unit : manualItem.unit})`}>
+                <Field label={`반납 수량 (${mode === "history" ? selectedOutTx.unit : manualTargetUnit})`}>
                   <input
                     style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
                     type="number" min="1" max={mode === "history" ? maxReturnQty : undefined}
@@ -2663,6 +2712,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
               <Btn
                 onClick={submit}
+                disabled={mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))}
                 style={{ marginTop: 8, width: "100%", background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: "bold", fontSize: 15 }}
               >
                 <RotateCcw size={18} />반납 확정
@@ -2706,7 +2756,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                   }}
                 >
                   <div style={{ flex: "1 1 160px", minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", lineHeight: 1.35 }}>
                       {t.itemName}
                     </div>
                     <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>
@@ -2844,7 +2894,22 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                       <Led status={st} size={10} />
-                      <span style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span
+                        className="stock-item-name"
+                        title={item.name}
+                        style={{
+                          fontWeight: 700,
+                          fontSize: 14,
+                          color: "#38BDF8",
+                          lineHeight: 1.35,
+                          display: "-webkit-box",
+                          WebkitBoxOrient: "vertical",
+                          WebkitLineClamp: 3,
+                          overflow: "hidden",
+                          wordBreak: "break-word",
+                          whiteSpace: "normal",
+                        }}
+                      >
                         {item.name}
                       </span>
                     </div>

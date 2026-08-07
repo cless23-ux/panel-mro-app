@@ -115,63 +115,65 @@ function useStorage(key, initial) {
   const [loaded, setLoaded] = useState(false);
   const tableName = key === "panel:items" ? "items" : "transactions";
 
+  // PC/모바일 공통 데이터는 Supabase를 단일 원본으로 사용합니다.
+  // localStorage는 Supabase가 없을 때의 오프라인 fallback으로만 사용합니다.
+  const normalizeTxForDb = useCallback((tx) => {
+    const { returnConfirmed, ...dbTx } = tx || {};
+    if (dbTx?.type === "return" && returnConfirmed === true) {
+      const note = String(dbTx.note || "").trim();
+      if (!note.includes("[반납확인]")) dbTx.note = `${note}${note ? " " : ""}[반납확인]`;
+    }
+    return dbTx;
+  }, []);
+
+  const normalizeItemForDb = useCallback((item) => {
+    const { manualReturnRegistered, ...dbItem } = item || {};
+    return dbItem;
+  }, []);
+
+  const hydrateTx = useCallback((tx) => {
+    if (tx?.type === "return") {
+      return { ...tx, returnConfirmed: String(tx.note || "").includes("[반납확인]") };
+    }
+    return tx;
+  }, []);
+
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
-        // items와 transactions의 조회 조건을 분리합니다.
-        // transactions는 기존 데이터/환경에 따라 deleted 컬럼이 없거나 null인 기록도 있을 수 있어
-        // deleted=false 조건 때문에 PC에서 반납 이력이 통째로 빠지는 것을 방지합니다.
-        // transactions는 PC/모바일 공용 DB 기록을 단일 원본으로 사용합니다.
-        // 로컬 캐시를 DB 조회 결과와 섞으면 PC에 남아있는 오래된 캐시가
-        // 모바일에서 새로 저장한 반납 이력을 가리는 문제가 생길 수 있으므로
-        // 조회 성공 시에는 반드시 Supabase 결과를 그대로 반영합니다.
-        const query = tableName === "transactions"
-          ? supabase.from("transactions").select("*").order("at", { ascending: false })
-          : supabase.from(tableName).select("*").eq("deleted", false);
-        const { data, error } = await query;
-        if (!error && data) {
-          if (tableName === "transactions") {
-            const dbTransactions = data
-              .filter((item) => item && item.id && item.deleted !== true)
-              .map((item) => item.type === "return"
-                ? { ...item, returnConfirmed: item.returnConfirmed === true || String(item.note || "").includes("[반납확인]") }
-                : item);
+        // PC/모바일 간 데이터 충돌을 막기 위해 localStorage 내용을 서버에 자동 재업로드하지 않습니다.
+        // 서버(Supabase)가 항상 원본이며 localStorage는 화면 캐시/오프라인 fallback 용도로만 사용합니다.
 
-            // 성공적으로 DB를 읽었으면 PC/모바일 모두 같은 목록을 사용합니다.
-            setValue(dbTransactions);
-            try {
-              localStorage.setItem(key, JSON.stringify(dbTransactions));
-            } catch {}
-          } else {
-            // PC에만 남아 있던 직접입력 반납 자재가 있으면 Supabase에 먼저 동기화합니다.
-            try {
-              const raw = localStorage.getItem(key);
-              const cachedItems = raw ? JSON.parse(raw) : [];
-              const pendingReturnItems = (cachedItems || []).filter((item) => item && item.manualReturnRegistered === true);
-              if (pendingReturnItems.length && supabase) {
-                const dbPendingItems = pendingReturnItems.map(({ manualReturnRegistered, ...item }) => item);
-                supabase.from("items").upsert(dbPendingItems, { onConflict: "code" }).then(({ error }) => {
-                  if (error) console.error("반납 자재 동기화 오류:", error);
-                });
-              }
-            } catch {}
-            setValue(data);
-            localStorage.setItem(key, JSON.stringify(data));
-          }
-          if (!silent) setLoaded(true);
-          return;
+        // transactions는 deleted 값이 null인 기존 기록도 있을 수 있으므로
+        // 서버에서 전체를 읽은 뒤 deleted=true만 제외합니다.
+        // 이렇게 해야 PC/모바일 어느 쪽에서 저장했든 같은 반납 이력을 놓치지 않습니다.
+        const { data, error } = await supabase.from(tableName).select("*");
+        if (error) {
+          console.error(`${tableName} load error:`, error);
+          throw error;
         }
+
+        const visibleData = (data || []).filter((row) => row?.deleted !== true);
+        const fresh = tableName === "transactions" ? visibleData.map(hydrateTx) : visibleData;
+        setValue(fresh);
+        localStorage.setItem(key, JSON.stringify(fresh));
+        if (!silent) setLoaded(true);
+        return fresh;
       }
+
       const res = localStorage.getItem(key);
-      if (res !== null) {
-        setValue(JSON.parse(res));
-      }
+      if (res !== null) setValue(JSON.parse(res));
     } catch (e) {
       console.error("Storage load error:", e);
+      // Supabase가 일시적으로 실패한 경우에만 기존 로컬 캐시를 보여줍니다.
+      try {
+        const res = localStorage.getItem(key);
+        if (res !== null) setValue(JSON.parse(res));
+      } catch {}
     } finally {
       if (!silent) setLoaded(true);
     }
-  }, [key, tableName]);
+  }, [key, tableName, normalizeTxForDb, normalizeItemForDb, hydrateTx]);
 
   useEffect(() => {
     load();
@@ -180,30 +182,40 @@ function useStorage(key, initial) {
   }, [load]);
 
   const save = useCallback(async (next) => {
-    setValue(next);
-    try {
-      localStorage.setItem(key, JSON.stringify(next));
-      if (supabase) {
+    // Supabase가 연결된 경우 서버 저장 성공을 확인한 뒤 서버 데이터를 다시 읽습니다.
+    if (supabase) {
+      try {
         if (tableName === "items") {
-          const dbItems = (next || []).map(({ manualReturnRegistered, ...item }) => item);
+          const dbItems = (next || []).map(normalizeItemForDb);
           const { error } = await supabase.from("items").upsert(dbItems, { onConflict: "code" });
-          if (error) console.error("Supabase items save error:", error);
-        } else if (tableName === "transactions") {
-          const dbTxs = (next || []).map((tx) => {
-            const { returnConfirmed, ...dbTx } = tx || {};
-            if (tx?.type === "return" && returnConfirmed === true && !String(dbTx.note || "").includes("[반납확인]")) {
-              dbTx.note = `${String(dbTx.note || "").trim()}${String(dbTx.note || "").trim() ? " " : ""}[반납확인]`;
-            }
-            return dbTx;
-          });
+          if (error) throw error;
+        } else {
+          const dbTxs = (next || []).map(normalizeTxForDb);
           const { error } = await supabase.from("transactions").upsert(dbTxs, { onConflict: "id" });
-          if (error) console.error("Supabase transactions save error:", error);
+          if (error) throw error;
         }
+
+        // 저장 직후에도 전체 서버 기록을 다시 읽고 deleted=true만 제외합니다.
+        // 특정 기기에서 저장한 기록이 다른 기기에서 사라지는 현상을 방지합니다.
+        const { data, error: readError } = await supabase.from(tableName).select("*");
+        if (readError) throw readError;
+        const visibleData = (data || []).filter((row) => row?.deleted !== true);
+        const fresh = tableName === "transactions" ? visibleData.map(hydrateTx) : visibleData;
+        setValue(fresh);
+        localStorage.setItem(key, JSON.stringify(fresh));
+        return fresh;
+      } catch (e) {
+        console.error("Supabase save error:", e);
+        // 서버 저장 실패 시 실패한 데이터를 localStorage에 덮어쓰지 않습니다.
+        // 그래야 다음 동기화에서 잘못된 모바일/PC 기록이 되살아나지 않습니다.
+        throw e;
       }
-    } catch (e) {
-      console.error("Storage save error:", e);
     }
-  }, [key, tableName]);
+
+    setValue(next);
+    localStorage.setItem(key, JSON.stringify(next));
+    return next;
+  }, [key, tableName, normalizeTxForDb, normalizeItemForDb, hydrateTx]);
 
   return [value, save, loaded, load];
 }
@@ -1489,7 +1501,7 @@ if (showSplash) {
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
-            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
+            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} supabaseClient={typeof supabase !== "undefined" ? supabase : null} />}
             {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} txs={txs} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
@@ -2399,7 +2411,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 /* ---------------- 자재 반납 ---------------- */
 const RETURN_REASONS = ["미사용 잔량", "수량 착오", "자재 상이", "프로젝트 취소/변경", "기타"];
 
-function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings }) {
+function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, supabaseClient }) {
   const [mode, setMode] = useState("history"); // "history" | "manual"
 
   // 공통 입력값
@@ -2598,7 +2610,6 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     const tx = {
       id: uid("RET"),
       type: "return",
-      returnConfirmed: false,
       itemCode: targetItem.code,
       itemName: targetItem.name,
       unit: targetItem.unit,
@@ -2616,27 +2627,16 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       deleted: false,
     };
 
+    // 반납 거래는 기존 공통 저장 함수 하나만 사용합니다.
+    // 이 함수가 Supabase에 저장한 뒤 서버 전체 목록을 다시 읽기 때문에
+    // PC/모바일에서 같은 transactions 원본을 바라보게 됩니다.
     await saveItems(nextItems);
-
-    // 원자재 반납 기록은 PC/모바일이 반드시 같은 Supabase 거래기록을 보도록
-    // 반납 등록 시 해당 거래 1건을 즉시 DB에 write-through 합니다.
-    // 실패해도 기존 화면 기능은 유지하되, 사용자에게 실제 동기화 실패를 알립니다.
-    let returnDbSaved = true;
-    if (supabase) {
-      const { returnConfirmed, ...dbReturnTx } = tx;
-      const { error: returnSaveError } = await supabase
-        .from("transactions")
-        .upsert(dbReturnTx, { onConflict: "id" });
-      if (returnSaveError) {
-        console.error("원자재 반납 거래 동기화 오류:", returnSaveError);
-        returnDbSaved = false;
-      }
-    }
-
-    await saveTxs([...(txs || []), tx]);
-
-    if (!returnDbSaved) {
-      notify("반납 자재는 등록되었지만 PC/모바일 공용 기록 저장에 실패했습니다. Supabase transactions 저장 권한/컬럼을 확인해주세요.", "err");
+    try {
+      await saveTxs([...(txs || []), tx]);
+    } catch (txSaveError) {
+      console.error("반납 거래 저장 오류:", txSaveError);
+      notify(`반납 기록 저장 실패: ${txSaveError.message || "Supabase transactions 저장 오류"}`, "err");
+      return;
     }
 
     const completion = {
@@ -3436,23 +3436,15 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
   const [editingReturnedItem, setEditingReturnedItem] = useState(null);
   const [returnedEditForm, setReturnedEditForm] = useState(null);
   const returnedMaterialCodes = useMemo(() => {
-    const codes = new Set(
+    // 자재마스터의 수정 버튼은 서버에 실제 저장된 반납 거래가 있는지만 봅니다.
+    // 모바일/PC에서 linkedOutTxId 또는 note 표현이 달라도 반납 거래면 동일하게 처리합니다.
+    return new Set(
       (txs || [])
-        .filter((t) => t.type === "return" && (!t.linkedOutTxId || String(t.note || "").startsWith("[직접입력반납]")))
+        .filter((t) => t.type === "return")
         .map((t) => String(t.itemCode || "").trim())
         .filter(Boolean)
     );
-
-    // 직접입력 반납으로 자동 생성된 코드(1-RET-)는 반납 거래 이력이
-    // 아직 모바일/PC 중 한쪽에 동기화되지 않은 순간에도 수정 버튼이 유지되도록
-    // 자재 자체의 안정적인 코드로도 직접반납 자재임을 판별합니다.
-    (items || []).forEach((item) => {
-      const code = String(item?.code || "").trim();
-      if (code.startsWith("1-RET-")) codes.add(code);
-    });
-
-    return codes;
-  }, [txs, items]);
+  }, [txs]);
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"

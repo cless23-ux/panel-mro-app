@@ -118,45 +118,30 @@ function useStorage(key, initial) {
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
-        const { data, error } = await supabase.from(tableName).select("*").eq("deleted", false);
+        // items와 transactions의 조회 조건을 분리합니다.
+        // transactions는 기존 데이터/환경에 따라 deleted 컬럼이 없거나 null인 기록도 있을 수 있어
+        // deleted=false 조건 때문에 PC에서 반납 이력이 통째로 빠지는 것을 방지합니다.
+        // transactions는 PC/모바일 공용 DB 기록을 단일 원본으로 사용합니다.
+        // 로컬 캐시를 DB 조회 결과와 섞으면 PC에 남아있는 오래된 캐시가
+        // 모바일에서 새로 저장한 반납 이력을 가리는 문제가 생길 수 있으므로
+        // 조회 성공 시에는 반드시 Supabase 결과를 그대로 반영합니다.
+        const query = tableName === "transactions"
+          ? supabase.from("transactions").select("*").order("at", { ascending: false })
+          : supabase.from(tableName).select("*").eq("deleted", false);
+        const { data, error } = await query;
         if (!error && data) {
           if (tableName === "transactions") {
-            setValue(prev => {
-              const map = new Map();
-              // Supabase에 아직 반영되지 않은 거래가 있어도 같은 기기에서는
-              // localStorage 캐시를 함께 복원하여 반납 등록 표시가 사라지지 않도록 합니다.
-              let cached = [];
-              try {
-                const raw = localStorage.getItem(key);
-                cached = raw ? JSON.parse(raw) : [];
-              } catch {}
-              [...data, ...cached, ...prev].forEach(item => {
-                if (item && item.id) map.set(item.id, item);
-              });
-              const merged = Array.from(map.values()).map((item) => {
-                if (tableName === "transactions" && item?.type === "return") {
-                  return { ...item, returnConfirmed: item.returnConfirmed === true || String(item.note || "").includes("[반납확인]") };
-                }
-                return item;
-              });
-              localStorage.setItem(key, JSON.stringify(merged));
+            const dbTransactions = data
+              .filter((item) => item && item.id && item.deleted !== true)
+              .map((item) => item.type === "return"
+                ? { ...item, returnConfirmed: item.returnConfirmed === true || String(item.note || "").includes("[반납확인]") }
+                : item);
 
-              // PC에만 남아 있던 반납 이력도 최초 동기화 시 Supabase로 올립니다.
-              // DB에는 기존 컬럼만 전송하므로 returnConfirmed 컬럼이 없어도 저장됩니다.
-              if (tableName === "transactions" && supabase && cached.length) {
-                const dbCachedTxs = cached.map((tx) => {
-                  const { returnConfirmed, ...dbTx } = tx || {};
-                  if (tx?.type === "return" && returnConfirmed === true && !String(dbTx.note || "").includes("[반납확인]")) {
-                    dbTx.note = `${String(dbTx.note || "").trim()}${String(dbTx.note || "").trim() ? " " : ""}[반납확인]`;
-                  }
-                  return dbTx;
-                });
-                supabase.from("transactions").upsert(dbCachedTxs, { onConflict: "id" }).then(({ error }) => {
-                  if (error) console.error("반납 이력 동기화 오류:", error);
-                });
-              }
-              return merged;
-            });
+            // 성공적으로 DB를 읽었으면 PC/모바일 모두 같은 목록을 사용합니다.
+            setValue(dbTransactions);
+            try {
+              localStorage.setItem(key, JSON.stringify(dbTransactions));
+            } catch {}
           } else {
             // PC에만 남아 있던 직접입력 반납 자재가 있으면 Supabase에 먼저 동기화합니다.
             try {

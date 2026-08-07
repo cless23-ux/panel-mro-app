@@ -118,24 +118,21 @@ function useStorage(key, initial) {
   // PC/모바일 공통 데이터는 Supabase를 단일 원본으로 사용합니다.
   // localStorage는 Supabase가 없을 때의 오프라인 fallback으로만 사용합니다.
   const normalizeTxForDb = useCallback((tx) => {
-    // Supabase transactions 테이블에는 linkedOutTxId 컬럼이 없으므로
-    // DB에는 해당 값을 직접 보내지 않고 note 안에 안전하게 보관합니다.
-    // 이렇게 하면 PC/모바일 모두 동일한 transactions 스키마를 사용하면서
-    // 출고 이력과 연결된 반납 기능도 그대로 유지됩니다.
-    const { returnConfirmed, linkedOutTxId, ...dbTx } = tx || {};
-    let note = String(dbTx.note || "").trim();
+    // 중요: 현재 Supabase transactions 테이블에는 note / linkedOutTxId 컬럼이 없습니다.
+    // 따라서 존재하지 않는 컬럼을 절대로 upsert하지 않습니다.
+    // 반납 전용 부가정보는 기존에 실제로 사용하는 reason 컬럼 안에 내부 마커로 보관합니다.
+    // 화면에서는 아래 hydrateTx에서 마커를 다시 분리하므로 기존 표시에는 영향을 주지 않습니다.
+    const { returnConfirmed, linkedOutTxId, note, ...dbTx } = tx || {};
 
-    if (dbTx?.type === "return" && linkedOutTxId) {
-      // 기존 연결 정보가 중복으로 붙지 않도록 기존 마커를 제거 후 추가
-      note = note.replace(/\[반납연결:[^\]]+\]/g, "").trim();
-      note = `${note}${note ? " " : ""}[반납연결:${linkedOutTxId}]`;
+    if (dbTx?.type === "return") {
+      const rawReason = String(dbTx.reason || "").replace(/\[MRO_META:[^\]]+\]/g, "").trim();
+      const meta = [];
+      if (linkedOutTxId) meta.push(`linked=${encodeURIComponent(linkedOutTxId)}`);
+      if (returnConfirmed === true) meta.push("confirmed=1");
+      if (String(note || "").startsWith("[직접입력반납]")) meta.push("manual=1");
+      if (String(note || "").trim()) meta.push(`note=${encodeURIComponent(String(note).trim())}`);
+      dbTx.reason = `${rawReason}${meta.length ? `${rawReason ? " " : ""}[MRO_META:${meta.join("&")}]` : ""}`;
     }
-
-    if (dbTx?.type === "return" && returnConfirmed === true) {
-      if (!note.includes("[반납확인]")) note = `${note}${note ? " " : ""}[반납확인]`;
-    }
-
-    if (dbTx?.type === "return") dbTx.note = note;
     return dbTx;
   }, []);
 
@@ -146,12 +143,21 @@ function useStorage(key, initial) {
 
   const hydrateTx = useCallback((tx) => {
     if (tx?.type === "return") {
-      const note = String(tx.note || "");
-      const linkedMatch = note.match(/\[반납연결:([^\]]+)\]/);
+      const reason = String(tx.reason || "");
+      const metaMatch = reason.match(/\[MRO_META:([^\]]+)\]/);
+      const meta = metaMatch ? metaMatch[1] : "";
+      const linkedMatch = meta.match(/(?:^|&)linked=([^&]+)/);
+      const confirmedMatch = /(?:^|&)confirmed=1(?:&|$)/.test(meta);
+      const manualMatch = /(?:^|&)manual=1(?:&|$)/.test(meta);
+      const noteMatch = meta.match(/(?:^|&)note=([^&]*)/);
+      const savedNote = noteMatch ? decodeURIComponent(noteMatch[1]) : (manualMatch ? "[직접입력반납]" : "");
+      const cleanReason = reason.replace(/\s*\[MRO_META:[^\]]+\]/g, "").trim();
       return {
         ...tx,
-        linkedOutTxId: linkedMatch ? linkedMatch[1] : null,
-        returnConfirmed: note.includes("[반납확인]"),
+        reason: cleanReason,
+        note: savedNote,
+        linkedOutTxId: linkedMatch ? decodeURIComponent(linkedMatch[1]) : null,
+        returnConfirmed: confirmedMatch,
       };
     }
     return tx;
@@ -2515,7 +2521,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return (txs || [])
-      .filter((t) => t.type === "return" && !String(t.note || "").includes("[반납확인]"))
+      .filter((t) => t.type === "return" && t.returnConfirmed !== true)
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -2526,7 +2532,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return (txs || [])
-      .filter((t) => t.type === "return" && String(t.note || "").includes("[반납확인]"))
+      .filter((t) => t.type === "return" && t.returnConfirmed === true)
       .sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
 
@@ -2704,8 +2710,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
 
     const nextTxs = (txs || []).map((t) => {
       if (t.id !== targetTx.id) return t;
-      const currentNote = String(t.note || "").trim();
-      return { ...t, note: currentNote.includes("[반납확인]") ? currentNote : `${currentNote}${currentNote ? " " : ""}[반납확인]` };
+      return { ...t, returnConfirmed: true };
     });
 
     await saveTxs(nextTxs);

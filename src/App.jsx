@@ -1261,7 +1261,7 @@ if (showSplash) {
           }
           .mobile-bottom-nav {
             height: 72px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
-            grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
+            grid-template-columns: repeat(3, 1fr); flex-shrink: 0; z-index: 10;
             align-items: stretch; padding: 4px 4px 5px; gap: 3px;
           }
           .mobile-nav-item {
@@ -1473,7 +1473,7 @@ if (showSplash) {
 
       {/* 모바일 하단 탭 */}
       <nav className="mobile-bottom-nav">
-        {NAV.filter(n => !n.pcOnly).map((n) => {
+        {NAV.filter(n => !n.pcOnly && n.id !== "return").map((n) => {
           const active = tab === n.id;
           const Icon = n.icon;
           const color = TAB_NEON[n.id] || "#7F97AC";

@@ -2392,6 +2392,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   const [manualShip, setManualShip] = useState("");
   const [manualProject, setManualProject] = useState("");
   const [returnComplete, setReturnComplete] = useState(null);
+  const [returnListModal, setReturnListModal] = useState(false);
 
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
@@ -2459,6 +2460,16 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       .filter((t) => t.type === "return")
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
+  }, [txs]);
+
+  const savedReturnTxs = useMemo(() => {
+    const parseAt = (t) => {
+      const d = new Date(String(t.at || "").replace(" ", "T"));
+      return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    return (txs || [])
+      .filter((t) => t.type === "return")
+      .sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
 
   const exportReturnCSV = () => {
@@ -2843,15 +2854,15 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
             </div>
             <button
               type="button"
-              onClick={exportReturnCSV}
+              onClick={() => setReturnListModal(true)}
               style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8,
-                border: "1px solid #35D08C88", background: "#35D08C1f", color: "#35D08C",
+                border: "1px solid #22D3EE88", background: "#22D3EE1f", color: "#22D3EE",
                 fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
                 whiteSpace: "nowrap", flexShrink: 0,
               }}
             >
-              <Download size={13} />엑셀 다운로드
+              <Check size={13} />저장목록
             </button>
           </div>
           {recentReturnTxs.length === 0 ? (
@@ -2902,6 +2913,118 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
           )}
         </Card>
       </div>
+
+      {returnListModal && (
+        <div
+          className="app-modal-overlay"
+          onClick={() => setReturnListModal(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(6,14,22,0.82)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 320, padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 900, maxHeight: "86vh", overflow: "hidden",
+              background: "#0F2233", border: "1px solid #22D3EE66", borderRadius: 16,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column",
+            }}
+          >
+            <div style={{
+              padding: "16px 20px", borderBottom: "1px solid #1F3B54",
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+            }}>
+              <div>
+                <div style={{ color: "#E7EEF5", fontSize: 17, fontWeight: 800 }}>반납 저장 목록</div>
+                <div style={{ color: "#7F97AC", fontSize: 11, marginTop: 4 }}>등록된 반납 내역을 확인하고 필요한 경우 삭제할 수 있습니다.</div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={exportReturnCSV}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8,
+                    border: "1px solid #35D08C88", background: "#35D08C1f", color: "#35D08C",
+                    fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
+                  }}
+                >
+                  <Download size={13} />엑셀 다운로드
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReturnListModal(false)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center", padding: 7, borderRadius: 8,
+                    border: "1px solid #274460", background: "#0B1C2C", color: "#9FB4C7", cursor: "pointer",
+                  }}
+                  aria-label="닫기"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div style={{ padding: 16, overflowY: "auto" }}>
+              {savedReturnTxs.length === 0 ? (
+                <EmptyState icon={RotateCcw} text="저장된 반납 내역이 없습니다." color="#5E86A3" />
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {savedReturnTxs.map((t) => (
+                    <div
+                      key={t.id}
+                      style={{
+                        background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 9,
+                        padding: "11px 14px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8" }}>{t.itemName}</div>
+                        <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 3 }}>
+                          {t.itemCode || "-"} · {t.at}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 18, fontSize: 12, flexShrink: 0 }}>
+                        <div><span style={{ color: "#5E86A3", fontSize: 10, display: "block" }}>수량</span><span style={{ color: "#22D3EE", fontWeight: 700 }}>{t.qty} {t.unit}</span></div>
+                        <div><span style={{ color: "#5E86A3", fontSize: 10, display: "block" }}>호선</span><span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span></div>
+                        <div><span style={{ color: "#5E86A3", fontSize: 10, display: "block" }}>반납자</span><span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span></div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => cancelReturnTx(t)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 5, marginLeft: "auto", flexShrink: 0,
+                          background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
+                          padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600,
+                        }}
+                      >
+                        <Trash2 size={13} />삭제
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{
+              padding: "12px 16px", borderTop: "1px solid #1F3B54",
+              display: "flex", justifyContent: "flex-end",
+            }}>
+              <button
+                type="button"
+                onClick={() => setReturnListModal(false)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, padding: "8px 18px", borderRadius: 8,
+                  border: "1px solid #22D3EE88", background: "#22D3EE1f", color: "#22D3EE",
+                  fontSize: 12, fontWeight: 700, cursor: "pointer",
+                }}
+              >
+                <Check size={14} />확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {returnComplete && (
         <div

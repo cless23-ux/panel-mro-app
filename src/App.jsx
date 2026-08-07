@@ -1253,9 +1253,24 @@ if (showSplash) {
             display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10;
           }
           .mobile-bottom-nav {
-            height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
+            height: 72px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
             grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
+            align-items: stretch; padding: 4px 4px 5px; gap: 3px;
           }
+          .mobile-nav-item {
+            position: relative; min-width: 0; border-radius: 10px !important;
+            transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+          }
+          .mobile-nav-item:not(.mobile-nav-out):active { transform: scale(.97); }
+          .mobile-nav-out {
+            transform: translateY(-9px);
+            min-height: 78px; margin: 0 2px;
+            border: 1px solid #F5A62380 !important;
+            background: linear-gradient(180deg, #F5A62325 0%, #F5A6230b 100%) !important;
+            box-shadow: 0 0 18px -5px #F5A623aa, inset 0 0 16px -10px #F5A623;
+            z-index: 2;
+          }
+          .mobile-nav-out:active { transform: translateY(-9px) scale(.97); }
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
           .tab-panel { padding: 14px 12px; border-radius: 14px; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
@@ -1400,13 +1415,20 @@ if (showSplash) {
           </button>
         </div>
         <button
-          onClick={refreshAll}
+          onClick={() => goToTab("return")}
+          title="원자재 반납"
           style={{
-            background: "transparent", border: "none", color: refreshing ? "#F5A623" : "#7F97AC",
-            fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+            background: tab === "return" ? "#22D3EE1c" : "#22D3EE0a",
+            border: `1px solid ${tab === "return" ? "#22D3EE" : "#22D3EE55"}`,
+            borderRadius: 8, padding: "6px 9px",
+            color: "#22D3EE", fontSize: 11.5, fontWeight: 700,
+            fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
+            boxShadow: tab === "return" ? "0 0 12px -5px #22D3EE" : "none",
           }}
         >
-          {refreshing ? "동기화..." : "↻ 동기화"}
+          <RotateCcw size={15} />
+          원자재 반납
         </button>
       </header>
 
@@ -1447,20 +1469,32 @@ if (showSplash) {
         {NAV.filter(n => !n.pcOnly).map((n) => {
           const active = tab === n.id;
           const Icon = n.icon;
+          const color = TAB_NEON[n.id] || "#7F97AC";
+          const isOut = n.id === "out";
           return (
             <button
               key={n.id}
               onClick={() => goToTab(n.id)}
+              className={`mobile-nav-item${isOut ? " mobile-nav-out" : ""}`}
               style={{
-                background: "transparent", border: "none", color: active ? "#F5A623" : "#7F97AC",
+                background: active ? `${color}16` : "transparent",
+                border: `1px solid ${active ? `${color}70` : "transparent"}`,
+                color: active ? color : "#7F97AC",
                 display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                gap: 4, cursor: "pointer", padding: 0,
+                gap: isOut ? 5 : 4, cursor: "pointer", padding: 0,
               }}
             >
-              <Icon size={19} color={active ? "#F5A623" : "#7F97AC"} />
-              <span style={{ fontSize: 10.5, fontFamily: "Inter, sans-serif", fontWeight: active ? 700 : 500 }}>
+              <Icon size={isOut ? 25 : 19} color={active || isOut ? color : "#7F97AC"} strokeWidth={isOut ? 2.4 : 2} />
+              <span style={{
+                fontSize: isOut ? 12 : 10.5,
+                fontFamily: "Inter, sans-serif",
+                fontWeight: active || isOut ? 800 : 500,
+                color: active || isOut ? color : "#7F97AC",
+                whiteSpace: "nowrap",
+              }}>
                 {n.label}
               </span>
+              {isOut && <span style={{ fontSize: 8.5, color: `${color}cc`, fontWeight: 700, letterSpacing: "0.04em" }}>SCAN</span>}
             </button>
           );
         })}

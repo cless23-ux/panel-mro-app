@@ -2333,6 +2333,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   const [manualUnit, setManualUnit] = useState("EA");
   const [manualShip, setManualShip] = useState("");
   const [manualProject, setManualProject] = useState("");
+  const [returnComplete, setReturnComplete] = useState(null);
 
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
@@ -2509,11 +2510,25 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
     await saveItems(nextItems);
     await saveTxs([...(txs || []), tx]);
+
+    const completion = {
+      itemName: targetItem.name,
+      itemCode: targetItem.code,
+      qty: qtyNum,
+      unit: targetItem.unit,
+      shipNo: tx.shipNo || "-",
+      project: tx.project || "-",
+      worker: tx.worker || "-",
+      reason: tx.reason || "-",
+      isNew: mode === "manual" && !matchedManualItem,
+    };
+
     notify(
       `${targetItem.name} ${qtyNum}${targetItem.unit} 반납 완료 · ${matchedManualItem ? "기존 자재 재고 반영" : mode === "manual" ? "신규 자재도 마스터에 등록" : "재고 반영"}`,
       "ok"
     );
     resetForm();
+    setReturnComplete(completion);
   };
 
   const cancelReturnTx = async (targetTx) => {
@@ -2637,15 +2652,27 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                 </Field>
               </div>
 
-              <Field label="단위">
-                <input
-                  style={inputStyle}
-                  value={matchedManualItem?.unit || manualUnit}
-                  onChange={(e) => setManualUnit(e.target.value.toUpperCase())}
-                  placeholder="EA"
-                  disabled={!!matchedManualItem}
-                />
-              </Field>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label="단위">
+                  <input
+                    style={inputStyle}
+                    value={matchedManualItem?.unit || manualUnit}
+                    onChange={(e) => setManualUnit(e.target.value.toUpperCase())}
+                    placeholder="EA"
+                    disabled={!!matchedManualItem}
+                  />
+                </Field>
+                <Field label={`반납 수량 (${manualTargetUnit})`}>
+                  <input
+                    style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
+                    type="number"
+                    min="1"
+                    value={qty}
+                    onChange={(e) => setQty(e.target.value)}
+                    placeholder="수량 입력"
+                  />
+                </Field>
+              </div>
 
               {matchedManualItem ? (
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: "#35D08C12", border: "1px solid #35D08C55", color: "#35D08C", fontSize: 12, lineHeight: 1.5 }}>
@@ -2690,14 +2717,16 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <Field label={`반납 수량 (${mode === "history" ? selectedOutTx.unit : manualTargetUnit})`}>
-                  <input
-                    style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
-                    type="number" min="1" max={mode === "history" ? maxReturnQty : undefined}
-                    value={qty} onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
-                  />
-                </Field>
-                <Field label="반납 사유">
+                {mode === "history" && (
+                  <Field label={`반납 수량 (${selectedOutTx.unit})`}>
+                    <input
+                      style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
+                      type="number" min="1" max={maxReturnQty}
+                      value={qty} onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+                    />
+                  </Field>
+                )}
+                <Field label="반납 사유" style={mode === "history" ? undefined : { gridColumn: "1 / -1" }}>
                   <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
                 </Field>
               </div>
@@ -2791,6 +2820,75 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
           )}
         </Card>
       </div>
+
+      {returnComplete && (
+        <div
+          className="app-modal-overlay"
+          onClick={() => setReturnComplete(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 430, background: "#0F2233",
+              border: "1px solid #35D08C66", borderRadius: 16, padding: 24,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
+            }}
+          >
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{
+                width: 58, height: 58, margin: "0 auto 12px", borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "#35D08C18", border: "1px solid #35D08C66",
+              }}>
+                <CheckCircle2 size={32} color="#35D08C" />
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#35D08C" }}>반납 등록 완료</div>
+              <div style={{ marginTop: 5, fontSize: 12, color: "#7F97AC" }}>반납 내역과 재고가 정상적으로 반영되었습니다.</div>
+            </div>
+
+            <div style={{
+              background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10,
+              padding: 14, display: "flex", flexDirection: "column", gap: 10, marginBottom: 18,
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#38BDF8" }}>{returnComplete.itemName}</div>
+              <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono" }}>코드: {returnComplete.itemCode}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 10.5, color: "#5E86A3" }}>반납 수량</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "#22D3EE", fontFamily: "IBM Plex Mono" }}>{returnComplete.qty} {returnComplete.unit}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10.5, color: "#5E86A3" }}>반납자</div>
+                  <div style={{ fontSize: 13, color: "#E7EEF5", marginTop: 3 }}>{returnComplete.worker}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: "#9FB4C7", lineHeight: 1.6 }}>
+                호선: {returnComplete.shipNo} · 프로젝트: {returnComplete.project}<br />
+                사유: {returnComplete.reason}
+              </div>
+              {returnComplete.isNew && (
+                <div style={{
+                  padding: "8px 10px", borderRadius: 7, background: "#F5A62312",
+                  border: "1px solid #F5A62355", color: "#F5A623", fontSize: 11.5,
+                }}>
+                  신규 자재가 자재마스터에 등록되었습니다.
+                </div>
+              )}
+            </div>
+
+            <Btn
+              onClick={() => setReturnComplete(null)}
+              style={{ width: "100%", background: "#35D08C", border: "1px solid #35D08C", color: "#07151F", fontWeight: 800, fontSize: 14 }}
+            >
+              <CheckCircle2 size={17} /> 확인
+            </Btn>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

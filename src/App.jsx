@@ -2352,125 +2352,73 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   };
 
   const cancelOutTx = async (targetTx) => {
-    if (isReversedOutTx(targetTx)) {
-      notify("이미 원복 처리된 불출 이력입니다.", "info");
-      return;
-    }
+  if (isReversedOutTx(targetTx)) {
+    notify("이미 원복 처리된 불출 이력입니다.", "info");
+    return;
+  }
 
-    if (!window.confirm(
-      `[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 불출을 원복하시겠습니까?\n\n재고는 복구되고, 기존 불출 기록은 삭제되지 않습니다.`
-    )) {
-      return;
-    }
+  if (!window.confirm(
+    `[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 불출을 원복하시겠습니까?\n\n재고는 복구되고, 기존 불출 기록은 삭제되지 않습니다.`
+  )) {
+    return;
+  }
 
-    try {
-      // Supabase 사용 시 DB에서 자재 행 + 원본 거래 행을 한 번에 잠그고 처리합니다.
-      if (supabase) {
-        const { data, error } = await supabase.rpc("mro_reverse_out_transaction", {
-          p_tx_id: String(targetTx.id),
-        });
+  try {
+    const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
+    const nextReason = String(targetTx.reason || "").includes(marker)
+      ? targetTx.reason
+      : `${String(targetTx.reason || "").trim()}${String(targetTx.reason || "").trim() ? " | " : ""}${marker}`;
 
-        if (error) {
-          console.error("원복 RPC 오류:", error);
-          notify(error.message || "이력 원복 중 오류가 발생했습니다.", "err");
-          return;
-        }
+    const nextItems = items.map((i) =>
+      String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
+        ? { ...i, stock: Number(i.stock) + Number(targetTx.qty) }
+        : i
+    );
 
-        const result = Array.isArray(data) ? data[0] : data;
-        const newStock = Number(result?.stock);
+    const nextTxs = txs.map((t) => (t.id === targetTx.id ? { ...t, reason: nextReason } : t));
 
-        const nextItems = items.map((i) => {
-          if (
-            String(i.code).replace(/[\r\n]+/g, "").trim() ===
-            String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
-          ) {
-            return {
-              ...i,
-              stock: Number.isFinite(newStock)
-                ? newStock
-                : Number(i.stock) + Number(targetTx.qty),
-            };
-          }
-          return i;
-        });
+    await saveItems(nextItems);
+    await saveTxs(nextTxs);
 
-        // RPC에서 DB 재고/원본 거래/원복 거래를 이미 처리했으므로,
-        // 여기서 전체 거래를 다시 upsert하지 않습니다.
-        // stale 상태의 txs를 DB에 덮어쓰는 문제와 원복 후 부수 오류를 방지합니다.
-        await saveItems(nextItems);
-        await reloadTxs();
-
-        notify(
-          `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원복완료로 처리되었습니다.`,
-          "info"
-        );
-        return;
-      }
-
-      // Supabase가 없는 로컬 테스트 환경용 fallback.
-      const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
-      const nextItems = items.map((i) => {
-        if (
-          String(i.code).replace(/[\r\n]+/g, "").trim() ===
-          String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
-        ) {
-          return { ...i, stock: Number(i.stock) + Number(targetTx.qty) };
-        }
-        return i;
-      });
-
-      const nextTxs = txs.map((t) =>
-        t.id === targetTx.id
-          ? {
-              ...t,
-              reason: String(t.reason || "").includes(marker)
-                ? t.reason
-                : `${String(t.reason || "").trim()}${String(t.reason || "").trim() ? " | " : ""}${marker}`,
-            }
-          : t
-      );
-
-      await saveItems(nextItems);
-      await saveTxs(nextTxs);
-      notify(
-        `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원본 이력은 유지됩니다.`,
-        "info"
-      );
-    } catch (e) {
-      console.error("원복 처리 오류:", e);
-      notify("이력 원복 중 오류가 발생했습니다.", "err");
-    }
-  };
+    notify(
+      `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원복완료로 처리되었습니다.`,
+      "info"
+    );
+  } catch (e) {
+    console.error("원복 처리 오류:", e);
+    notify("이력 원복 중 오류가 발생했습니다.", "err");
+  }
+};
 
   const deleteHistory = async (targetTx) => {
-    if (!window.confirm(
-      `[${targetTx.itemName}] 출고 이력을 목록에서 삭제하시겠습니까?\n\nDB 기록은 보존되며 재고에는 영향이 없습니다.`
-    )) {
-      return;
-    }
+  if (!window.confirm(
+    `[${targetTx.itemName}] 출고 이력을 목록에서 삭제하시겠습니까?\n\nDB 기록은 보존되며 재고에는 영향이 없습니다.`
+  )) {
+    return;
+  }
 
-    try {
-      if (supabase) {
-        const { error } = await supabase.rpc("mro_soft_delete_transaction", {
-          p_tx_id: String(targetTx.id),
-        });
+  try {
+    if (supabase) {
+      const { error } = await supabase
+        .from("transactions")
+        .update({ deleted: true })
+        .eq("id", targetTx.id);
 
-        if (error) {
-          console.error("Soft Delete RPC 오류:", error);
-          notify(error.message || "삭제 처리에 실패했습니다.", "err");
-          return;
-        }
+      if (error) {
+        console.error("출고 이력 삭제 오류:", error);
+        notify("삭제 처리에 실패했습니다.", "err");
+        return;
       }
-
-      // 실제 DB 행은 삭제하지 않고 현재 화면에서만 숨깁니다.
-      const nextTxs = txs.filter((t) => t.id !== targetTx.id);
-      await saveTxs(nextTxs);
-      notify("출고 이력이 목록에서 삭제되었습니다. DB 기록과 재고는 유지됩니다.", "info");
-    } catch (e) {
-      console.error("Soft Delete 오류:", e);
-      notify("삭제 처리 중 오류가 발생했습니다.", "err");
     }
-  };
+
+    const nextTxs = txs.filter((t) => t.id !== targetTx.id);
+    await saveTxs(nextTxs);
+    notify("출고 이력이 목록에서 삭제되었습니다. DB 기록과 재고는 유지됩니다.", "info");
+  } catch (e) {
+    console.error("Soft Delete 오류:", e);
+    notify("삭제 처리 중 오류가 발생했습니다.", "err");
+  }
+};
 
   return (
     <div>

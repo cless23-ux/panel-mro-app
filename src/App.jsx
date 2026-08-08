@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -115,90 +115,39 @@ function useStorage(key, initial) {
   const [loaded, setLoaded] = useState(false);
   const tableName = key === "panel:items" ? "items" : "transactions";
 
-  // PC/모바일 공통 데이터는 Supabase를 단일 원본으로 사용합니다.
-  // localStorage는 Supabase가 없을 때의 오프라인 fallback으로만 사용합니다.
-  const normalizeTxForDb = useCallback((tx) => {
-    // 중요: 현재 Supabase transactions 테이블에는 note / linkedOutTxId 컬럼이 없습니다.
-    // 따라서 존재하지 않는 컬럼을 절대로 upsert하지 않습니다.
-    // 반납 전용 부가정보는 기존에 실제로 사용하는 reason 컬럼 안에 내부 마커로 보관합니다.
-    // 화면에서는 아래 hydrateTx에서 마커를 다시 분리하므로 기존 표시에는 영향을 주지 않습니다.
-    const { returnConfirmed, linkedOutTxId, note, ...dbTx } = tx || {};
-
-    if (dbTx?.type === "return") {
-      const rawReason = String(dbTx.reason || "").replace(/\[MRO_META:[^\]]+\]/g, "").trim();
-      const meta = [];
-      if (linkedOutTxId) meta.push(`linked=${encodeURIComponent(linkedOutTxId)}`);
-      if (returnConfirmed === true) meta.push("confirmed=1");
-      if (String(note || "").startsWith("[직접입력반납]")) meta.push("manual=1");
-      if (String(note || "").trim()) meta.push(`note=${encodeURIComponent(String(note).trim())}`);
-      dbTx.reason = `${rawReason}${meta.length ? `${rawReason ? " " : ""}[MRO_META:${meta.join("&")}]` : ""}`;
-    }
-    return dbTx;
-  }, []);
-
-  const normalizeItemForDb = useCallback((item) => {
-    const { manualReturnRegistered, ...dbItem } = item || {};
-    return dbItem;
-  }, []);
-
-  const hydrateTx = useCallback((tx) => {
-    if (tx?.type === "return") {
-      const reason = String(tx.reason || "");
-      const metaMatch = reason.match(/\[MRO_META:([^\]]+)\]/);
-      const meta = metaMatch ? metaMatch[1] : "";
-      const linkedMatch = meta.match(/(?:^|&)linked=([^&]+)/);
-      const confirmedMatch = /(?:^|&)confirmed=1(?:&|$)/.test(meta);
-      const manualMatch = /(?:^|&)manual=1(?:&|$)/.test(meta);
-      const noteMatch = meta.match(/(?:^|&)note=([^&]*)/);
-      const savedNote = noteMatch ? decodeURIComponent(noteMatch[1]) : (manualMatch ? "[직접입력반납]" : "");
-      const cleanReason = reason.replace(/\s*\[MRO_META:[^\]]+\]/g, "").trim();
-      return {
-        ...tx,
-        reason: cleanReason,
-        note: savedNote,
-        linkedOutTxId: linkedMatch ? decodeURIComponent(linkedMatch[1]) : null,
-        returnConfirmed: confirmedMatch,
-      };
-    }
-    return tx;
-  }, []);
-
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
-        // PC/모바일 간 데이터 충돌을 막기 위해 localStorage 내용을 서버에 자동 재업로드하지 않습니다.
-        // 서버(Supabase)가 항상 원본이며 localStorage는 화면 캐시/오프라인 fallback 용도로만 사용합니다.
-
-        // transactions는 deleted 값이 null인 기존 기록도 있을 수 있으므로
-        // 서버에서 전체를 읽은 뒤 deleted=true만 제외합니다.
-        // 이렇게 해야 PC/모바일 어느 쪽에서 저장했든 같은 반납 이력을 놓치지 않습니다.
-        const { data, error } = await supabase.from(tableName).select("*");
-        if (error) {
-          console.error(`${tableName} load error:`, error);
-          throw error;
+        const { data, error } = await supabase.from(tableName).select("*").eq("deleted", false);
+        if (!error && data) {
+          if (tableName === "transactions") {
+            setValue(prev => {
+              const map = new Map();
+              [...data, ...prev].forEach(item => {
+                if (item && item.id) map.set(item.id, item);
+              });
+              const merged = Array.from(map.values());
+              localStorage.setItem(key, JSON.stringify(merged));
+              return merged;
+            });
+          } else {
+            setValue(data);
+            localStorage.setItem(key, JSON.stringify(data));
+          }
+          if (!silent) setLoaded(true);
+          return;
         }
-
-        const visibleData = (data || []).filter((row) => row?.deleted !== true);
-        const fresh = tableName === "transactions" ? visibleData.map(hydrateTx) : visibleData;
-        setValue(fresh);
-        localStorage.setItem(key, JSON.stringify(fresh));
-        if (!silent) setLoaded(true);
-        return fresh;
       }
-
       const res = localStorage.getItem(key);
-      if (res !== null) setValue(JSON.parse(res));
+      if (res !== null) {
+        setValue(JSON.parse(res));
+      }
     } catch (e) {
       console.error("Storage load error:", e);
-      // Supabase가 일시적으로 실패한 경우에만 기존 로컬 캐시를 보여줍니다.
-      try {
-        const res = localStorage.getItem(key);
-        if (res !== null) setValue(JSON.parse(res));
-      } catch {}
     } finally {
       if (!silent) setLoaded(true);
     }
-  }, [key, tableName, normalizeTxForDb, normalizeItemForDb, hydrateTx]);
+  }, [key, tableName]);
 
   useEffect(() => {
     load();
@@ -207,40 +156,20 @@ function useStorage(key, initial) {
   }, [load]);
 
   const save = useCallback(async (next) => {
-    // Supabase가 연결된 경우 서버 저장 성공을 확인한 뒤 서버 데이터를 다시 읽습니다.
-    if (supabase) {
-      try {
-        if (tableName === "items") {
-          const dbItems = (next || []).map(normalizeItemForDb);
-          const { error } = await supabase.from("items").upsert(dbItems, { onConflict: "code" });
-          if (error) throw error;
-        } else {
-          const dbTxs = (next || []).map(normalizeTxForDb);
-          const { error } = await supabase.from("transactions").upsert(dbTxs, { onConflict: "id" });
-          if (error) throw error;
-        }
-
-        // 저장 직후에도 전체 서버 기록을 다시 읽고 deleted=true만 제외합니다.
-        // 특정 기기에서 저장한 기록이 다른 기기에서 사라지는 현상을 방지합니다.
-        const { data, error: readError } = await supabase.from(tableName).select("*");
-        if (readError) throw readError;
-        const visibleData = (data || []).filter((row) => row?.deleted !== true);
-        const fresh = tableName === "transactions" ? visibleData.map(hydrateTx) : visibleData;
-        setValue(fresh);
-        localStorage.setItem(key, JSON.stringify(fresh));
-        return fresh;
-      } catch (e) {
-        console.error("Supabase save error:", e);
-        // 서버 저장 실패 시 실패한 데이터를 localStorage에 덮어쓰지 않습니다.
-        // 그래야 다음 동기화에서 잘못된 모바일/PC 기록이 되살아나지 않습니다.
-        throw e;
-      }
-    }
-
     setValue(next);
-    localStorage.setItem(key, JSON.stringify(next));
-    return next;
-  }, [key, tableName, normalizeTxForDb, normalizeItemForDb, hydrateTx]);
+    try {
+      localStorage.setItem(key, JSON.stringify(next));
+      if (supabase) {
+        if (tableName === "items") {
+          await supabase.from("items").upsert(next, { onConflict: "code" });
+        } else if (tableName === "transactions") {
+          await supabase.from("transactions").upsert(next, { onConflict: "id" });
+        }
+      }
+    } catch (e) {
+      console.error("Storage save error:", e);
+    }
+  }, [key, tableName]);
 
   return [value, save, loaded, load];
 }
@@ -946,6 +875,261 @@ function Toast({ toast }) {
   );
 }
 
+
+/* ---------------- 실시간 대화 / 개발중 공지 + 개인 메모 ----------------
+   현재는 실제 실시간 채팅을 열지 않고, 공지와 개인 메모만 제공합니다.
+   추후 Supabase Realtime chat_messages로 확장할 수 있도록 화면을 독립 컴포넌트로 분리합니다.
+----------------------------------------------------------------------- */
+const PERSONAL_MEMO_KEY = "panel:personalMemos";
+
+function ChatMemoView({ onClose }) {
+  const [memos, setMemos] = useState(() => {
+    try {
+      const raw = localStorage.getItem(PERSONAL_MEMO_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [draft, setDraft] = useState("");
+
+  const persist = (next) => {
+    setMemos(next);
+    try {
+      localStorage.setItem(PERSONAL_MEMO_KEY, JSON.stringify(next));
+    } catch {}
+  };
+
+  const saveMemo = () => {
+    const value = draft.trim();
+    if (!value) return;
+
+    persist([
+      {
+        id: uid("MEMO"),
+        text: value,
+        createdAt: new Date().toISOString(),
+      },
+      ...memos,
+    ]);
+    setDraft("");
+  };
+
+  const deleteMemo = (id) => {
+    persist(memos.filter((memo) => memo.id !== id));
+  };
+
+  return (
+    <div style={{ width: "100%", maxWidth: 760, margin: "0 auto" }}>
+      {/* 제목 */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+        marginBottom: 14,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <MessageCircle size={20} color="#22D3EE" />
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#E7EEF5" }}>
+              실시간 대화
+            </div>
+            <div style={{ fontSize: 11, color: "#7F97AC", marginTop: 2 }}>
+              현재는 개인 메모 기능을 사용할 수 있습니다.
+            </div>
+          </div>
+        </div>
+
+        <Btn
+          variant="ghost"
+          onClick={onClose}
+          style={{ padding: "7px 11px", fontSize: 11.5 }}
+        >
+          닫기
+        </Btn>
+      </div>
+
+      {/* 상단 고정 공지 */}
+      <Card
+        neon="#F5A623"
+        style={{
+          padding: 15,
+          marginBottom: 14,
+          background: "linear-gradient(180deg, #2A2414 0%, #122333 100%)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div style={{
+            width: 32,
+            height: 32,
+            borderRadius: 9,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#F5A62322",
+            border: "1px solid #F5A62355",
+            flexShrink: 0,
+            fontSize: 17,
+          }}>
+            📢
+          </div>
+
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              color: "#F5A623",
+              fontWeight: 800,
+              fontSize: 13.5,
+              marginBottom: 5,
+            }}>
+              공지 · 실시간 대화 기능 개발중
+            </div>
+            <div style={{
+              color: "#C9DAE8",
+              fontSize: 12.5,
+              lineHeight: 1.65,
+            }}>
+              현재 실시간 대화 기능은 개발중입니다.<br />
+              정식 업데이트 전까지 이 공간을 개인 메모로 사용할 수 있습니다.
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* 메모 작성 */}
+      <Card style={{ padding: 14, marginBottom: 14 }}>
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          color: "#22D3EE",
+          fontSize: 12.5,
+          fontWeight: 800,
+          marginBottom: 9,
+          fontFamily: "'IBM Plex Mono', monospace",
+        }}>
+          📝 내 메모
+        </div>
+
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+              e.preventDefault();
+              saveMemo();
+            }
+          }}
+          placeholder="메모를 입력하세요..."
+          rows={4}
+          style={{
+            ...inputStyle,
+            resize: "vertical",
+            minHeight: 96,
+            lineHeight: 1.55,
+            fontFamily: "Inter, sans-serif",
+          }}
+        />
+
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          marginTop: 9,
+        }}>
+          <span style={{ color: "#5E86A3", fontSize: 10.5 }}>
+            Ctrl + Enter로 저장
+          </span>
+
+          <Btn
+            onClick={saveMemo}
+            disabled={!draft.trim()}
+            style={{ padding: "8px 14px", fontSize: 12 }}
+          >
+            <Save size={14} />
+            저장
+          </Btn>
+        </div>
+      </Card>
+
+      {/* 저장된 메모 */}
+      <div style={{
+        color: "#5E86A3",
+        fontSize: 11,
+        fontFamily: "'IBM Plex Mono', monospace",
+        letterSpacing: "0.08em",
+        marginBottom: 8,
+      }}>
+        SAVED MEMOS · {memos.length}
+      </div>
+
+      {memos.length === 0 ? (
+        <Card style={{
+          padding: 24,
+          textAlign: "center",
+          color: "#5E86A3",
+          fontSize: 12,
+        }}>
+          저장된 메모가 없습니다.
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {memos.map((memo) => (
+            <Card key={memo.id} style={{ padding: 13 }}>
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: 10,
+              }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{
+                    color: "#E7EEF5",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}>
+                    {memo.text}
+                  </div>
+
+                  <div style={{
+                    color: "#5E86A3",
+                    fontSize: 10.5,
+                    marginTop: 8,
+                    fontFamily: "'IBM Plex Mono', monospace",
+                  }}>
+                    {new Date(memo.createdAt).toLocaleString("ko-KR")}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => deleteMemo(memo.id)}
+                  title="메모 삭제"
+                  style={{
+                    border: "1px solid #4A2A2A",
+                    background: "#EF535012",
+                    color: "#EF5350",
+                    borderRadius: 7,
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
@@ -1003,10 +1187,10 @@ export default function App() {
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
 
-  /* 모바일 좌우 스와이프로 하단 탭(입고/출고/반납/재고) 전환 - 손가락을 따라오는 드래그 연출 */
+  /* 모바일 좌우 스와이프로 하단 탭(출고/재고/입고/반납) 전환 - 손가락을 따라오는 드래그 연출 */
   const mainPanelRef = useRef(null);
   const dragStateRef = useRef({ startX: 0, startY: 0, dragging: null, deltaX: 0 });
-  const MOBILE_SWIPE_TABS = ["in", "out", "return", "stock"];
+  const MOBILE_SWIPE_TABS = ["out", "stock", "in", "return"];
   const SWIPE_THRESHOLD = 60;
 
   /* 모달(긴급요청/이력/QR 등)이 열려 있는 동안에는 스와이프를 완전히 무시한다.
@@ -1193,8 +1377,9 @@ export default function App() {
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
-    { id: "settings", label: "정보설정", icon: SettingsIcon, pcOnly: true },
+    { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
+    { id: "chat", label: "실시간 대화", icon: MessageCircle, mobileTopOnly: true },
   ];
   const NAV_IDS = NAV.map((n) => n.id);
 
@@ -1208,6 +1393,7 @@ export default function App() {
     master: "#F472B6",
     settings: "#2DD4BF",
     trash: "#EF5350",
+    chat: "#22D3EE",
   };
 
   const [slideDir, setSlideDir] = useState(1);
@@ -1324,24 +1510,9 @@ if (showSplash) {
             display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10;
           }
           .mobile-bottom-nav {
-            height: 72px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
-            grid-template-columns: repeat(3, 1fr); flex-shrink: 0; z-index: 10;
-            align-items: stretch; padding: 4px 4px 5px; gap: 3px;
+            height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
+            grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
           }
-          .mobile-nav-item {
-            position: relative; min-width: 0; border-radius: 10px !important;
-            transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
-          }
-          .mobile-nav-item:not(.mobile-nav-out):active { transform: scale(.97); }
-          .mobile-nav-out {
-            transform: translateY(-9px);
-            min-height: 78px; margin: 0 2px;
-            border: 1px solid #F5A62380 !important;
-            background: linear-gradient(180deg, #F5A62325 0%, #F5A6230b 100%) !important;
-            box-shadow: 0 0 18px -5px #F5A623aa, inset 0 0 16px -10px #F5A623;
-            z-index: 2;
-          }
-          .mobile-nav-out:active { transform: translateY(-9px) scale(.97); }
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
           .tab-panel { padding: 14px 12px; border-radius: 14px; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
@@ -1415,7 +1586,7 @@ if (showSplash) {
         </button>
 
         <nav style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {NAV.map((n) => {
+          {NAV.filter((n) => !n.mobileTopOnly).map((n) => {
             const active = tab === n.id;
             const Icon = n.icon;
             return (
@@ -1486,20 +1657,24 @@ if (showSplash) {
           </button>
         </div>
         <button
-          onClick={() => goToTab("return")}
-          title="원자재 반납"
+          onClick={() => goToTab("chat")}
+          title="실시간 대화 / 개인 메모"
           style={{
-            display: "flex", alignItems: "center", gap: 6,
-            background: tab === "return" ? "#22D3EE1c" : "#22D3EE0a",
-            border: `1px solid ${tab === "return" ? "#22D3EE" : "#22D3EE55"}`,
-            borderRadius: 8, padding: "6px 9px",
-            color: "#22D3EE", fontSize: 11.5, fontWeight: 700,
-            fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
-            boxShadow: tab === "return" ? "0 0 12px -5px #22D3EE" : "none",
+            background: tab === "chat" ? "#22D3EE18" : "transparent",
+            border: `1px solid ${tab === "chat" ? "#22D3EE" : "#274460"}`,
+            color: tab === "chat" ? "#22D3EE" : "#9FB4C7",
+            borderRadius: 7,
+            padding: "6px 9px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: 11.5,
+            fontFamily: "'IBM Plex Mono', monospace",
           }}
         >
-          <RotateCcw size={15} />
-          원자재 반납
+          <MessageCircle size={15} />
+          대화
         </button>
       </header>
 
@@ -1526,46 +1701,55 @@ if (showSplash) {
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
-            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} supabaseClient={typeof supabase !== "undefined" ? supabase : null} />}
+            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
             {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
-            {tab === "master" && <MasterView items={items} saveItems={saveItems} txs={txs} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
+            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} />}
           </div>
         )}
       </main>
 
       {/* 모바일 하단 탭 */}
       <nav className="mobile-bottom-nav">
-        {NAV.filter(n => !n.pcOnly && n.id !== "return").map((n) => {
+        {["out", "stock", "in", "return"].map((id) => {
+          const n = NAV.find((item) => item.id === id);
+          if (!n) return null;
           const active = tab === n.id;
           const Icon = n.icon;
-          const color = TAB_NEON[n.id] || "#7F97AC";
+          const neon = TAB_NEON[n.id] || "#7F97AC";
           const isOut = n.id === "out";
+
           return (
             <button
               key={n.id}
               onClick={() => goToTab(n.id)}
-              className={`mobile-nav-item${isOut ? " mobile-nav-out" : ""}`}
               style={{
-                background: active ? `${color}16` : "transparent",
-                border: `1px solid ${active ? `${color}70` : "transparent"}`,
-                color: active ? color : "#7F97AC",
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                gap: isOut ? 5 : 4, cursor: "pointer", padding: 0,
+                background: isOut ? (active ? `${neon}22` : `${neon}10`) : "transparent",
+                border: isOut ? `1px solid ${neon}${active ? "88" : "44"}` : "none",
+                borderRadius: isOut ? 10 : 0,
+                color: active ? neon : "#7F97AC",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: isOut ? 2 : 4,
+                cursor: "pointer",
+                padding: isOut ? "3px 4px" : 0,
+                margin: isOut ? "4px 2px" : 0,
+                transform: isOut ? "translateY(-4px)" : "none",
+                boxShadow: isOut && active ? `0 0 18px -8px ${neon}` : "none",
               }}
             >
-              <Icon size={isOut ? 25 : 19} color={active || isOut ? color : "#7F97AC"} strokeWidth={isOut ? 2.4 : 2} />
+              <Icon size={isOut ? 23 : 19} color={active ? neon : "#7F97AC"} />
               <span style={{
-                fontSize: isOut ? 12 : 10.5,
+                fontSize: isOut ? 10.5 : 10,
                 fontFamily: "Inter, sans-serif",
-                fontWeight: active || isOut ? 800 : 500,
-                color: active || isOut ? color : "#7F97AC",
-                whiteSpace: "nowrap",
+                fontWeight: active || isOut ? 700 : 500,
               }}>
                 {n.label}
               </span>
-              {isOut && <span style={{ fontSize: 8.5, color: `${color}cc`, fontWeight: 700, letterSpacing: "0.04em" }}>SCAN</span>}
             </button>
           );
         })}
@@ -1952,23 +2136,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const processOptions = outFormSettings?.processes || [];
   const workerOptions = outFormSettings?.workers || [];
 
-  // 호선 설정값의 번호 부분과 완전히 일치하는 숫자만 입력했을 때 설정값으로 자동 변환합니다.
-  // 예: 설정값 "H-2024" + 입력 "2024" → "H-2024"
-  // 숫자가 하나라도 다르면 사용자가 입력한 값을 그대로 유지합니다.
-  const handleShipNoChange = (value) => {
-    const raw = String(value ?? "");
-    const trimmed = raw.trim();
-    if (/^\d+$/.test(trimmed)) {
-      const matched = shipOptions.find((option) => {
-        const optionDigits = String(option ?? "").replace(/\D/g, "");
-        return optionDigits === trimmed;
-      });
-      setShipNo(matched || raw);
-      return;
-    }
-    setShipNo(raw);
-  };
-
   useEffect(() => {
     if (projectOptions.length > 0 && !projectOptions.includes(project)) {
       setProject(projectOptions[0]);
@@ -2326,7 +2493,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                 <Field label="1. 호선">
                   <AutocompleteInput
                     value={shipNo}
-                    onChange={handleShipNoChange}
+                    onChange={setShipNo}
                     options={shipOptions}
                     placeholder="예: H-2024 (직접 입력 또는 목록 검색)"
                   />
@@ -2436,7 +2603,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 /* ---------------- 자재 반납 ---------------- */
 const RETURN_REASONS = ["미사용 잔량", "수량 착오", "자재 상이", "프로젝트 취소/변경", "기타"];
 
-function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, supabaseClient }) {
+function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings }) {
   const [mode, setMode] = useState("history"); // "history" | "manual"
 
   // 공통 입력값
@@ -2456,18 +2623,9 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
   const [manualShip, setManualShip] = useState("");
   const [manualProject, setManualProject] = useState("");
   const [returnComplete, setReturnComplete] = useState(null);
-  const [returnListModal, setReturnListModal] = useState(false);
 
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
-  const workerOptions = outFormSettings?.workers || [];
-
-  // 반납자는 불출 설정에서 등록한 목록만 선택할 수 있도록 합니다.
-  useEffect(() => {
-    if (workerOptions.length > 0 && !workerOptions.includes(worker)) {
-      setWorker(workerOptions[0]);
-    }
-  }, [workerOptions, worker]);
 
   /* 직접 입력한 코드가 기존 자재인지 자동 확인.
      기존 자재면 기존 재고에 반납하고, 없으면 반납 확정 시 자재마스터에도 신규 등록합니다. */
@@ -2521,19 +2679,9 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return (txs || [])
-      .filter((t) => t.type === "return" && t.returnConfirmed !== true)
+      .filter((t) => t.type === "return")
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
-  }, [txs]);
-
-  const savedReturnTxs = useMemo(() => {
-    const parseAt = (t) => {
-      const d = new Date(String(t.at || "").replace(" ", "T"));
-      return Number.isNaN(d.getTime()) ? 0 : d.getTime();
-    };
-    return (txs || [])
-      .filter((t) => t.type === "return" && t.returnConfirmed === true)
-      .sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
 
   const exportReturnCSV = () => {
@@ -2579,8 +2727,9 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
     if (mode === "history" && !selectedOutTx) { notify("반납할 출고 이력을 선택해주세요.", "err"); return; }
 
     if (mode === "manual") {
+      if (!manualCode.trim()) { notify("자재코드를 입력해주세요.", "err"); return; }
       if (!manualName.trim() && !matchedManualItem) { notify("자재명을 입력해주세요.", "err"); return; }
-      if (manualCode.trim() && !manualCode.trim().startsWith("1")) {
+      if (!manualCode.trim().startsWith("1")) {
         notify("원자재 반납이므로 자재코드는 1로 시작해야 합니다. 예: 1-CG-M20-BR", "err");
         return;
       }
@@ -2600,9 +2749,8 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
 
     // 미등록 자재라면 반납 확정과 동시에 자재마스터에 신규 등록
     if (mode === "manual" && !matchedManualItem) {
-      const generatedCode = manualCode.trim() || `1-RET-${Date.now()}`;
       targetItem = {
-        code: generatedCode,
+        code: manualCode.trim(),
         name: manualName.trim(),
         spec: "",
         unit: manualUnit || "EA",
@@ -2643,26 +2791,14 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
       project: mode === "history" ? (selectedOutTx.project || "") : (manualProject || ""),
       reason,
       worker: worker.trim(),
+      note: note.trim(),
       linkedOutTxId: mode === "history" ? selectedOutTx.id : null,
-      // 직접 입력 반납 여부를 기존 note 컬럼에 저장하여 재실행 후에도 유지
-      note: mode === "manual"
-        ? `[직접입력반납]${note.trim() ? ` ${note.trim()}` : ""}`
-        : note.trim(),
       at: nowStr(),
       deleted: false,
     };
 
-    // 반납 거래는 기존 공통 저장 함수 하나만 사용합니다.
-    // 이 함수가 Supabase에 저장한 뒤 서버 전체 목록을 다시 읽기 때문에
-    // PC/모바일에서 같은 transactions 원본을 바라보게 됩니다.
     await saveItems(nextItems);
-    try {
-      await saveTxs([...(txs || []), tx]);
-    } catch (txSaveError) {
-      console.error("반납 거래 저장 오류:", txSaveError);
-      notify(`반납 기록 저장 실패: ${txSaveError.message || "Supabase transactions 저장 오류"}`, "err");
-      return;
-    }
+    await saveTxs([...(txs || []), tx]);
 
     const completion = {
       itemName: targetItem.name,
@@ -2682,40 +2818,6 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
     );
     resetForm();
     setReturnComplete(completion);
-  };
-
-  const confirmReturnTx = async (targetTx) => {
-    // 직접입력 반납 자재는 "확인(저장)" 시점에도 자재마스터에 반드시 존재하도록 보장합니다.
-    // 기존 자재가 있으면 그대로 두고, 없을 때만 신규 등록합니다.
-    const targetCode = String(targetTx.itemCode || "").trim();
-    const isManualReturn = String(targetTx.note || "").startsWith("[직접입력반납]") || !targetTx.linkedOutTxId;
-    const exists = (items || []).some((i) => String(i.code || "").trim() === targetCode);
-
-    if (isManualReturn && targetCode && !exists) {
-      const newReturnItem = {
-        code: targetCode,
-        name: String(targetTx.itemName || "").trim(),
-        spec: "",
-        unit: targetTx.unit || "EA",
-        stock: Number(targetTx.qty) || 0,
-        safety: 0,
-        location: "",
-        manufacturer: "",
-        category: "원자재",
-        image_url: "",
-        deleted: false,
-      };
-      await saveItems([newReturnItem, ...(items || [])]);
-    }
-
-    const nextTxs = (txs || []).map((t) => {
-      if (t.id !== targetTx.id) return t;
-      return { ...t, returnConfirmed: true };
-    });
-
-    await saveTxs(nextTxs);
-    notify(`${targetTx.itemName} 반납 내역이 저장목록으로 이동되었습니다.`, "ok");
-    setReturnListModal(true);
   };
 
   const cancelReturnTx = async (targetTx) => {
@@ -2812,30 +2914,19 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
               </div>
             </div>
           ) : (
-            <div style={{ padding: "14px 12px", background: "#22D3EE0d", border: "1px solid #22D3EE33", borderRadius: 8, color: "#9FB4C7", fontSize: 12, lineHeight: 1.6 }}>
-              <strong style={{ color: "#22D3EE" }}>자재 직접 입력</strong>을 선택했습니다.<br />
-              아래 <strong>「2. 반납 정보 입력」</strong>에서 자재코드, 자재명, 단위, 수량을 입력해주세요.
-            </div>
-          )}
-        </Card>
-
-        <Card neon="#22D3EE" style={{ padding: 22 }}>
-          <SectionLabel>2. 반납 정보 입력</SectionLabel>
-
-          {mode === "manual" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ padding: "10px 12px", background: "#22D3EE0d", border: "1px solid #22D3EE33", borderRadius: 8, color: "#9FB4C7", fontSize: 11.5, lineHeight: 1.5 }}>
-                등록된 자재를 검색하지 않고 <strong style={{ color: "#22D3EE" }}>자재명과 자재정보를 직접 입력</strong>할 수 있습니다.<br />
-                자재코드는 선택사항이며 비워두면 반납 등록 시 자동으로 생성됩니다.
+                등록된 자재를 검색하지 않고 <strong style={{ color: "#22D3EE" }}>자재코드와 자재명을 직접 입력</strong>할 수 있습니다.<br />
+                기존 코드면 기존 자재 재고에 반영되고, 없는 코드면 반납 확정과 동시에 새 자재로 등록됩니다.
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 10 }}>
-                <Field label="자재코드 (선택)">
+                <Field label="자재코드">
                   <input
                     style={inputStyle}
                     value={manualCode}
                     onChange={(e) => setManualCode(e.target.value)}
-                    placeholder="선택 입력 · 비워두면 자동 생성"
+                    placeholder="예: 1-CG-M20-BR"
                     autoComplete="off"
                   />
                 </Field>
@@ -2877,9 +2968,9 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
                   ✓ 등록된 자재입니다. <strong>{matchedManualItem.name}</strong> / 현재고 {matchedManualItem.stock}{matchedManualItem.unit}<br />
                   반납 확정 시 기존 자재의 재고에 반납 수량이 더해집니다.
                 </div>
-              ) : manualName.trim() ? (
+              ) : manualCode.trim() ? (
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: "#F5A62312", border: "1px solid #F5A62355", color: "#F5A623", fontSize: 12, lineHeight: 1.5 }}>
-                  + 신규 자재입니다. 반납 확정하면 <strong>{manualName.trim() || "입력한 자재"}</strong>가 자재마스터에 등록됩니다.{!manualCode.trim() && " 자재코드는 자동 생성됩니다."}
+                  + 미등록 자재입니다. 반납 확정하면 <strong>{manualName.trim() || "입력한 자재"}</strong>가 자재마스터에 신규 등록됩니다.
                 </div>
               ) : null}
 
@@ -2892,43 +2983,45 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
                 </Field>
               </div>
             </div>
+          )}
+        </Card>
+
+        <Card neon="#22D3EE" style={{ padding: 22 }}>
+          <SectionLabel>2. 반납 정보 입력</SectionLabel>
+          {(mode === "history" && !selectedOutTx) || (mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))) ? (
+            <EmptyState icon={RotateCcw} text="먼저 반납할 자재 정보를 입력해주세요." color="#5E86A3" />
           ) : (
-            selectedOutTx ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", lineHeight: 1.35 }}>
-                  {selectedOutTx.itemName}
+                  {mode === "history" ? selectedOutTx.itemName : manualTargetName}
                 </div>
                 <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 4 }}>
-                  호선 {selectedOutTx.shipNo || "-"} · 프로젝트 {selectedOutTx.project || "-"} · 반납가능 {maxReturnQty}{selectedOutTx.unit}
+                  {mode === "history"
+                    ? `호선 ${selectedOutTx.shipNo || "-"} · 프로젝트 ${selectedOutTx.project || "-"} · 반납가능 ${maxReturnQty}${selectedOutTx.unit}`
+                    : matchedManualItem
+                      ? `코드: ${matchedManualItem.code} · 현재고 ${matchedManualItem.stock}${matchedManualItem.unit}`
+                      : `코드: ${manualCode.trim()} · 신규 자재 · 단위 ${manualUnit || "EA"}`}
                 </div>
               </div>
-            ) : (
-              <EmptyState icon={RotateCcw} text="먼저 반납할 자재를 선택해주세요." color="#5E86A3" />
-            )
-          )}
 
-          {(mode === "manual" || selectedOutTx) && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 14 }}>
-              {mode === "history" && selectedOutTx && (
-                <Field label={`반납 수량 (${selectedOutTx.unit})`}>
-                  <input
-                    style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
-                    type="number" min="1" max={maxReturnQty}
-                    value={qty} onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
-                  />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {mode === "history" && (
+                  <Field label={`반납 수량 (${selectedOutTx.unit})`}>
+                    <input
+                      style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
+                      type="number" min="1" max={maxReturnQty}
+                      value={qty} onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+                    />
+                  </Field>
+                )}
+                <Field label="반납 사유" style={mode === "history" ? undefined : { gridColumn: "1 / -1" }}>
+                  <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
                 </Field>
-              )}
-
-              <Field label="반납 사유">
-                <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
-              </Field>
+              </div>
 
               <Field label="반납자">
-                <Select
-                  value={worker}
-                  onChange={(e) => setWorker(e.target.value)}
-                  options={workerOptions}
-                />
+                <input style={inputStyle} value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="이름 입력" />
               </Field>
 
               <Field label="비고 (선택)">
@@ -2937,11 +3030,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
 
               <Btn
                 onClick={submit}
-                disabled={
-                  (mode === "manual" && (!manualName.trim() && !matchedManualItem)) ||
-                  !qty || Number(qty) <= 0 ||
-                  !worker.trim()
-                }
+                disabled={mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))}
                 style={{ marginTop: 8, width: "100%", background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: "bold", fontSize: 15 }}
               >
                 <RotateCcw size={18} />반납 확정
@@ -2961,15 +3050,15 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
             </div>
             <button
               type="button"
-              onClick={() => setReturnListModal(true)}
+              onClick={exportReturnCSV}
               style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8,
-                border: "1px solid #22D3EE88", background: "#22D3EE1f", color: "#22D3EE",
+                border: "1px solid #35D08C88", background: "#35D08C1f", color: "#35D08C",
                 fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
                 whiteSpace: "nowrap", flexShrink: 0,
               }}
             >
-              <Check size={13} />저장목록
+              <Download size={13} />엑셀 다운로드
             </button>
           </div>
           {recentReturnTxs.length === 0 ? (
@@ -3008,140 +3097,18 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, s
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
-                    <button
-                      type="button"
-                      onClick={() => confirmReturnTx(t)}
-                      style={{ background: "#123A32", border: "1px solid #35D08C", color: "#35D08C", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}
-                    >
-                      확인
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => cancelReturnTx(t)}
-                      style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
-                    >
-                      취소
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => cancelReturnTx(t)}
+                    style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600, marginLeft: "auto", flexShrink: 0 }}
+                  >
+                    취소
+                  </button>
                 </div>
               ))}
             </div>
           )}
         </Card>
       </div>
-
-      {returnListModal && (
-        <div
-          className="app-modal-overlay"
-          onClick={() => setReturnListModal(false)}
-          style={{
-            position: "fixed", inset: 0, background: "rgba(6,14,22,0.82)",
-            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 320, padding: 20,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "100%", maxWidth: 900, maxHeight: "86vh", overflow: "hidden",
-              background: "#0F2233", border: "1px solid #22D3EE66", borderRadius: 16,
-              boxShadow: "0 20px 60px rgba(0,0,0,0.5)", display: "flex", flexDirection: "column",
-            }}
-          >
-            <div style={{
-              padding: "16px 20px", borderBottom: "1px solid #1F3B54",
-              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-            }}>
-              <div>
-                <div style={{ color: "#E7EEF5", fontSize: 17, fontWeight: 800 }}>반납 저장 목록</div>
-                <div style={{ color: "#7F97AC", fontSize: 11, marginTop: 4 }}>등록된 반납 내역을 확인하고 필요한 경우 삭제할 수 있습니다.</div>
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <button
-                  type="button"
-                  onClick={exportReturnCSV}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 8,
-                    border: "1px solid #35D08C88", background: "#35D08C1f", color: "#35D08C",
-                    fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
-                  }}
-                >
-                  <Download size={13} />엑셀 다운로드
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReturnListModal(false)}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "center", padding: 7, borderRadius: 8,
-                    border: "1px solid #274460", background: "#0B1C2C", color: "#9FB4C7", cursor: "pointer",
-                  }}
-                  aria-label="닫기"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
-            <div style={{ padding: 16, overflowY: "auto" }}>
-              {savedReturnTxs.length === 0 ? (
-                <EmptyState icon={RotateCcw} text="저장된 반납 내역이 없습니다." color="#5E86A3" />
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {savedReturnTxs.map((t) => (
-                    <div
-                      key={t.id}
-                      style={{
-                        background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 9,
-                        padding: "11px 14px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
-                      }}
-                    >
-                      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8" }}>{t.itemName}</div>
-                        <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 3 }}>
-                          {t.itemCode || "-"} · {t.at}
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 18, fontSize: 12, flexShrink: 0 }}>
-                        <div><span style={{ color: "#5E86A3", fontSize: 10, display: "block" }}>수량</span><span style={{ color: "#22D3EE", fontWeight: 700 }}>{t.qty} {t.unit}</span></div>
-                        <div><span style={{ color: "#5E86A3", fontSize: 10, display: "block" }}>호선</span><span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span></div>
-                        <div><span style={{ color: "#5E86A3", fontSize: 10, display: "block" }}>반납자</span><span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span></div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => cancelReturnTx(t)}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 5, marginLeft: "auto", flexShrink: 0,
-                          background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
-                          padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600,
-                        }}
-                      >
-                        <Trash2 size={13} />삭제
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div style={{
-              padding: "12px 16px", borderTop: "1px solid #1F3B54",
-              display: "flex", justifyContent: "flex-end",
-            }}>
-              <button
-                type="button"
-                onClick={() => setReturnListModal(false)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6, padding: "8px 18px", borderRadius: 8,
-                  border: "1px solid #22D3EE88", background: "#22D3EE1f", color: "#22D3EE",
-                  fontSize: 12, fontWeight: 700, cursor: "pointer",
-                }}
-              >
-                <Check size={14} />확인
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {returnComplete && (
         <div
@@ -3451,24 +3418,12 @@ async function buildQrLabelWorkbook(items) {
 }
 
 /* ---------------- 자재 마스터 관리 ---------------- */
-function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
+function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", image_url: "" };
   const [form, setForm] = useState(blank);
   const [formMaterialType, setFormMaterialType] = useState("raw"); // "raw"(원자재) | "sub"(부자재)
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
-  const [editingReturnedItem, setEditingReturnedItem] = useState(null);
-  const [returnedEditForm, setReturnedEditForm] = useState(null);
-  const returnedMaterialCodes = useMemo(() => {
-    // 자재마스터의 수정 버튼은 서버에 실제 저장된 반납 거래가 있는지만 봅니다.
-    // 모바일/PC에서 linkedOutTxId 또는 note 표현이 달라도 반납 거래면 동일하게 처리합니다.
-    return new Set(
-      (txs || [])
-        .filter((t) => t.type === "return")
-        .map((t) => String(t.itemCode || "").trim())
-        .filter(Boolean)
-    );
-  }, [txs]);
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
@@ -3579,24 +3534,6 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
     notify("거래처가 수정되었습니다.", "ok");
     setEditingManufacturerCode(null);
     setEditingManufacturerValue("");
-  };
-
-  const startEditReturnedItem = (item) => {
-    if (!item || !returnedMaterialCodes.has(String(item.code || "").trim())) return;
-    setEditingReturnedItem(item);
-    setReturnedEditForm({ code: item.code || "", name: item.name || "", spec: item.spec || "", unit: item.unit || "EA", category: item.category || "원자재", manufacturer: item.manufacturer || "", location: item.location || "", safety: Number(item.safety) || 0 });
-  };
-
-  const saveReturnedItemEdit = async () => {
-    if (!editingReturnedItem || !returnedEditForm) return;
-    if (!returnedEditForm.name.trim()) { notify("품명을 입력해주세요.", "err"); return; }
-    const nextItems = items.map((i) => String(i.code).trim() === String(editingReturnedItem.code).trim()
-      ? { ...i, name: returnedEditForm.name.trim(), spec: returnedEditForm.spec.trim(), unit: returnedEditForm.unit.trim() || "EA", category: returnedEditForm.category.trim() || "원자재", manufacturer: returnedEditForm.manufacturer.trim(), location: returnedEditForm.location.trim(), safety: Number(returnedEditForm.safety) || 0 }
-      : i
-    );
-    await saveItems(nextItems);
-    notify("반납 등록 자재 정보가 수정되었습니다.", "ok");
-    setEditingReturnedItem(null); setReturnedEditForm(null);
   };
 
   const addItem = async () => {
@@ -4052,7 +3989,7 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>수정</th><th>삭제</th>
+                <th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -4179,11 +4116,6 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
                     </button>
                   </td>
                   <td>
-                    {returnedMaterialCodes.has(String(i.code || "").trim()) ? (
-                      <button onClick={() => startEditReturnedItem(i)} title="반납 등록 자재 수정" style={{ background: "#22D3EE1A", border: "1px solid #22D3EE66", color: "#22D3EE", cursor: "pointer", padding: "5px 8px", borderRadius: 6, fontSize: 11.5 }}>수정</button>
-                    ) : null}
-                  </td>
-                  <td>
                     <button onClick={() => removeItem(i.code)} style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 4 }}>
                       <Trash2 size={15} />
                     </button>
@@ -4254,9 +4186,6 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
                     >
                       <QrCode size={14} />
                     </button>
-                    {returnedMaterialCodes.has(String(i.code || "").trim()) && (
-                      <button onClick={() => startEditReturnedItem(i)} title="반납 등록 자재 수정" style={{ background: "#22D3EE1A", border: "1px solid #22D3EE66", color: "#22D3EE", padding: "6px 8px", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>수정</button>
-                    )}
                     <button
                       onClick={() => removeItem(i.code)}
                       style={{ background: "#2A1818", border: "1px solid #4A2A2A", color: "#EF5350", padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
@@ -4348,31 +4277,6 @@ function MasterView({ items, saveItems, txs, notify, urgentRequests, resolveUrge
           })
         )}
       </div>
-
-      {editingReturnedItem && returnedEditForm && (
-        <div onClick={() => { setEditingReturnedItem(null); setReturnedEditForm(null); }} className="app-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(6,14,22,0.82)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1200, padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 560, background: "#0F2233", border: "1px solid #22D3EE66", borderRadius: 14, padding: 22, color: "#E7EEF5" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div><div style={{ fontSize: 18, fontWeight: 800, color: "#22D3EE" }}>반납 등록 자재 수정</div><div style={{ marginTop: 4, fontSize: 11.5, color: "#7F97AC" }}>자재코드는 기존 거래 이력 보호를 위해 수정하지 않습니다.</div></div>
-              <button onClick={() => { setEditingReturnedItem(null); setReturnedEditForm(null); }} style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer" }}><X size={20} /></button>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Field label="자재코드"><input style={{ ...inputStyle, opacity: 0.65 }} value={returnedEditForm.code} readOnly /></Field>
-              <Field label="자재명 *"><input style={inputStyle} value={returnedEditForm.name} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, name: e.target.value })} /></Field>
-              <Field label="규격"><input style={inputStyle} value={returnedEditForm.spec} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, spec: e.target.value })} /></Field>
-              <Field label="단위"><input style={inputStyle} value={returnedEditForm.unit} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, unit: e.target.value.toUpperCase() })} /></Field>
-              <Field label="거래처"><input style={inputStyle} value={returnedEditForm.manufacturer} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, manufacturer: e.target.value })} /></Field>
-              <Field label="카테고리"><input style={inputStyle} value={returnedEditForm.category} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, category: e.target.value })} /></Field>
-              <Field label="저장 위치"><input style={inputStyle} value={returnedEditForm.location} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, location: e.target.value })} /></Field>
-              <Field label="안전재고"><input style={inputStyle} type="number" min="0" value={returnedEditForm.safety} onChange={(e) => setReturnedEditForm({ ...returnedEditForm, safety: e.target.value })} /></Field>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
-              <Btn variant="ghost" onClick={() => { setEditingReturnedItem(null); setReturnedEditForm(null); }}>취소</Btn>
-              <Btn onClick={saveReturnedItemEdit} style={{ background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: 800 }}>수정 저장</Btn>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 긴급 요청 상세 정보 모달 */}
       {selectedUrgent && (
@@ -5526,18 +5430,6 @@ function OptionListEditor({ title, description, category, options, saveCategory,
     notify(`[${val}] 항목이 삭제되었습니다.`, "info");
   };
 
-  const removeAllOptions = async () => {
-    if (options.length === 0) {
-      notify("삭제할 항목이 없습니다.", "info");
-      return;
-    }
-    if (!window.confirm(`현재 [${title}]의 ${options.length}개 항목을 모두 삭제하시겠습니까?\n\n삭제 후에는 목록을 다시 등록해야 합니다.`)) return;
-    setSaving(true);
-    await saveCategory(category, []);
-    setSaving(false);
-    notify(`[${title}] 전체 항목이 삭제되었습니다.`, "info");
-  };
-
   return (
     <Card style={{ padding: 20 }}>
       <SectionLabel>{title}</SectionLabel>
@@ -5555,18 +5447,8 @@ function OptionListEditor({ title, description, category, options, saveCategory,
         />
         <Btn onClick={addOption} variant="subtle" disabled={saving}><Plus size={16} />추가</Btn>
       </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
-        <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono" }}>
-          여러 개를 한 번에 추가하려면 줄바꿈 또는 쉼표(,)로 구분된 목록을 이 칸에 붙여넣으세요.
-        </div>
-        <Btn
-          onClick={removeAllOptions}
-          variant="danger"
-          disabled={saving || options.length === 0}
-          style={{ flexShrink: 0, padding: "7px 12px", fontSize: 12 }}
-        >
-          <Trash2 size={14} /> 전체삭제
-        </Btn>
+      <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 14, fontFamily: "IBM Plex Mono" }}>
+        여러 개를 한 번에 추가하려면 줄바꿈 또는 쉼표(,)로 구분된 목록을 이 칸에 붙여넣으세요.
       </div>
       {options.length === 0 ? (
         <EmptyState icon={Package} text="등록된 항목이 없습니다." color="#5E86A3" />
@@ -5597,7 +5479,7 @@ function OptionListEditor({ title, description, category, options, saveCategory,
 function OutFormSettingsView({ settings, saveCategory, notify }) {
   return (
     <div>
-      <Header title="정보 설정 관리" subtitle="출고(스캔) 화면의 호선 · 프로젝트 · 공정구분 · 불출자 목록을 관리합니다 (PC 전용 · 전 기기 자동 동기화)" />
+      <Header title="불출 설정 관리" subtitle="출고(스캔) 화면의 호선 · 프로젝트 · 공정구분 · 불출자 목록을 관리합니다 (PC 전용 · 전 기기 자동 동기화)" />
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <OptionListEditor
           title="호선 목록"

@@ -1790,7 +1790,7 @@ if (showSplash) {
 }
 
 /* ---------------- Dashboard ---------------- */
-function Dashboard({ items, txs }) {
+function Dashboard({ items, txs, loadCumulativeOutTxs }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
   const [cumulativeOutTxs, setCumulativeOutTxs] = useState([]);
 

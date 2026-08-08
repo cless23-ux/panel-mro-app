@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save, Edit3
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -131,8 +131,26 @@ function useStorage(key, initial) {
               return merged;
             });
           } else {
-            setValue(data);
-            localStorage.setItem(key, JSON.stringify(data));
+            // 원자재 반납 신규등록 표시값은 현재 items 테이블의 기존 컬럼을 건드리지 않고
+            // 로컬 캐시에 유지합니다. Supabase에서 다시 읽어와도 표시/코드변경 권한이 유지됩니다.
+            let cachedItems = [];
+            try {
+              const cached = localStorage.getItem(key);
+              cachedItems = cached ? JSON.parse(cached) : [];
+            } catch {}
+            const returnMetaByCode = new Map();
+            [...(Array.isArray(cachedItems) ? cachedItems : []), ...(Array.isArray(value) ? value : [])]
+              .filter((item) => item && item.return_registered === true)
+              .forEach((item) => returnMetaByCode.set(String(item.code || '').trim(), {
+                return_registered: true,
+                return_display: item.return_display !== false,
+              }));
+            const mergedItems = data.map((item) => {
+              const meta = returnMetaByCode.get(String(item.code || '').trim());
+              return meta ? { ...item, ...meta } : item;
+            });
+            setValue(mergedItems);
+            localStorage.setItem(key, JSON.stringify(mergedItems));
           }
           if (!silent) setLoaded(true);
           return;
@@ -161,7 +179,9 @@ function useStorage(key, initial) {
       localStorage.setItem(key, JSON.stringify(next));
       if (supabase) {
         if (tableName === "items") {
-          await supabase.from("items").upsert(next, { onConflict: "code" });
+          // return_registered는 기존 Supabase items 스키마를 변경하지 않기 위한 로컬 표시값입니다.
+          const dbItems = next.map(({ return_registered, ...item }) => item);
+          await supabase.from("items").upsert(dbItems, { onConflict: "code" });
         } else if (tableName === "transactions") {
           await supabase.from("transactions").upsert(next, { onConflict: "id" });
         }
@@ -2859,6 +2879,9 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
         category: "원자재",
         image_url: "",
         deleted: false,
+        // 원자재 반납으로 신규 등록된 품목만 자재코드 변경 허용
+        return_registered: true,
+        return_display: true,
       };
     }
 
@@ -3555,11 +3578,18 @@ async function buildQrLabelWorkbook(items) {
 
 /* ---------------- 자재 마스터 관리 ---------------- */
 function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
+  const showReturnMark = (item) => item?.return_registered === true && item?.return_display !== false;
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", image_url: "" };
   const [form, setForm] = useState(blank);
   const [formMaterialType, setFormMaterialType] = useState("raw"); // "raw"(원자재) | "sub"(부자재)
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
+
+  // 자재 상세 수정 모달
+  // 재고/자재코드는 기존 출고·반납 이력과 연결되어 있으므로 수정하지 않고,
+  // 품명/규격/단위/거래처/카테고리/안전재고/위치 등의 관리정보만 수정합니다.
+  const [editingItem, setEditingItem] = useState(null);
+  const [editForm, setEditForm] = useState(null);
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
@@ -3845,6 +3875,128 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     });
   };
 
+  const startEditItem = (item) => {
+    setEditingItem(item);
+    setEditForm({
+      code: item.code || "",
+      name: item.name || "",
+      spec: item.spec || "",
+      unit: item.unit || "EA",
+      manufacturer: item.manufacturer || "",
+      category: item.category || "",
+      safety: Number(item.safety) || 0,
+      location: item.location || "",
+    });
+  };
+
+  const closeEditItem = () => {
+    setEditingItem(null);
+    setEditForm(null);
+  };
+
+  const saveEditedItem = async () => {
+    if (!editingItem || !editForm) return;
+
+    const name = String(editForm.name || "").trim();
+    if (!name) {
+      notify("품명은 필수 입력 항목입니다.", "err");
+      return;
+    }
+
+    const safety = Number(editForm.safety);
+    if (Number.isNaN(safety) || safety < 0) {
+      notify("안전재고는 0 이상의 숫자여야 합니다.", "err");
+      return;
+    }
+
+    const oldCode = String(editingItem.code || "").trim();
+    const requestedCode = String(editForm.code || "").trim();
+    const canChangeCode = editingItem.return_registered === true;
+    const nextCode = canChangeCode ? requestedCode : oldCode;
+
+    if (!nextCode) {
+      notify("자재코드를 입력해주세요.", "err");
+      return;
+    }
+
+    // 자재코드 변경은 '원자재 반납으로 신규 등록된 품목'만 허용
+    if (canChangeCode && nextCode !== oldCode) {
+      if (!nextCode.startsWith("1-")) {
+        notify("원자재 반납품목의 코드는 1-로 시작해야 합니다.", "err");
+        return;
+      }
+
+      const duplicate = (items || []).some(
+        (i) => String(i.code || "").trim() === nextCode && String(i.code || "").trim() !== oldCode
+      );
+      if (duplicate) {
+        notify("이미 사용 중인 자재코드입니다.", "err");
+        return;
+      }
+    }
+
+    const nextItems = items.map((i) =>
+      i.code === editingItem.code
+        ? {
+            ...i,
+            code: nextCode,
+            name,
+            spec: String(editForm.spec || "").trim(),
+            unit: String(editForm.unit || "EA").trim() || "EA",
+            manufacturer: String(editForm.manufacturer || "").trim(),
+            category: String(editForm.category || "").trim(),
+            safety,
+            location: String(editForm.location || "").trim(),
+            ...(editingItem.return_registered === true ? { return_display: false } : {}),
+          }
+        : i
+    );
+
+    try {
+      // 코드가 바뀌면 기존 거래 이력도 새 코드로 같이 연결해
+      // 누적출고/반납/재고 이력이 끊어지지 않도록 합니다.
+      if (canChangeCode && nextCode !== oldCode && supabase) {
+        const { error: itemCodeError } = await supabase
+          .from("items")
+          .update({ code: nextCode })
+          .eq("code", oldCode);
+        if (itemCodeError) throw itemCodeError;
+
+        const { error: txCodeError } = await supabase
+          .from("transactions")
+          .update({ itemCode: nextCode })
+          .eq("itemCode", oldCode);
+        if (txCodeError) throw txCodeError;
+      }
+
+      await saveItems(nextItems);
+
+      // 로컬/메모리 거래 이력도 새 코드로 맞춰 다음 저장·새로고침 시에도 유지
+      if (canChangeCode && nextCode !== oldCode) {
+        try {
+          const raw = localStorage.getItem("panel:transactions");
+          if (raw) {
+            const localTxs = JSON.parse(raw);
+            if (Array.isArray(localTxs)) {
+              const nextTxs = localTxs.map((t) =>
+                String(t.itemCode || "").trim() === oldCode ? { ...t, itemCode: nextCode } : t
+              );
+              localStorage.setItem("panel:transactions", JSON.stringify(nextTxs));
+            }
+          }
+        } catch (storageError) {
+          console.warn("거래 이력 로컬 코드 동기화 실패:", storageError);
+        }
+      }
+
+      notify(`[${name}] 자재 정보가 수정되었습니다.`, "ok");
+      closeEditItem();
+    } catch (e) {
+      console.error("자재 정보 수정 오류:", e);
+      notify("자재 정보 수정 중 오류가 발생했습니다.", "err");
+    }
+  };
+
   const currentUrgentMasterItem = useMemo(() => {
     if (!selectedUrgent) return null;
     return items.find((i) => String(i.code).trim() === String(selectedUrgent.item_code).trim()) || null;
@@ -4119,6 +4271,13 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
         </Card>
       )}
 
+      {displayedItems.some(showReturnMark) && (
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, margin: "6px 2px 8px", fontSize: 11 }}>
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: "#F5A623", display: "inline-block", boxShadow: "0 0 6px rgba(245,166,35,0.35)" }} />
+          <span style={{ color: "#F5A623", fontWeight: 700 }}>↩ 원자재 반납 등록품목</span>
+        </div>
+      )}
+
       {/* 1) PC/태블릿용 테이블 뷰 */}
       <Card style={{ padding: 8 }} className="master-table-view">
         <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
@@ -4133,7 +4292,12 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                 const st = statusOf(i);
                 const mType = getMaterialType(i.code);
                 return (
-                <tr key={i.code}>
+                <tr
+                  key={i.code}
+                  style={showReturnMark(i) ? {
+                    borderLeft: "3px solid #F5A623",
+                  } : undefined}
+                >
                   <td>{index + 1}</td>
                   <td>
                     {i.image_url ? (
@@ -4155,17 +4319,20 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                     )}
                   </td>
                   <td>
-                    <span style={{
-                      display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10.5, fontWeight: 700,
-                      color: MATERIAL_TYPE_META[mType].color, background: `${MATERIAL_TYPE_META[mType].color}1f`,
-                      fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
-                    }}>
-                      {MATERIAL_TYPE_META[mType].label}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                      <span style={{
+                        display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10.5, fontWeight: 700,
+                        color: MATERIAL_TYPE_META[mType].color, background: `${MATERIAL_TYPE_META[mType].color}1f`,
+                        fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+                      }}>
+                        {MATERIAL_TYPE_META[mType].label}
+                      </span>
+
+                    </div>
                   </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
                   <td>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{i.name}</div>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: showReturnMark(i) ? "#F5A623" : undefined }}>{i.name}</div>
                     {i.spec && <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>}
                   </td>
                   <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>
@@ -4244,12 +4411,21 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                     )}
                   </td>
                   <td>
-                    <button
-                      onClick={() => setQrModalItem(i)}
-                      style={{ background: "#16324A", border: "1px solid #274460", color: "#F5A623", padding: "5px 8px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, fontFamily: "IBM Plex Mono" }}
-                    >
-                      <QrCode size={13} /> QR
-                    </button>
+                    <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                      <button
+                        onClick={() => startEditItem(i)}
+                        title="자재 정보 수정"
+                        style={{ background: "#16324A", border: "1px solid #274460", color: "#38BDF8", padding: "5px 7px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, fontFamily: "IBM Plex Mono" }}
+                      >
+                        <Edit3 size={13} /> 수정
+                      </button>
+                      <button
+                        onClick={() => setQrModalItem(i)}
+                        style={{ background: "#16324A", border: "1px solid #274460", color: "#F5A623", padding: "5px 8px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, fontFamily: "IBM Plex Mono" }}
+                      >
+                        <QrCode size={13} /> QR
+                      </button>
+                    </div>
                   </td>
                   <td>
                     <button onClick={() => removeItem(i.code)} style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 4 }}>
@@ -4275,7 +4451,15 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
             const st = statusOf(i);
             const mType = getMaterialType(i.code);
             return (
-              <Card key={i.code} style={{ padding: 14 }}>
+              <Card
+                key={i.code}
+                style={{
+                  padding: 14,
+                  ...(showReturnMark(i) ? {
+                    border: "1px solid #F5A62388",
+                  } : {}),
+                }}
+              >
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
                   {i.image_url ? (
                     <img
@@ -4302,7 +4486,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                       }}>
                         {MATERIAL_TYPE_META[mType].label}
                       </span>
-                      <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", wordBreak: "break-all" }}>
+
+                      <div style={{ fontWeight: 700, fontSize: 15, color: showReturnMark(i) ? "#F5A623" : "#38BDF8", wordBreak: "break-all" }}>
                         {i.name}
                       </div>
                     </div>
@@ -4312,6 +4497,13 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   </div>
 
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button
+                      onClick={() => startEditItem(i)}
+                      title="자재 정보 수정"
+                      style={{ background: "#16324A", border: "1px solid #274460", color: "#38BDF8", padding: "6px 8px", borderRadius: 6, cursor: "pointer" }}
+                    >
+                      <Edit3 size={14} />
+                    </button>
                     <button
                       onClick={() => {
                         if (window.innerWidth > 768) {
@@ -4590,6 +4782,86 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 자재 상세 수정 모달 */}
+      {editingItem && editForm && (
+        <div
+          className="app-modal-overlay"
+          onClick={closeEditItem}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(6,14,22,0.82)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1200, padding: 20
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 620, maxHeight: "90vh", overflowY: "auto",
+              background: "#0F2233", border: "1px solid #38BDF8AA",
+              borderRadius: 14, padding: 22, color: "#E7EEF5", boxShadow: "0 12px 32px rgba(0,0,0,0.6)"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#38BDF8", fontWeight: 700, fontSize: 16 }}>
+                <Edit3 size={19} />
+                자재 정보 수정
+              </div>
+              <button onClick={closeEditItem} style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4 }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: "9px 11px", marginBottom: 14, background: "#22D3EE0d", border: "1px solid #22D3EE33", borderRadius: 8, fontSize: 11.5, color: "#7F97AC", lineHeight: 1.5 }}>
+              {editingItem.return_registered === true
+                ? <>이 품목은 원자재 반납으로 신규 등록된 품목입니다. <strong style={{ color: "#F5A623" }}>자재코드만 변경할 수 있습니다.</strong><br />코드는 원자재 코드인 1-로 시작해야 하며, 기존 거래 이력도 새 코드로 연결됩니다.</>
+                : <>자재코드는 출고·반납 이력 및 재고 정합성 보호를 위해 수정하지 않습니다.<br />품명, 규격, 단위, 거래처, 카테고리, 안전재고, 저장 위치만 수정할 수 있습니다.</>}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label={editingItem.return_registered === true ? "자재코드 * (반납 등록품목만 수정 가능)" : "자재코드 (수정 불가)"}>
+                <input
+                  style={{ ...inputStyle, opacity: editingItem.return_registered === true ? 1 : 0.65 }}
+                  value={editForm.code}
+                  readOnly={editingItem.return_registered !== true}
+                  onChange={(e) => editingItem.return_registered === true && setEditForm({ ...editForm, code: e.target.value })}
+                  placeholder="예: 1-ITEM-001"
+                />
+              </Field>
+              <Field label="현재고 (수정 불가)">
+                <input style={{ ...inputStyle, opacity: 0.65 }} value={`${editingItem.stock ?? 0} ${editingItem.unit || "EA"}`} readOnly />
+              </Field>
+              <Field label="품명 *">
+                <input style={inputStyle} value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} autoFocus />
+              </Field>
+              <Field label="규격">
+                <input style={inputStyle} value={editForm.spec} onChange={(e) => setEditForm({ ...editForm, spec: e.target.value })} />
+              </Field>
+              <Field label="거래처">
+                <input style={inputStyle} value={editForm.manufacturer} onChange={(e) => setEditForm({ ...editForm, manufacturer: e.target.value })} />
+              </Field>
+              <Field label="카테고리">
+                <input style={inputStyle} value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} />
+              </Field>
+              <Field label="단위">
+                <Select value={editForm.unit} onChange={(e) => setEditForm({ ...editForm, unit: e.target.value })} options={["EA", "m", "kg", "roll", "set"]} />
+              </Field>
+              <Field label="안전재고 기준">
+                <input style={inputStyle} type="number" min="0" value={editForm.safety} onChange={(e) => setEditForm({ ...editForm, safety: e.target.value })} />
+              </Field>
+              <Field label="저장 위치">
+                <input style={inputStyle} value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} placeholder="예: A-03" />
+              </Field>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+              <Btn variant="ghost" onClick={closeEditItem} style={{ flex: 1 }}>취소</Btn>
+              <Btn onClick={saveEditedItem} style={{ flex: 1, background: "#22D3EE", border: "1px solid #22D3EE", color: "#07151F", fontWeight: 800 }}>
+                <Save size={16} /> 저장
+              </Btn>
+            </div>
           </div>
         </div>
       )}

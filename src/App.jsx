@@ -2707,6 +2707,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   const [manualShip, setManualShip] = useState("");
   const [manualProject, setManualProject] = useState("");
   const [returnComplete, setReturnComplete] = useState(null);
+  const [returnShipFilter, setReturnShipFilter] = useState("전체");
 
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
@@ -2757,6 +2758,13 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       .slice(0, 40);
   }, [txs, historySearch, returnedQtyByOutTxId]);
 
+  const availableReturnShips = useMemo(() => {
+    const ships = (txs || [])
+      .filter((t) => t.type === "return" && t.shipNo && t.shipNo.trim())
+      .map((t) => t.shipNo);
+    return ["전체", ...Array.from(new Set(ships))];
+  }, [txs]);
+
   const recentReturnTxs = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
@@ -2764,13 +2772,15 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     };
     return (txs || [])
       .filter((t) => t.type === "return")
+      .filter((t) => returnShipFilter === "전체" || t.shipNo === returnShipFilter)
       .sort((a, b) => parseAt(b) - parseAt(a))
-      .slice(0, 15);
-  }, [txs]);
+      .slice(0, 30);
+  }, [txs, returnShipFilter]);
 
   const exportReturnCSV = () => {
     const allReturnTxs = (txs || [])
       .filter((t) => t.type === "return")
+      .filter((t) => returnShipFilter === "전체" || t.shipNo === returnShipFilter)
       .sort((a, b) => String(b.at).localeCompare(String(a.at)));
 
     if (allReturnTxs.length === 0) {
@@ -2785,7 +2795,8 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `MRO_원자재반납기록_${nowStr().split(" ")[0]}.csv`;
+    const shipLabel = returnShipFilter === "전체" ? "전체" : returnShipFilter;
+    link.download = `MRO_원자재반납기록_${shipLabel}_${nowStr().split(" ")[0]}.csv`;
     link.click();
     notify("반납 이력이 엑셀(CSV)로 다운로드 되었습니다.", "ok");
   };
@@ -2810,16 +2821,19 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
     if (mode === "history" && !selectedOutTx) { notify("반납할 출고 이력을 선택해주세요.", "err"); return; }
 
+    let finalManualCode = manualCode.trim();
     if (mode === "manual") {
-      if (!manualCode.trim()) { notify("자재코드를 입력해주세요.", "err"); return; }
       if (!manualName.trim() && !matchedManualItem) { notify("자재명을 입력해주세요.", "err"); return; }
-      if (!manualCode.trim().startsWith("1")) {
-        notify("원자재 반납이므로 자재코드는 1로 시작해야 합니다. 예: 1-CG-M20-BR", "err");
-        return;
-      }
       if (matchedManualItem && !isRawMaterial(matchedManualItem.code)) {
         notify("부자재 코드는 원자재 반납 대상이 아닙니다.", "err");
         return;
+      }
+      if (!matchedManualItem) {
+        if (!finalManualCode) {
+          finalManualCode = `1-${uid("ITEM")}`;
+        } else if (!finalManualCode.startsWith("1-")) {
+          finalManualCode = `1-${finalManualCode}`;
+        }
       }
     }
 
@@ -2834,7 +2848,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     // 미등록 자재라면 반납 확정과 동시에 자재마스터에 신규 등록
     if (mode === "manual" && !matchedManualItem) {
       targetItem = {
-        code: manualCode.trim(),
+        code: finalManualCode,
         name: manualName.trim(),
         spec: "",
         unit: manualUnit || "EA",
@@ -3000,17 +3014,17 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ padding: "10px 12px", background: "#22D3EE0d", border: "1px solid #22D3EE33", borderRadius: 8, color: "#9FB4C7", fontSize: 11.5, lineHeight: 1.5 }}>
-                등록된 자재를 검색하지 않고 <strong style={{ color: "#22D3EE" }}>자재코드와 자재명을 직접 입력</strong>할 수 있습니다.<br />
-                기존 코드면 기존 자재 재고에 반영되고, 없는 코드면 반납 확정과 동시에 새 자재로 등록됩니다.
+                등록된 자재를 검색하지 않고 <strong style={{ color: "#22D3EE" }}>자재명만 입력</strong>해도 반납 등록이 가능합니다.<br />
+                자재코드는 비워두면 자동 생성되며(항상 <strong style={{ color: "#22D3EE" }}>1-</strong>로 시작), 기존 코드를 입력하면 기존 자재 재고에 반영됩니다.
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 10 }}>
-                <Field label="자재코드">
+                <Field label="자재코드 (선택, 비워두면 자동 생성)">
                   <input
                     style={inputStyle}
                     value={manualCode}
                     onChange={(e) => setManualCode(e.target.value)}
-                    placeholder="예: 1-CG-M20-BR"
+                    placeholder="비워두면 자동 생성 · 입력 시 앞에 1- 자동 부착"
                     autoComplete="off"
                   />
                 </Field>
@@ -3052,7 +3066,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                   ✓ 등록된 자재입니다. <strong>{matchedManualItem.name}</strong> / 현재고 {matchedManualItem.stock}{matchedManualItem.unit}<br />
                   반납 확정 시 기존 자재의 재고에 반납 수량이 더해집니다.
                 </div>
-              ) : manualCode.trim() ? (
+              ) : (manualCode.trim() || manualName.trim()) ? (
                 <div style={{ padding: "10px 12px", borderRadius: 8, background: "#F5A62312", border: "1px solid #F5A62355", color: "#F5A623", fontSize: 12, lineHeight: 1.5 }}>
                   + 미등록 자재입니다. 반납 확정하면 <strong>{manualName.trim() || "입력한 자재"}</strong>가 자재마스터에 신규 등록됩니다.
                 </div>
@@ -3083,7 +3097,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
               <Btn
                 onClick={submit}
-                disabled={!manualCode.trim() || (!manualName.trim() && !matchedManualItem) || !qty}
+                disabled={(!manualName.trim() && !matchedManualItem) || !qty}
                 style={{ marginTop: 4, width: "100%", background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: "bold", fontSize: 15 }}
               >
                 <RotateCcw size={18} />반납 확정
@@ -3094,7 +3108,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
         <Card neon="#22D3EE" style={{ padding: 22 }}>
           <SectionLabel>2. 반납 정보 입력</SectionLabel>
-          {(mode === "history" && !selectedOutTx) || (mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))) ? (
+          {(mode === "history" && !selectedOutTx) || (mode === "manual" && !manualName.trim() && !matchedManualItem) ? (
             <EmptyState icon={RotateCcw} text="먼저 반납할 자재 정보를 입력해주세요." color="#5E86A3" />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -3107,7 +3121,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                     ? `호선 ${selectedOutTx.shipNo || "-"} · 프로젝트 ${selectedOutTx.project || "-"} · 반납가능 ${maxReturnQty}${selectedOutTx.unit}`
                     : matchedManualItem
                       ? `코드: ${matchedManualItem.code} · 현재고 ${matchedManualItem.stock}${matchedManualItem.unit}`
-                      : `코드: ${manualCode.trim()} · 신규 자재 · 단위 ${manualUnit || "EA"}`}
+                      : `코드: ${manualCode.trim() ? (manualCode.trim().startsWith("1-") ? manualCode.trim() : `1-${manualCode.trim()}`) : "자동 생성(1-...)"} · 신규 자재 · 단위 ${manualUnit || "EA"}`}
                 </div>
               </div>
 
@@ -3147,7 +3161,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
         </Card>
 
         <Card neon="#22D3EE" style={{ padding: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
             <div style={{
               fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
               color: "#5E86A3", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8,
@@ -3155,18 +3169,33 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
               <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
               최근 반납 이력 (잘못 등록 시 취소)
             </div>
-            <button
-              type="button"
-              onClick={exportReturnCSV}
-              style={{
-                display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8,
-                border: "1px solid #35D08C88", background: "#35D08C1f", color: "#35D08C",
-                fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
-                whiteSpace: "nowrap", flexShrink: 0,
-              }}
-            >
-              <Download size={13} />엑셀 다운로드
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <select
+                value={returnShipFilter}
+                onChange={(e) => setReturnShipFilter(e.target.value)}
+                style={{
+                  background: "#0B1C2C", border: "1px solid #274460", color: "#22D3EE",
+                  padding: "6px 10px", borderRadius: 6, fontSize: 12, fontWeight: "bold",
+                  outline: "none", cursor: "pointer",
+                }}
+              >
+                {availableReturnShips.map((ship) => (
+                  <option key={ship} value={ship}>{ship}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={exportReturnCSV}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8,
+                  border: "1px solid #35D08C88", background: "#35D08C1f", color: "#35D08C",
+                  fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
+                  whiteSpace: "nowrap", flexShrink: 0,
+                }}
+              >
+                <Download size={13} />엑셀 다운로드
+              </button>
+            </div>
           </div>
           {recentReturnTxs.length === 0 ? (
             <EmptyState icon={RotateCcw} text="최근 등록된 반납 내역이 없습니다." color="#5E86A3" />

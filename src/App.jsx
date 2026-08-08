@@ -1660,17 +1660,23 @@ if (showSplash) {
           onClick={() => goToTab("chat")}
           title="실시간 대화 / 개인 메모"
           style={{
-            background: tab === "chat" ? "#22D3EE18" : "transparent",
-            border: `1px solid ${tab === "chat" ? "#22D3EE" : "#274460"}`,
-            color: tab === "chat" ? "#22D3EE" : "#9FB4C7",
-            borderRadius: 7,
-            padding: "6px 9px",
+            background: tab === "chat"
+              ? "linear-gradient(135deg, #22D3EE33, #8B5CF633)"
+              : "linear-gradient(135deg, #22D3EE18, #8B5CF612)",
+            border: `1px solid ${tab === "chat" ? "#22D3EE" : "#22D3EE66"}`,
+            color: tab === "chat" ? "#FFFFFF" : "#B9F5FF",
+            borderRadius: 9,
+            padding: "7px 11px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
-            gap: 5,
-            fontSize: 11.5,
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 800,
             fontFamily: "'IBM Plex Mono', monospace",
+            boxShadow: tab === "chat"
+              ? "0 0 14px -4px #22D3EE"
+              : "0 0 10px -6px #22D3EE",
           }}
         >
           <MessageCircle size={15} />

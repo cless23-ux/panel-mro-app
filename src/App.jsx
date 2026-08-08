@@ -2160,13 +2160,17 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     }
   }, [workerOptions]);
 
+  // 원복 여부는 원본 거래의 reason에 남긴 감사용 마커로 판단합니다.
+  const isReversedOutTx = (tx) =>
+    String(tx?.reason || "").includes("MRO_REVERSED_OUT:");
+
   const recentOutTxs = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return txs
-      .filter((t) => t.type === "out")
+      .filter((t) => t.type === "out" && t.deleted !== true)
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -2308,49 +2312,133 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   };
 
   const cancelOutTx = async (targetTx) => {
-    if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 출고 내역을 취소하고 재고를 다시 원복하시겠습니까?`)) {
+    if (isReversedOutTx(targetTx)) {
+      notify("이미 원복 처리된 불출 이력입니다.", "info");
       return;
     }
 
-    const nextItems = items.map((i) => {
-      if (String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()) {
-        return { ...i, stock: Number(i.stock) + Number(targetTx.qty) };
-      }
-      return i;
-    });
-
-    const nextTxs = txs.filter((t) => t.id !== targetTx.id);
-
-    await saveItems(nextItems);
-
-    if (supabase) {
-      const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
-      if (error) {
-        notify("이력 원복 중 오류가 발생했습니다.", "err");
-        return;
-      }
+    if (!window.confirm(
+      `[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 불출을 원복하시겠습니까?\n\n재고는 복구되고, 기존 불출 기록은 삭제되지 않습니다.`
+    )) {
+      return;
     }
 
-    await saveTxs(nextTxs);
-    notify(`출고가 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 복원되었습니다.`, "info");
+    try {
+      // Supabase 사용 시 DB에서 자재 행 + 원본 거래 행을 한 번에 잠그고 처리합니다.
+      if (supabase) {
+        const { data, error } = await supabase.rpc("mro_reverse_out_transaction", {
+          p_tx_id: String(targetTx.id),
+        });
+
+        if (error) {
+          console.error("원복 RPC 오류:", error);
+          notify(error.message || "이력 원복 중 오류가 발생했습니다.", "err");
+          return;
+        }
+
+        const result = Array.isArray(data) ? data[0] : data;
+        const newStock = Number(result?.stock);
+
+        const nextItems = items.map((i) => {
+          if (
+            String(i.code).replace(/[\r\n]+/g, "").trim() ===
+            String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
+          ) {
+            return {
+              ...i,
+              stock: Number.isFinite(newStock)
+                ? newStock
+                : Number(i.stock) + Number(targetTx.qty),
+            };
+          }
+          return i;
+        });
+
+        const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
+        const nextTxs = txs.map((t) =>
+          t.id === targetTx.id
+            ? {
+                ...t,
+                reason: String(t.reason || "").includes(marker)
+                  ? t.reason
+                  : `${String(t.reason || "").trim()}${String(t.reason || "").trim() ? " | " : ""}${marker}`,
+              }
+            : t
+        );
+
+        await saveItems(nextItems);
+        await saveTxs(nextTxs);
+
+        notify(
+          `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원본 이력은 유지됩니다.`,
+          "info"
+        );
+        return;
+      }
+
+      // Supabase가 없는 로컬 테스트 환경용 fallback.
+      const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
+      const nextItems = items.map((i) => {
+        if (
+          String(i.code).replace(/[\r\n]+/g, "").trim() ===
+          String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
+        ) {
+          return { ...i, stock: Number(i.stock) + Number(targetTx.qty) };
+        }
+        return i;
+      });
+
+      const nextTxs = txs.map((t) =>
+        t.id === targetTx.id
+          ? {
+              ...t,
+              reason: String(t.reason || "").includes(marker)
+                ? t.reason
+                : `${String(t.reason || "").trim()}${String(t.reason || "").trim() ? " | " : ""}${marker}`,
+            }
+          : t
+      );
+
+      await saveItems(nextItems);
+      await saveTxs(nextTxs);
+      notify(
+        `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원본 이력은 유지됩니다.`,
+        "info"
+      );
+    } catch (e) {
+      console.error("원복 처리 오류:", e);
+      notify("이력 원복 중 오류가 발생했습니다.", "err");
+    }
   };
 
   const deleteHistory = async (targetTx) => {
-    if (!window.confirm(`[${targetTx.itemName}] 출고 이력을 완전히 삭제하시겠습니까?`)) {
-        return;
+    if (!window.confirm(
+      `[${targetTx.itemName}] 출고 이력을 목록에서 삭제하시겠습니까?\n\nDB 기록은 보존되며 재고에는 영향이 없습니다.`
+    )) {
+      return;
     }
 
-    if (supabase) {
-      const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
-      if (error) {
-        notify("삭제 실패", "err");
-        return;
+    try {
+      if (supabase) {
+        const { error } = await supabase.rpc("mro_soft_delete_transaction", {
+          p_tx_id: String(targetTx.id),
+        });
+
+        if (error) {
+          console.error("Soft Delete RPC 오류:", error);
+          notify(error.message || "삭제 처리에 실패했습니다.", "err");
+          return;
+        }
       }
-    }
 
-    const nextTxs = txs.filter((t) => t.id !== targetTx.id);
-    await saveTxs(nextTxs);
-    notify("출고 이력이 삭제되었습니다.", "info");
+      // 실제 DB 행은 삭제하지 않고 현재 화면에서만 숨깁니다.
+      const nextTxs = txs.filter((t) => t.id !== targetTx.id);
+      await saveTxs(nextTxs);
+      notify("출고 이력이 목록에서 삭제되었습니다. DB 기록과 재고는 유지됩니다.", "info");
+    } catch (e) {
+      console.error("Soft Delete 오류:", e);
+      notify("삭제 처리 중 오류가 발생했습니다.", "err");
+    }
   };
 
   return (
@@ -2585,9 +2673,20 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                 <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: "auto" }}>
                   <button
                     onClick={() => cancelOutTx(t)}
-                    style={{ background: "#123626", border: "1px solid #2ECC71", color: "#2ECC71", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
+                    disabled={isReversedOutTx(t)}
+                    style={{
+                      background: isReversedOutTx(t) ? "#26352D" : "#123626",
+                      border: `1px solid ${isReversedOutTx(t) ? "#607D6B" : "#2ECC71"}`,
+                      color: isReversedOutTx(t) ? "#8FA69A" : "#2ECC71",
+                      padding: "5px 11px",
+                      borderRadius: 6,
+                      cursor: isReversedOutTx(t) ? "not-allowed" : "pointer",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      opacity: isReversedOutTx(t) ? 0.8 : 1,
+                    }}
                   >
-                    원복
+                    {isReversedOutTx(t) ? "원복완료" : "원복"}
                   </button>
                   <button
                     onClick={() => deleteHistory(t)}

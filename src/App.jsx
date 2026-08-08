@@ -644,6 +644,16 @@ const inputStyle = {
   padding: "12px 14px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", outline: "none", width: "100%",
 };
 
+/* ---------------- 동시사용 재고 원자적 처리 ---------------- */
+async function applyStockTransactionsAtomic(operations) {
+  if (!supabase) throw new Error("Supabase가 연결되어 있지 않습니다.");
+  const { data, error } = await supabase.rpc("mro_apply_stock_transactions", {
+    p_operations: operations,
+  });
+  if (error) throw error;
+  return data;
+}
+
 /* ---------------- 긴급 발주 요청 버튼 + 모달 ---------------- */
 const LAST_REQUESTER_KEY = "panel:lastRequester";
 
@@ -1403,8 +1413,8 @@ export default function App() {
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
-    { id: "settings", label: "정보설정", icon: SettingsIcon, pcOnly: true },
-    { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
+    { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
+    { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
     { id: "chat", label: "실시간 대화", icon: MessageCircle },
   ];
   const NAV_IDS = NAV.map((n) => n.id);
@@ -2340,8 +2350,14 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       deleted: false,
     };
 
-    await saveItems(nextItems);
-    await saveTxs([...txs, tx]);
+    if (supabase) {
+      await applyStockTransactionsAtomic([{ code: found.code, delta: -Number(qty), tx }]);
+      await reloadItems();
+      await reloadTxs();
+    } else {
+      await saveItems(nextItems);
+      await saveTxs([...txs, tx]);
+    }
     const remain = found.stock - Number(qty);
     notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
     
@@ -2377,8 +2393,15 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
     const nextTxs = txs.map((t) => (t.id === targetTx.id ? { ...t, reason: nextReason } : t));
 
-    await saveItems(nextItems);
-    await saveTxs(nextTxs);
+    if (supabase) {
+      const reverseTx = { ...targetTx, reason: nextReason };
+      await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: Number(targetTx.qty), txUpdate: reverseTx }]);
+      await reloadItems();
+      await reloadTxs();
+    } else {
+      await saveItems(nextItems);
+      await saveTxs(nextTxs);
+    }
 
     notify(
       `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원복완료로 처리되었습니다.`,
@@ -2895,8 +2918,19 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
       deleted: false,
     };
 
-    await saveItems(nextItems);
-    await saveTxs([...(txs || []), tx]);
+    if (supabase) {
+      await applyStockTransactionsAtomic([{
+        code: targetItem.code,
+        delta: qtyNum,
+        tx,
+        newItem: mode === "manual" && !matchedManualItem ? { ...targetItem, stock: 0 } : null,
+      }]);
+      await reloadItems();
+      await reloadTxs();
+    } else {
+      await saveItems(nextItems);
+      await saveTxs([...(txs || []), tx]);
+    }
 
     const completion = {
       itemName: targetItem.name,
@@ -2929,12 +2963,14 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     );
     const nextTxs = (txs || []).filter((t) => t.id !== targetTx.id);
 
-    await saveItems(nextItems);
     if (supabase) {
-      const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
-      if (error) { notify("반납 취소 중 오류가 발생했습니다.", "err"); return; }
+      await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: -Number(targetTx.qty), txDeleteId: targetTx.id }]);
+      await reloadItems();
+      await reloadTxs();
+    } else {
+      await saveItems(nextItems);
+      await saveTxs(nextTxs);
     }
-    await saveTxs(nextTxs);
     notify(`반납이 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 다시 차감되었습니다.`, "info");
   };
 
@@ -4906,8 +4942,21 @@ keyCode = String(keyCode)
       return;
     }
 
-    await saveItems(updatedItems);
-    if (saveTxs) await saveTxs([...(txs || []), ...newTxs]);
+    if (supabase) {
+      const inboundOps = targetList
+        .filter(({ masterItem, inputQty }) => masterItem && inputQty > 0)
+        .map(({ masterItem, inputQty }, opIndex) => ({
+          code: masterItem.code,
+          delta: Number(inputQty),
+          tx: newTxs[opIndex],
+        }));
+      await applyStockTransactionsAtomic(inboundOps);
+      await reloadItems();
+      await reloadTxs();
+    } else {
+      await saveItems(updatedItems);
+      if (saveTxs) await saveTxs([...(txs || []), ...newTxs]);
+    }
 
     notify(`선택한 ${updateCount}개 품목 입고 처리 완료!`, "ok");
     setInvoiceData(null);
@@ -4959,8 +5008,21 @@ keyCode = String(keyCode)
       return;
     }
 
-    await saveItems(updatedItems);
-    if (saveTxs) await saveTxs([...(txs || []), ...newTxs]);
+    if (supabase) {
+      const inboundOps = invoiceData.list
+        .filter(({ masterItem, docQty }) => masterItem && docQty > 0)
+        .map(({ masterItem, docQty }, opIndex) => ({
+          code: masterItem.code,
+          delta: Number(docQty),
+          tx: newTxs[opIndex],
+        }));
+      await applyStockTransactionsAtomic(inboundOps);
+      await reloadItems();
+      await reloadTxs();
+    } else {
+      await saveItems(updatedItems);
+      if (saveTxs) await saveTxs([...(txs || []), ...newTxs]);
+    }
 
     notify(`명세서 [${invoiceData.key_code}] 전체 ${updateCount}건 일괄 입고 완료!`, "ok");
     setInvoiceData(null);
@@ -4998,8 +5060,14 @@ keyCode = String(keyCode)
       deleted: false,
     };
 
-    await saveItems(nextItems);
-    if (saveTxs) await saveTxs([...(txs || []), tx]);
+    if (supabase) {
+      await applyStockTransactionsAtomic([{ code: selectedItem.code, delta: inputQty, tx }]);
+      await reloadItems();
+      await reloadTxs();
+    } else {
+      await saveItems(nextItems);
+      if (saveTxs) await saveTxs([...(txs || []), tx]);
+    }
 
     notify(`[${selectedItem.name}] ${inputQty}${selectedItem.unit} 입고 완료!`, "ok");
     setQty(1);
@@ -5019,17 +5087,14 @@ keyCode = String(keyCode)
 
     const nextTxs = (txs || []).filter((t) => t.id !== targetTx.id);
 
-    await saveItems(nextItems);
-
     if (supabase) {
-      const { error } = await supabase.from("transactions").delete().eq("id", targetTx.id);
-      if (error) {
-        notify("이력 원복 중 오류가 발생했습니다.", "err");
-        return;
-      }
+      await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: -Number(targetTx.qty), txDeleteId: targetTx.id }]);
+      await reloadItems();
+      await reloadTxs();
+    } else {
+      await saveItems(nextItems);
+      if (saveTxs) await saveTxs(nextTxs);
     }
-
-    if (saveTxs) await saveTxs(nextTxs);
     notify(`입고가 철회되어 재고 ${targetTx.qty}${targetTx.unit}가 차감되었습니다.`, "info");
   };
 
@@ -5566,18 +5631,6 @@ function OptionListEditor({ title, description, category, options, saveCategory,
     notify(`[${val}] 항목이 삭제되었습니다.`, "info");
   };
 
-  const removeAllOptions = async () => {
-    if (options.length === 0) {
-      notify("삭제할 항목이 없습니다.", "info");
-      return;
-    }
-    if (!window.confirm(`"${title}"의 등록된 항목 ${options.length}개를 모두 삭제하시겠습니까?`)) return;
-    setSaving(true);
-    await saveCategory(category, []);
-    setSaving(false);
-    notify(`[${title}] 전체 항목이 삭제되었습니다.`, "info");
-  };
-
   return (
     <Card style={{ padding: 20 }}>
       <SectionLabel>{title}</SectionLabel>
@@ -5594,13 +5647,6 @@ function OptionListEditor({ title, description, category, options, saveCategory,
           placeholder={placeholder}
         />
         <Btn onClick={addOption} variant="subtle" disabled={saving}><Plus size={16} />추가</Btn>
-        <Btn
-          onClick={removeAllOptions}
-          variant="danger"
-          disabled={saving || options.length === 0}
-        >
-          전체삭제
-        </Btn>
       </div>
       <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 14, fontFamily: "IBM Plex Mono" }}>
         여러 개를 한 번에 추가하려면 줄바꿈 또는 쉼표(,)로 구분된 목록을 이 칸에 붙여넣으세요.
@@ -5634,7 +5680,7 @@ function OptionListEditor({ title, description, category, options, saveCategory,
 function OutFormSettingsView({ settings, saveCategory, notify }) {
   return (
     <div>
-      <Header title="정보 설정" subtitle="출고(스캔) 화면의 호선 · 프로젝트 · 공정구분 · 불출자 목록을 관리합니다 (PC 전용 · 전 기기 자동 동기화)" />
+      <Header title="불출 설정 관리" subtitle="출고(스캔) 화면의 호선 · 프로젝트 · 공정구분 · 불출자 목록을 관리합니다 (PC 전용 · 전 기기 자동 동기화)" />
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <OptionListEditor
           title="호선 목록"

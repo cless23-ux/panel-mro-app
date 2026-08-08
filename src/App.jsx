@@ -1727,7 +1727,7 @@ if (showSplash) {
               "--tab-neon-bg": `${TAB_NEON[tab] || "#274460"}0d`,
             }}
           >
-            {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
+            {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}

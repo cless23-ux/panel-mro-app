@@ -1149,7 +1149,10 @@ export default function App() {
         console.error("누적출고 조회 오류:", error);
         return txs.filter((t) => t.type === "out");
       }
-      return Array.isArray(data) ? data : txs.filter((t) => t.type === "out");
+      // 원복 완료된 출고는 누적출고 집계/상세 목록에서 제외합니다.
+      // 원본 거래 자체는 DB에 보존하고, 출고 이력 화면에서는 원복완료 상태로 표시합니다.
+      return (Array.isArray(data) ? data : txs.filter((t) => t.type === "out"))
+        .filter((t) => t.type === "out" && !String(t.reason || "").includes("MRO_REVERSED_OUT:"));
     } catch (e) {
       console.error("누적출고 조회 오류:", e);
       return txs.filter((t) => t.type === "out");
@@ -1867,7 +1870,9 @@ function Dashboard({ items, txs, loadCumulativeOutTxs }) {
   }, [txs]);
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
 
-  const totalOutSource = cumulativeOutTxs.length ? cumulativeOutTxs : txs.filter((t) => t.type === "out");
+  const totalOutSource = cumulativeOutTxs.length
+    ? cumulativeOutTxs
+    : txs.filter((t) => t.type === "out" && !String(t.reason || "").includes("MRO_REVERSED_OUT:"));
   const totalOutQty = totalOutSource.reduce((s, t) => s + Number(t.qty || 0), 0);
   const totalInQty = txs.filter((t) => t.type === "in").reduce((s, t) => s + Number(t.qty), 0);
 
@@ -2389,24 +2394,14 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           return i;
         });
 
-        const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
-        const nextTxs = txs.map((t) =>
-          t.id === targetTx.id
-            ? {
-                ...t,
-                reason: String(t.reason || "").includes(marker)
-                  ? t.reason
-                  : `${String(t.reason || "").trim()}${String(t.reason || "").trim() ? " | " : ""}${marker}`,
-              }
-            : t
-        );
-
+        // RPC에서 DB 재고/원본 거래/원복 거래를 이미 처리했으므로,
+        // 여기서 전체 거래를 다시 upsert하지 않습니다.
+        // stale 상태의 txs를 DB에 덮어쓰는 문제와 원복 후 부수 오류를 방지합니다.
         await saveItems(nextItems);
-        await saveTxs(nextTxs);
         await reloadTxs();
 
         notify(
-          `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원본 이력은 유지됩니다.`,
+          `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원복완료로 처리되었습니다.`,
           "info"
         );
         return;

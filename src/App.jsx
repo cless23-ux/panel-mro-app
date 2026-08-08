@@ -1529,30 +1529,8 @@ if (showSplash) {
           .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
           .pc-sidebar { display: none; }
           .mobile-header {
-            height: 52px; padding: 0 12px 0 16px; border-bottom: 1px solid #16293C; background: #0F2233;
+            height: 52px; padding: 0 16px; border-bottom: 1px solid #16293C; background: #0F2233;
             display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10;
-            gap: 8px;
-          }
-          .mobile-header-brand {
-            flex: 1 1 auto; min-width: 0; overflow: hidden;
-          }
-          .mobile-header-brand > span {
-            white-space: nowrap;
-          }
-          .mobile-master-button {
-            flex-shrink: 0;
-          }
-          .mobile-chat-button {
-            flex-shrink: 0;
-            min-width: 54px;
-            justify-content: center;
-          }
-          /* 모바일 상단에서는 동기화/새로고침 UI를 사용하지 않습니다. */
-          .mobile-header .sync-button,
-          .mobile-header .refresh-button,
-          .mobile-header [data-role="sync"],
-          .mobile-header [data-role="refresh"] {
-            display: none !important;
           }
           .mobile-bottom-nav {
             height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
@@ -1675,19 +1653,14 @@ if (showSplash) {
         </div>
       </div>
 
-      {/* 모바일 헤더
-          - 모바일에서는 동기화/새로고침 버튼을 표시하지 않습니다.
-          - 기존 자재마스터 버튼은 유지합니다.
-          - 대화 버튼은 동기화 버튼이 있던 우측 영역에 배치합니다.
-          - PC 헤더/PC 메뉴는 변경하지 않습니다. */}
+      {/* 모바일 헤더 */}
       <header className="mobile-header">
-        <div className="mobile-header-brand" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <img src="/Luxco.png" alt="Luxco" style={{ height: 34, width: "auto", objectFit: "contain", display: "block" }} />
           <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
             선박 생산부
           </span>
           <button
-            className="mobile-master-button"
             onClick={() => goToTab("master")}
             title="자재마스터 이동"
             style={{
@@ -1706,9 +1679,7 @@ if (showSplash) {
             <Package size={17} color="#F5A623" />
           </button>
         </div>
-        {/* 동기화 버튼은 모바일에서 숨기고, 이 위치에 대화 버튼을 둡니다. */}
         <button
-          className="mobile-chat-button"
           onClick={() => goToTab("chat")}
           title="실시간 대화 / 개인 메모"
           style={{
@@ -1771,8 +1742,6 @@ if (showSplash) {
 
       {/* 모바일 하단 탭 */}
       <nav className="mobile-bottom-nav">
-        {/* 모바일 하단 순서: 출고(스캔) / 재고조회 / 입고등록 / 원자재반납
-            대화는 상단에 있으므로 하단 메뉴에는 넣지 않습니다. */}
         {["out", "stock", "in", "return"].map((id) => {
           const n = NAV.find((item) => item.id === id);
           if (!n) return null;
@@ -3027,11 +2996,11 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
         <Card neon="#22D3EE" style={{ padding: 22 }}>
           <SectionLabel>1. 반납 대상 선택</SectionLabel>
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <button type="button" style={modeBtnStyle(mode === "history")} onClick={() => { setMode("history"); resetForm(); }}>
-              출고 이력에서 선택
-            </button>
             <button type="button" style={modeBtnStyle(mode === "manual")} onClick={() => { setMode("manual"); resetForm(); }}>
               자재 직접 입력
+            </button>
+            <button type="button" style={modeBtnStyle(mode === "history")} onClick={() => { setMode("history"); resetForm(); }}>
+              출고 이력에서 선택
             </button>
           </div>
 
@@ -3154,6 +3123,28 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                   <Select value={manualProject || projectOptions[0] || ""} onChange={(e) => setManualProject(e.target.value)} options={projectOptions.length ? projectOptions : ["-"]} />
                 </Field>
               </div>
+
+              {/* 직접입력 모드에서 누락되었던 반납 정보 입력 항목을 원래 위치로 복원 */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label="반납 사유">
+                  <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
+                </Field>
+                <Field label="반납자">
+                  <input style={inputStyle} value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="이름 입력" />
+                </Field>
+              </div>
+
+              <Field label="비고 (선택)">
+                <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 규격 상이로 미사용" />
+              </Field>
+
+              <Btn
+                onClick={submit}
+                disabled={!manualCode.trim() || (!manualName.trim() && !matchedManualItem) || !qty}
+                style={{ marginTop: 4, width: "100%", background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: "bold", fontSize: 15 }}
+              >
+                <RotateCcw size={18} />반납 확정
+              </Btn>
             </div>
           )}
         </Card>
@@ -3177,36 +3168,37 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {mode === "history" && (
-                  <Field label={`반납 수량 (${selectedOutTx.unit})`}>
-                    <input
-                      style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
-                      type="number" min="1" max={maxReturnQty}
-                      value={qty} onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
-                    />
+              {mode === "history" && (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <Field label={`반납 수량 (${selectedOutTx.unit})`}>
+                      <input
+                        style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
+                        type="number" min="1" max={maxReturnQty}
+                        value={qty} onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+                      />
+                    </Field>
+                    <Field label="반납 사유">
+                      <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
+                    </Field>
+                  </div>
+
+                  <Field label="반납자">
+                    <input style={inputStyle} value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="이름 입력" />
                   </Field>
-                )}
-                <Field label="반납 사유" style={mode === "history" ? undefined : { gridColumn: "1 / -1" }}>
-                  <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
-                </Field>
-              </div>
 
-              <Field label="반납자">
-                <input style={inputStyle} value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="이름 입력" />
-              </Field>
+                  <Field label="비고 (선택)">
+                    <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 규격 상이로 미사용" />
+                  </Field>
 
-              <Field label="비고 (선택)">
-                <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 규격 상이로 미사용" />
-              </Field>
-
-              <Btn
-                onClick={submit}
-                disabled={mode === "manual" && (!manualCode.trim() || (!manualName.trim() && !matchedManualItem))}
-                style={{ marginTop: 8, width: "100%", background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: "bold", fontSize: 15 }}
-              >
-                <RotateCcw size={18} />반납 확정
-              </Btn>
+                  <Btn
+                    onClick={submit}
+                    style={{ marginTop: 8, width: "100%", background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622", fontWeight: "bold", fontSize: 15 }}
+                  >
+                    <RotateCcw size={18} />반납 확정
+                  </Btn>
+                </>
+              )}
             </div>
           )}
         </Card>

@@ -490,23 +490,13 @@ function Field({ label, children }) {
 }
 
 /* ---------------- 전체 입고/출고 상세 기록 모달 ---------------- */
-function TxHistoryModal({ type, txs, onClose }) {
+function TxHistoryModal({ type, txs, onClose, showDeleted = false }) {
   const [search, setSearch] = useState("");
   const isOut = type === "out";
   const isReturn = type === "return";
 
   const list = useMemo(() => {
-    const filtered = (txs || [])
-      .filter((t) => t.type === type)
-      .filter((t) => t.deleted !== true)
-      .filter((t) => {
-        const reason = String(t.reason || "");
-        // 원복된 출고는 "누적 출고" 통계/목록에서 제외합니다.
-        if (type === "out" && /\[MRO_META:[^\]]*reversed=1/.test(reason)) return false;
-        // 자동 원복 거래(예전 버전에서 생성된 return)는 반납 실적에서 제외합니다.
-        if (type === "return" && /\[MRO_META:[^\]]*(?:reversal=1|linked=)/.test(reason)) return false;
-        return true;
-      });
+    const filtered = (txs || []).filter((t) => t.type === type && (showDeleted || t.deleted !== true));
     const q = search.trim().toLowerCase();
     const searched = q
       ? filtered.filter((t) =>
@@ -517,7 +507,7 @@ function TxHistoryModal({ type, txs, onClose }) {
         )
       : filtered;
     return [...searched].sort((a, b) => String(b.at).localeCompare(String(a.at)));
-  }, [txs, type, search]);
+  }, [txs, type, search, showDeleted]);
 
   const totalQty = useMemo(() => list.reduce((s, t) => s + (Number(t.qty) || 0), 0), [list]);
 
@@ -885,6 +875,7 @@ function Toast({ toast }) {
   );
 }
 
+
 /* ---------------- 실시간 대화 / 개발중 공지 + 개인 메모 ----------------
    현재는 실제 실시간 채팅을 열지 않고, 공지와 개인 메모만 제공합니다.
    추후 Supabase Realtime chat_messages로 확장할 수 있도록 화면을 독립 컴포넌트로 분리합니다.
@@ -1142,6 +1133,29 @@ function ChatMemoView({ onClose }) {
 export default function App() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
+
+  // 누적출고 전용 조회:
+  // 일반 txs는 deleted=false만 보여주므로, 누적출고 창에서만 전체 거래를 가져온다.
+  const loadCumulativeOutTxs = useCallback(async () => {
+    if (!supabase) return txs;
+    try {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .eq("type", "out")
+        .order("at", { ascending: false });
+
+      if (error) {
+        console.error("누적출고 조회 오류:", error);
+        return txs.filter((t) => t.type === "out");
+      }
+      return Array.isArray(data) ? data : txs.filter((t) => t.type === "out");
+    } catch (e) {
+      console.error("누적출고 조회 오류:", e);
+      return txs.filter((t) => t.type === "out");
+    }
+  }, [txs]);
+
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
   const { requests: urgentRequests, addRequest: addUrgentRequest, resolveRequest: resolveUrgentRequest } = useUrgentRequests();
   
@@ -1196,10 +1210,10 @@ export default function App() {
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
 
-  /* 모바일 좌우 스와이프로 하단 탭(입고/출고/반납/재고) 전환 - 손가락을 따라오는 드래그 연출 */
+  /* 모바일 좌우 스와이프로 하단 탭(출고/재고/입고/반납) 전환 - 손가락을 따라오는 드래그 연출 */
   const mainPanelRef = useRef(null);
   const dragStateRef = useRef({ startX: 0, startY: 0, dragging: null, deltaX: 0 });
-  const MOBILE_SWIPE_TABS = ["in", "out", "return", "stock"];
+  const MOBILE_SWIPE_TABS = ["out", "stock", "in", "return"];
   const SWIPE_THRESHOLD = 60;
 
   /* 모달(긴급요청/이력/QR 등)이 열려 있는 동안에는 스와이프를 완전히 무시한다.
@@ -1388,7 +1402,7 @@ export default function App() {
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
-    { id: "chat", label: "실시간 대화", icon: MessageCircle },
+    { id: "chat", label: "실시간 대화", icon: MessageCircle, mobileTopOnly: true },
   ];
   const NAV_IDS = NAV.map((n) => n.id);
 
@@ -1515,8 +1529,30 @@ if (showSplash) {
           .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
           .pc-sidebar { display: none; }
           .mobile-header {
-            height: 52px; padding: 0 16px; border-bottom: 1px solid #16293C; background: #0F2233;
+            height: 52px; padding: 0 12px 0 16px; border-bottom: 1px solid #16293C; background: #0F2233;
             display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10;
+            gap: 8px;
+          }
+          .mobile-header-brand {
+            flex: 1 1 auto; min-width: 0; overflow: hidden;
+          }
+          .mobile-header-brand > span {
+            white-space: nowrap;
+          }
+          .mobile-master-button {
+            flex-shrink: 0;
+          }
+          .mobile-chat-button {
+            flex-shrink: 0;
+            min-width: 54px;
+            justify-content: center;
+          }
+          /* 모바일 상단에서는 동기화/새로고침 UI를 사용하지 않습니다. */
+          .mobile-header .sync-button,
+          .mobile-header .refresh-button,
+          .mobile-header [data-role="sync"],
+          .mobile-header [data-role="refresh"] {
+            display: none !important;
           }
           .mobile-bottom-nav {
             height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
@@ -1595,7 +1631,7 @@ if (showSplash) {
         </button>
 
         <nav style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {NAV.map((n) => {
+          {NAV.filter((n) => !n.mobileTopOnly).map((n) => {
             const active = tab === n.id;
             const Icon = n.icon;
             return (
@@ -1639,14 +1675,19 @@ if (showSplash) {
         </div>
       </div>
 
-      {/* 모바일 헤더 */}
+      {/* 모바일 헤더
+          - 모바일에서는 동기화/새로고침 버튼을 표시하지 않습니다.
+          - 기존 자재마스터 버튼은 유지합니다.
+          - 대화 버튼은 동기화 버튼이 있던 우측 영역에 배치합니다.
+          - PC 헤더/PC 메뉴는 변경하지 않습니다. */}
       <header className="mobile-header">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="mobile-header-brand" style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
           <img src="/Luxco.png" alt="Luxco" style={{ height: 34, width: "auto", objectFit: "contain", display: "block" }} />
           <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
             선박 생산부
           </span>
           <button
+            className="mobile-master-button"
             onClick={() => goToTab("master")}
             title="자재마스터 이동"
             style={{
@@ -1665,43 +1706,34 @@ if (showSplash) {
             <Package size={17} color="#F5A623" />
           </button>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button
-            onClick={() => goToTab("chat")}
-            title="실시간 대화 / 개인 메모"
-            style={{
-              background: tab === "chat"
-                ? "linear-gradient(135deg, #22D3EE33, #8B5CF633)"
-                : "linear-gradient(135deg, #22D3EE18, #8B5CF612)",
-              border: `1px solid ${tab === "chat" ? "#22D3EE" : "#22D3EE66"}`,
-              color: tab === "chat" ? "#FFFFFF" : "#B9F5FF",
-              borderRadius: 9,
-              padding: "7px 11px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 12,
-              fontWeight: 800,
-              fontFamily: "'IBM Plex Mono', monospace",
-              boxShadow: tab === "chat"
-                ? "0 0 14px -4px #22D3EE"
-                : "0 0 10px -6px #22D3EE",
-            }}
-          >
-            <MessageCircle size={15} />
-            대화
-          </button>
-          <button
-            onClick={refreshAll}
-            style={{
-              background: "transparent", border: "none", color: refreshing ? "#F5A623" : "#7F97AC",
-              fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
-            }}
-          >
-            {refreshing ? "동기화..." : "↻ 동기화"}
-          </button>
-        </div>
+        {/* 동기화 버튼은 모바일에서 숨기고, 이 위치에 대화 버튼을 둡니다. */}
+        <button
+          className="mobile-chat-button"
+          onClick={() => goToTab("chat")}
+          title="실시간 대화 / 개인 메모"
+          style={{
+            background: tab === "chat"
+              ? "linear-gradient(135deg, #22D3EE33, #8B5CF633)"
+              : "linear-gradient(135deg, #22D3EE18, #8B5CF612)",
+            border: `1px solid ${tab === "chat" ? "#22D3EE" : "#22D3EE66"}`,
+            color: tab === "chat" ? "#FFFFFF" : "#B9F5FF",
+            borderRadius: 9,
+            padding: "7px 11px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 800,
+            fontFamily: "'IBM Plex Mono', monospace",
+            boxShadow: tab === "chat"
+              ? "0 0 14px -4px #22D3EE"
+              : "0 0 10px -6px #22D3EE",
+          }}
+        >
+          <MessageCircle size={15} />
+          대화
+        </button>
       </header>
 
       {/* 메인 영역 */}
@@ -1726,7 +1758,7 @@ if (showSplash) {
           >
             {tab === "dashboard" && <Dashboard items={items} txs={txs} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
-            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} reloadItems={reloadItems} reloadTxs={reloadTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
+            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
             {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
@@ -1739,21 +1771,43 @@ if (showSplash) {
 
       {/* 모바일 하단 탭 */}
       <nav className="mobile-bottom-nav">
-        {NAV.filter(n => !n.pcOnly).map((n) => {
+        {/* 모바일 하단 순서: 출고(스캔) / 재고조회 / 입고등록 / 원자재반납
+            대화는 상단에 있으므로 하단 메뉴에는 넣지 않습니다. */}
+        {["out", "stock", "in", "return"].map((id) => {
+          const n = NAV.find((item) => item.id === id);
+          if (!n) return null;
           const active = tab === n.id;
           const Icon = n.icon;
+          const neon = TAB_NEON[n.id] || "#7F97AC";
+          const isOut = n.id === "out";
+
           return (
             <button
               key={n.id}
               onClick={() => goToTab(n.id)}
               style={{
-                background: "transparent", border: "none", color: active ? "#F5A623" : "#7F97AC",
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                gap: 4, cursor: "pointer", padding: 0,
+                background: isOut ? (active ? `${neon}22` : `${neon}10`) : "transparent",
+                border: isOut ? `1px solid ${neon}${active ? "88" : "44"}` : "none",
+                borderRadius: isOut ? 10 : 0,
+                color: active ? neon : "#7F97AC",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: isOut ? 2 : 4,
+                cursor: "pointer",
+                padding: isOut ? "3px 4px" : 0,
+                margin: isOut ? "4px 2px" : 0,
+                transform: isOut ? "translateY(-4px)" : "none",
+                boxShadow: isOut && active ? `0 0 18px -8px ${neon}` : "none",
               }}
             >
-              <Icon size={19} color={active ? "#F5A623" : "#7F97AC"} />
-              <span style={{ fontSize: 10.5, fontFamily: "Inter, sans-serif", fontWeight: active ? 700 : 500 }}>
+              <Icon size={isOut ? 23 : 19} color={active ? neon : "#7F97AC"} />
+              <span style={{
+                fontSize: isOut ? 10.5 : 10,
+                fontFamily: "Inter, sans-serif",
+                fontWeight: active || isOut ? 700 : 500,
+              }}>
                 {n.label}
               </span>
             </button>
@@ -1769,6 +1823,17 @@ if (showSplash) {
 /* ---------------- Dashboard ---------------- */
 function Dashboard({ items, txs }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
+  const [cumulativeOutTxs, setCumulativeOutTxs] = useState([]);
+
+  useEffect(() => {
+    if (historyModal !== "out") return;
+    let cancelled = false;
+    (async () => {
+      const rows = await loadCumulativeOutTxs();
+      if (!cancelled) setCumulativeOutTxs(rows);
+    })();
+    return () => { cancelled = true; };
+  }, [historyModal, loadCumulativeOutTxs]);
 
   const availableShips = useMemo(() => {
     const outTxs = txs.filter((t) => t.type === "out" && t.shipNo && t.shipNo !== "미입력");
@@ -1788,13 +1853,7 @@ function Dashboard({ items, txs }) {
 
   const availableProjects = useMemo(() => {
     const outTxs = txs.filter(
-      (t) =>
-        t.type === "out" &&
-        t.deleted !== true &&
-        !/\[MRO_META:[^\]]*reversed=1/.test(String(t.reason || "")) &&
-        t.shipNo === selectedShip &&
-        t.project &&
-        t.project !== "미입력"
+      (t) => t.type === "out" && t.shipNo === selectedShip && t.project && t.project !== "미입력"
     );
     const uniqueProjects = Array.from(new Set(outTxs.map((t) => t.project)));
     return [ALL_PROJECTS, ...uniqueProjects];
@@ -1816,9 +1875,7 @@ function Dashboard({ items, txs }) {
       .filter(
         (t) =>
           t.type === "out" &&
-          t.deleted !== true &&
-          !/\[MRO_META:[^\]]*reversed=1/.test(String(t.reason || "")) &&
-            t.shipNo === selectedShip &&
+          t.shipNo === selectedShip &&
           (selectedProject === ALL_PROJECTS || t.project === selectedProject)
       )
       .forEach((t) => {
@@ -1841,10 +1898,8 @@ function Dashboard({ items, txs }) {
   }, [txs]);
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
 
-  const totalOutQty = txs
-    .filter((t) => t.type === "out" && t.deleted !== true)
-    .filter((t) => !/\[MRO_META:[^\]]*reversed=1/.test(String(t.reason || "")))
-        .reduce((s, t) => s + Number(t.qty), 0);
+  const totalOutSource = cumulativeOutTxs.length ? cumulativeOutTxs : txs.filter((t) => t.type === "out");
+  const totalOutQty = totalOutSource.reduce((s, t) => s + Number(t.qty || 0), 0);
   const totalInQty = txs.filter((t) => t.type === "in").reduce((s, t) => s + Number(t.qty), 0);
 
   return (
@@ -2067,7 +2122,7 @@ function Dashboard({ items, txs }) {
       </Card>
 
       {historyModal && (
-        <TxHistoryModal type={historyModal} txs={txs} onClose={() => setHistoryModal(null)} />
+        <TxHistoryModal type={historyModal} txs={historyModal === "out" ? cumulativeOutTxs : txs} showDeleted={historyModal === "out"} onClose={() => setHistoryModal(null)} />
       )}
     </div>
   );
@@ -2121,7 +2176,7 @@ function Header({ title, subtitle }) {
 }
 
 /* ---------------- 출고 (스캔) ---------------- */
-function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notify, outFormSettings, presetItem, onConsumePreset, urgentRequests, addUrgentRequest }) {
+function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, presetItem, onConsumePreset, urgentRequests, addUrgentRequest }) {
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
   const [shipNo, setShipNo] = useState("");
@@ -2171,15 +2226,17 @@ function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notif
     }
   }, [workerOptions]);
 
+  // 원복 여부는 원본 거래의 reason에 남긴 감사용 마커로 판단합니다.
+  const isReversedOutTx = (tx) =>
+    String(tx?.reason || "").includes("MRO_REVERSED_OUT:");
+
   const recentOutTxs = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return txs
-      .filter((t) => t.type === "out")
-      .filter((t) => t.deleted !== true)
-      .filter((t) => !/\[MRO_META:[^\]]*historyHidden=1/.test(String(t.reason || "")))
+      .filter((t) => t.type === "out" && t.deleted !== true)
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -2289,24 +2346,18 @@ function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notif
   };
 
   const submit = async () => {
-    if (!found || !qty || Number(qty) <= 0) {
-      notify("자재를 스캔하고 수량을 입력해주세요.", "err");
-      return;
-    }
-
-    const requestQty = Number(qty);
-    if (!Number.isFinite(requestQty) || requestQty <= 0) {
-      notify("출고 수량을 확인해주세요.", "err");
-      return;
-    }
-
+    if (!found || !qty || Number(qty) <= 0) { notify("자재를 스캔하고 수량을 입력해주세요.", "err"); return; }
+    if (Number(qty) > found.stock) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
+    
+    const nextItems = items.map((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(found.code).replace(/[\r\n]+/g, "").trim() ? { ...i, stock: i.stock - Number(qty) } : i);
+    
     const tx = {
       id: uid("OUT"),
       type: "out",
       itemCode: found.code,
       itemName: found.name,
       unit: found.unit,
-      qty: requestQty,
+      qty: Number(qty),
       shipNo: shipNo || "미입력",
       project: project,
       process: process,
@@ -2315,165 +2366,145 @@ function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notif
       deleted: false,
     };
 
-    /*
-     * Supabase 사용 시에는 화면에서 계산한 nextItems를 저장하지 않는다.
-     * 여러 사용자가 동시에 같은 자재를 출고하면 각자 오래된 재고를
-     * 기준으로 저장하여 서로의 차감을 덮어쓸 수 있기 때문이다.
-     * DB RPC가 자재 행을 잠근 뒤 최신 재고를 확인하고,
-     * 재고 차감 + 거래기록 저장을 하나의 트랜잭션으로 처리한다.
-     */
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.rpc("mro_apply_stock_transaction", {
-          p_item_code: String(found.code).replace(/[\r\n]+/g, "").trim(),
-          p_delta: -requestQty,
-          p_tx: tx,
-          p_create_if_missing: false,
-          p_create_item: null,
-        });
-
-        if (error) {
-          const message = String(error.message || "");
-          if (message.includes("재고 부족")) {
-            notify(message, "err");
-          } else if (message.includes("이미 처리된 거래")) {
-            notify("이미 처리된 출고입니다.", "err");
-          } else {
-            console.error("Atomic outbound RPC error:", error);
-            notify(`출고 처리 중 오류가 발생했습니다: ${message || "DB 오류"}`, "err");
-          }
-          return;
-        }
-
-        const remain = Number(data?.stock);
-
-        // DB가 실제로 저장한 최신 상태를 다시 읽어 화면을 갱신한다.
-        if (reloadItems) await reloadItems(true);
-        if (reloadTxs) await reloadTxs(true);
-
-        notify(
-          `${found.name} ${requestQty}${found.unit} 출고 완료 · 잔여 ${Number.isFinite(remain) ? remain : "확인"}${found.unit}`,
-          Number.isFinite(remain) && remain < Number(found.safety || 0) ? "info" : "ok"
-        );
-      } catch (e) {
-        console.error("Atomic outbound error:", e);
-        notify(`출고 처리 중 오류가 발생했습니다: ${e?.message || "알 수 없는 오류"}`, "err");
-        return;
-      }
-    } else {
-      // Supabase가 없는 로컬/개발 환경에서는 기존 동작을 유지한다.
-      if (requestQty > Number(found.stock || 0)) {
-        notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err");
-        return;
-      }
-      const nextItems = items.map((i) =>
-        String(i.code).replace(/[\r\n]+/g, "").trim() === String(found.code).replace(/[\r\n]+/g, "").trim()
-          ? { ...i, stock: Number(i.stock) - requestQty }
-          : i
-      );
-      await saveItems(nextItems);
-      await saveTxs([...txs, tx]);
-      const remain = Number(found.stock) - requestQty;
-      notify(`${found.name} ${requestQty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < Number(found.safety || 0) ? "info" : "ok");
-    }
-
-    setQty("");
+    await saveItems(nextItems);
+    await saveTxs([...txs, tx]);
+    const remain = found.stock - Number(qty);
+    notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
+    
+    setQty(""); 
     setShipNo("");
-    setFound(null);
+    setFound(null); 
     setScan("");
   };
 
-  const isOutReversed = (targetTx) => {
-    const reason = String(targetTx?.reason || "");
-    return /\[MRO_META:[^\]]*reversed=1/.test(reason);
-  };
-
   const cancelOutTx = async (targetTx) => {
-    if (isOutReversed(targetTx)) {
-      notify("이미 원복된 출고입니다.", "info");
+    if (isReversedOutTx(targetTx)) {
+      notify("이미 원복 처리된 불출 이력입니다.", "info");
       return;
     }
 
-    if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 출고를 원복하시겠습니까?\n\n원복하면 재고는 출고 전 수량으로 복구되고, 누적출고에서는 제외됩니다.`)) {
+    if (!window.confirm(
+      `[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 불출을 원복하시겠습니까?\n\n재고는 복구되고, 기존 불출 기록은 삭제되지 않습니다.`
+    )) {
       return;
     }
 
-    if (supabase) {
-      try {
+    try {
+      // Supabase 사용 시 DB에서 자재 행 + 원본 거래 행을 한 번에 잠그고 처리합니다.
+      if (supabase) {
         const { data, error } = await supabase.rpc("mro_reverse_out_transaction", {
           p_tx_id: String(targetTx.id),
         });
 
         if (error) {
-          console.error("Outbound reversal RPC error:", error);
-          notify(`원복 실패: ${error.message || "DB 오류"}`, "err");
+          console.error("원복 RPC 오류:", error);
+          notify(error.message || "이력 원복 중 오류가 발생했습니다.", "err");
           return;
         }
 
-        // RPC가 재고 + 원본 거래의 원복 상태를 한 번에 처리합니다.
-        if (reloadItems) await reloadItems(true);
-        if (reloadTxs) await reloadTxs(true);
+        const result = Array.isArray(data) ? data[0] : data;
+        const newStock = Number(result?.stock);
 
-        const restoredQty = Number(data?.reverseQty ?? targetTx.qty);
-        notify(`출고 원복 완료 · ${restoredQty}${targetTx.unit} 재고가 복구되었습니다.`, "info");
-        return;
-      } catch (e) {
-        console.error("Outbound reversal error:", e);
-        notify(`원복 중 오류가 발생했습니다: ${e?.message || "알 수 없는 오류"}`, "err");
+        const nextItems = items.map((i) => {
+          if (
+            String(i.code).replace(/[\r\n]+/g, "").trim() ===
+            String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
+          ) {
+            return {
+              ...i,
+              stock: Number.isFinite(newStock)
+                ? newStock
+                : Number(i.stock) + Number(targetTx.qty),
+            };
+          }
+          return i;
+        });
+
+        const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
+        const nextTxs = txs.map((t) =>
+          t.id === targetTx.id
+            ? {
+                ...t,
+                reason: String(t.reason || "").includes(marker)
+                  ? t.reason
+                  : `${String(t.reason || "").trim()}${String(t.reason || "").trim() ? " | " : ""}${marker}`,
+              }
+            : t
+        );
+
+        await saveItems(nextItems);
+        await saveTxs(nextTxs);
+        await reloadTxs();
+
+        notify(
+          `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원본 이력은 유지됩니다.`,
+          "info"
+        );
         return;
       }
+
+      // Supabase가 없는 로컬 테스트 환경용 fallback.
+      const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
+      const nextItems = items.map((i) => {
+        if (
+          String(i.code).replace(/[\r\n]+/g, "").trim() ===
+          String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
+        ) {
+          return { ...i, stock: Number(i.stock) + Number(targetTx.qty) };
+        }
+        return i;
+      });
+
+      const nextTxs = txs.map((t) =>
+        t.id === targetTx.id
+          ? {
+              ...t,
+              reason: String(t.reason || "").includes(marker)
+                ? t.reason
+                : `${String(t.reason || "").trim()}${String(t.reason || "").trim() ? " | " : ""}${marker}`,
+            }
+          : t
+      );
+
+      await saveItems(nextItems);
+      await saveTxs(nextTxs);
+      notify(
+        `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원본 이력은 유지됩니다.`,
+        "info"
+      );
+    } catch (e) {
+      console.error("원복 처리 오류:", e);
+      notify("이력 원복 중 오류가 발생했습니다.", "err");
     }
-
-    // Supabase가 없는 로컬/개발 환경
-    const qtyNum = Number(targetTx.qty) || 0;
-    const nextItems = items.map((i) => {
-      if (String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()) {
-        return { ...i, stock: Number(i.stock || 0) + qtyNum };
-      }
-      return i;
-    });
-
-    const originalUpdated = {
-      ...targetTx,
-      reason: `${String(targetTx.reason || "").trim()}${String(targetTx.reason || "").trim() ? " " : ""}[MRO_META:reversed=1&reverseAt=${encodeURIComponent(new Date().toISOString())}]`,
-    };
-
-    await saveItems(nextItems);
-    await saveTxs(txs.map((t) => t.id === targetTx.id ? originalUpdated : t));
-    notify(`출고 원복 완료 · ${qtyNum}${targetTx.unit} 재고가 복구되었습니다.`, "info");
   };
 
   const deleteHistory = async (targetTx) => {
-    if (!window.confirm(`[${targetTx.itemName}] 출고 이력을 목록에서 삭제하시겠습니까?\n\n재고에는 영향을 주지 않고 이 출고 이력만 목록에서 숨깁니다.`)) {
+    if (!window.confirm(
+      `[${targetTx.itemName}] 출고 이력을 목록에서 삭제하시겠습니까?\n\nDB 기록은 보존되며 재고에는 영향이 없습니다.`
+    )) {
       return;
     }
 
     try {
-      const existingReason = String(targetTx.reason || "").trim();
-      const historyHiddenMarker = "[MRO_META:historyHidden=1]";
-      const nextReason = existingReason.includes(historyHiddenMarker)
-        ? existingReason
-        : `${existingReason}${existingReason ? " " : ""}${historyHiddenMarker}`;
-      const updatedTx = { ...targetTx, reason: nextReason };
-
       if (supabase) {
-        const { error } = await supabase
-          .from("transactions")
-          .update({ reason: nextReason })
-          .eq("id", String(targetTx.id));
+        const { error } = await supabase.rpc("mro_soft_delete_transaction", {
+          p_tx_id: String(targetTx.id),
+        });
 
         if (error) {
-          console.error("Outbound history-hide update error:", error);
-          notify(`삭제 실패: ${error.message || "DB 오류"}`, "err");
+          console.error("Soft Delete RPC 오류:", error);
+          notify(error.message || "삭제 처리에 실패했습니다.", "err");
           return;
         }
       }
 
-      await saveTxs(txs.map((t) => t.id === targetTx.id ? updatedTx : t));
-      notify("출고 이력이 목록에서 숨겨졌습니다. 재고와 누적출고 데이터는 원복되지 않습니다.", "info");
+      // 실제 DB 행은 삭제하지 않고 현재 화면에서만 숨깁니다.
+      const nextTxs = txs.filter((t) => t.id !== targetTx.id);
+      await saveTxs(nextTxs);
+      notify("출고 이력이 목록에서 삭제되었습니다. DB 기록과 재고는 유지됩니다.", "info");
     } catch (e) {
-      console.error("Outbound history-hide error:", e);
-      notify(`삭제 중 오류가 발생했습니다: ${e?.message || "알 수 없는 오류"}`, "err");
+      console.error("Soft Delete 오류:", e);
+      notify("삭제 처리 중 오류가 발생했습니다.", "err");
     }
   };
 
@@ -2667,7 +2698,7 @@ function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notif
         </Card>
 
         <Card neon="#F5A623" style={{ padding: 16 }}>
-          <SectionLabel>최근 등록된 출고 이력 (잘못 등록 시 원복 / 목록 삭제)</SectionLabel>
+          <SectionLabel>최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)</SectionLabel>
         {recentOutTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
         ) : (
@@ -2709,18 +2740,20 @@ function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notif
                 <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: "auto" }}>
                   <button
                     onClick={() => cancelOutTx(t)}
-                    disabled={isOutReversed(t)}
+                    disabled={isReversedOutTx(t)}
                     style={{
-                      background: isOutReversed(t) ? "#17251E" : "#123626",
-                      border: `1px solid ${isOutReversed(t) ? "#476451" : "#2ECC71"}`,
-                      color: isOutReversed(t) ? "#6E8A77" : "#2ECC71",
-                      padding: "5px 11px", borderRadius: 6,
-                      cursor: isOutReversed(t) ? "not-allowed" : "pointer",
-                      fontSize: 11.5, fontWeight: 600,
-                      opacity: isOutReversed(t) ? 0.75 : 1,
+                      background: isReversedOutTx(t) ? "#26352D" : "#123626",
+                      border: `1px solid ${isReversedOutTx(t) ? "#607D6B" : "#2ECC71"}`,
+                      color: isReversedOutTx(t) ? "#8FA69A" : "#2ECC71",
+                      padding: "5px 11px",
+                      borderRadius: 6,
+                      cursor: isReversedOutTx(t) ? "not-allowed" : "pointer",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      opacity: isReversedOutTx(t) ? 0.8 : 1,
                     }}
                   >
-                    {isOutReversed(t) ? "원복완료" : "원복"}
+                    {isReversedOutTx(t) ? "원복완료" : "원복"}
                   </button>
                   <button
                     onClick={() => deleteHistory(t)}
@@ -2782,11 +2815,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   const returnedQtyByOutTxId = useMemo(() => {
     const map = {};
     (txs || []).forEach((t) => {
-      if (
-        t.type === "return" &&
-        t.linkedOutTxId &&
-        !/\[MRO_META:[^\]]*(?:reversal=1|linked=)/.test(String(t.reason || ""))
-      ) {
+      if (t.type === "return" && t.linkedOutTxId) {
         map[t.linkedOutTxId] = (map[t.linkedOutTxId] || 0) + (Number(t.qty) || 0);
       }
     });
@@ -2801,9 +2830,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     const q = historySearch.trim().toLowerCase();
     return (txs || [])
       .filter((t) => t.type === "out")
-      .filter((t) => t.deleted !== true)
-      .filter((t) => !/\[MRO_META:[^\]]*reversed=1/.test(String(t.reason || "")))
-            .filter((t) => isRawMaterial(t.itemCode)) // 원자재만 반납 대상
+      .filter((t) => isRawMaterial(t.itemCode)) // 원자재만 반납 대상
       .filter((t) => {
         if (!q) return true;
         return (
@@ -2825,8 +2852,6 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     };
     return (txs || [])
       .filter((t) => t.type === "return")
-      .filter((t) => t.deleted !== true)
-      .filter((t) => !/\[MRO_META:[^\]]*(?:reversal=1|linked=)/.test(String(t.reason || "")))
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -2834,8 +2859,6 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   const exportReturnCSV = () => {
     const allReturnTxs = (txs || [])
       .filter((t) => t.type === "return")
-      .filter((t) => t.deleted !== true)
-      .filter((t) => !/\[MRO_META:[^\]]*(?:reversal=1|linked=)/.test(String(t.reason || "")))
       .sort((a, b) => String(b.at).localeCompare(String(a.at)));
 
     if (allReturnTxs.length === 0) {

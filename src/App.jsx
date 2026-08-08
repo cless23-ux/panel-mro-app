@@ -507,7 +507,7 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false }) {
         )
       : filtered;
     return [...searched].sort((a, b) => String(b.at).localeCompare(String(a.at)));
-  }, [txs, type, search]);
+  }, [txs, type, search, showDeleted]);
 
   const totalQty = useMemo(() => list.reduce((s, t) => s + (Number(t.qty) || 0), 0), [list]);
 
@@ -1134,29 +1134,28 @@ export default function App() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
 
-  // 누적 출고 전용 전체 거래 목록: Soft Delete된 기록도 포함합니다.
-  const [allTxs, setAllTxs] = useState([]);
-  const loadAllTxs = useCallback(async () => {
-    if (!supabase) {
-      setAllTxs(txs);
-      return;
-    }
+  // 누적출고 전용 조회:
+  // 일반 txs는 deleted=false만 보여주므로, 누적출고 창에서만 전체 거래를 가져온다.
+  const loadCumulativeOutTxs = useCallback(async () => {
+    if (!supabase) return txs;
     try {
       const { data, error } = await supabase
         .from("transactions")
         .select("*")
+        .eq("type", "out")
         .order("at", { ascending: false });
-      if (!error && Array.isArray(data)) setAllTxs(data);
+
+      if (error) {
+        console.error("누적출고 조회 오류:", error);
+        return txs.filter((t) => t.type === "out");
+      }
+      return Array.isArray(data) ? data : txs.filter((t) => t.type === "out");
     } catch (e) {
-      console.error("전체 거래 이력 조회 오류:", e);
+      console.error("누적출고 조회 오류:", e);
+      return txs.filter((t) => t.type === "out");
     }
   }, [txs]);
 
-  useEffect(() => {
-    loadAllTxs();
-    const timer = setInterval(loadAllTxs, POLL_MS);
-    return () => clearInterval(timer);
-  }, [loadAllTxs]);
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
   const { requests: urgentRequests, addRequest: addUrgentRequest, resolveRequest: resolveUrgentRequest } = useUrgentRequests();
   
@@ -1793,6 +1792,17 @@ if (showSplash) {
 /* ---------------- Dashboard ---------------- */
 function Dashboard({ items, txs }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
+  const [cumulativeOutTxs, setCumulativeOutTxs] = useState([]);
+
+  useEffect(() => {
+    if (historyModal !== "out") return;
+    let cancelled = false;
+    (async () => {
+      const rows = await loadCumulativeOutTxs();
+      if (!cancelled) setCumulativeOutTxs(rows);
+    })();
+    return () => { cancelled = true; };
+  }, [historyModal, loadCumulativeOutTxs]);
 
   const availableShips = useMemo(() => {
     const outTxs = txs.filter((t) => t.type === "out" && t.shipNo && t.shipNo !== "미입력");
@@ -1857,12 +1867,8 @@ function Dashboard({ items, txs }) {
   }, [txs]);
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
 
-  const statsTxs = allTxs.length ? allTxs : txs;
-  const totalOutQty =
-    statsTxs.filter((t) => t.type === "out").reduce((s, t) => s + Number(t.qty || 0), 0) -
-    statsTxs
-      .filter((t) => t.type === "return" && String(t.reason || "").includes("MRO_REVERSED_OUT:"))
-      .reduce((s, t) => s + Number(t.qty || 0), 0);
+  const totalOutSource = cumulativeOutTxs.length ? cumulativeOutTxs : txs.filter((t) => t.type === "out");
+  const totalOutQty = totalOutSource.reduce((s, t) => s + Number(t.qty || 0), 0);
   const totalInQty = txs.filter((t) => t.type === "in").reduce((s, t) => s + Number(t.qty), 0);
 
   return (
@@ -2085,7 +2091,7 @@ function Dashboard({ items, txs }) {
       </Card>
 
       {historyModal && (
-        <TxHistoryModal type={historyModal} txs={historyModal === "out" ? (allTxs.length ? allTxs : txs) : txs} showDeleted={historyModal === "out"} onClose={() => setHistoryModal(null)} />
+        <TxHistoryModal type={historyModal} txs={historyModal === "out" ? cumulativeOutTxs : txs} showDeleted={historyModal === "out"} onClose={() => setHistoryModal(null)} />
       )}
     </div>
   );
@@ -2383,10 +2389,21 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           return i;
         });
 
+        const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
+        const nextTxs = txs.map((t) =>
+          t.id === targetTx.id
+            ? {
+                ...t,
+                reason: String(t.reason || "").includes(marker)
+                  ? t.reason
+                  : `${String(t.reason || "").trim()}${String(t.reason || "").trim() ? " | " : ""}${marker}`,
+              }
+            : t
+        );
+
         await saveItems(nextItems);
-        await reloadItems();
+        await saveTxs(nextTxs);
         await reloadTxs();
-        await loadAllTxs();
 
         notify(
           `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원본 이력은 유지됩니다.`,
@@ -2453,8 +2470,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       // 실제 DB 행은 삭제하지 않고 현재 화면에서만 숨깁니다.
       const nextTxs = txs.filter((t) => t.id !== targetTx.id);
       await saveTxs(nextTxs);
-      await reloadTxs();
-      await loadAllTxs();
       notify("출고 이력이 목록에서 삭제되었습니다. DB 기록과 재고는 유지됩니다.", "info");
     } catch (e) {
       console.error("Soft Delete 오류:", e);

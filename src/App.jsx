@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -496,7 +496,17 @@ function TxHistoryModal({ type, txs, onClose }) {
   const isReturn = type === "return";
 
   const list = useMemo(() => {
-    const filtered = (txs || []).filter((t) => t.type === type);
+    const filtered = (txs || [])
+      .filter((t) => t.type === type)
+      .filter((t) => t.deleted !== true)
+      .filter((t) => {
+        const reason = String(t.reason || "");
+        // 원복된 출고는 "누적 출고" 통계/목록에서 제외합니다.
+        if (type === "out" && /\[MRO_META:[^\]]*reversed=1/.test(reason)) return false;
+        // 자동 원복 거래(예전 버전에서 생성된 return)는 반납 실적에서 제외합니다.
+        if (type === "return" && /\[MRO_META:[^\]]*(?:reversal=1|linked=)/.test(reason)) return false;
+        return true;
+      });
     const q = search.trim().toLowerCase();
     const searched = q
       ? filtered.filter((t) =>
@@ -875,6 +885,260 @@ function Toast({ toast }) {
   );
 }
 
+/* ---------------- 실시간 대화 / 개발중 공지 + 개인 메모 ----------------
+   현재는 실제 실시간 채팅을 열지 않고, 공지와 개인 메모만 제공합니다.
+   추후 Supabase Realtime chat_messages로 확장할 수 있도록 화면을 독립 컴포넌트로 분리합니다.
+----------------------------------------------------------------------- */
+const PERSONAL_MEMO_KEY = "panel:personalMemos";
+
+function ChatMemoView({ onClose }) {
+  const [memos, setMemos] = useState(() => {
+    try {
+      const raw = localStorage.getItem(PERSONAL_MEMO_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [draft, setDraft] = useState("");
+
+  const persist = (next) => {
+    setMemos(next);
+    try {
+      localStorage.setItem(PERSONAL_MEMO_KEY, JSON.stringify(next));
+    } catch {}
+  };
+
+  const saveMemo = () => {
+    const value = draft.trim();
+    if (!value) return;
+
+    persist([
+      {
+        id: uid("MEMO"),
+        text: value,
+        createdAt: new Date().toISOString(),
+      },
+      ...memos,
+    ]);
+    setDraft("");
+  };
+
+  const deleteMemo = (id) => {
+    persist(memos.filter((memo) => memo.id !== id));
+  };
+
+  return (
+    <div style={{ width: "100%", maxWidth: 760, margin: "0 auto" }}>
+      {/* 제목 */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+        marginBottom: 14,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <MessageCircle size={20} color="#22D3EE" />
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#E7EEF5" }}>
+              실시간 대화
+            </div>
+            <div style={{ fontSize: 11, color: "#7F97AC", marginTop: 2 }}>
+              현재는 개인 메모 기능을 사용할 수 있습니다.
+            </div>
+          </div>
+        </div>
+
+        <Btn
+          variant="ghost"
+          onClick={onClose}
+          style={{ padding: "7px 11px", fontSize: 11.5 }}
+        >
+          닫기
+        </Btn>
+      </div>
+
+      {/* 상단 고정 공지 */}
+      <Card
+        neon="#F5A623"
+        style={{
+          padding: 15,
+          marginBottom: 14,
+          background: "linear-gradient(180deg, #2A2414 0%, #122333 100%)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div style={{
+            width: 32,
+            height: 32,
+            borderRadius: 9,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#F5A62322",
+            border: "1px solid #F5A62355",
+            flexShrink: 0,
+            fontSize: 17,
+          }}>
+            📢
+          </div>
+
+          <div style={{ minWidth: 0 }}>
+            <div style={{
+              color: "#F5A623",
+              fontWeight: 800,
+              fontSize: 13.5,
+              marginBottom: 5,
+            }}>
+              공지 · 실시간 대화 기능 개발중
+            </div>
+            <div style={{
+              color: "#C9DAE8",
+              fontSize: 12.5,
+              lineHeight: 1.65,
+            }}>
+              현재 실시간 대화 기능은 개발중입니다.<br />
+              정식 업데이트 전까지 이 공간을 개인 메모로 사용할 수 있습니다.
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* 메모 작성 */}
+      <Card style={{ padding: 14, marginBottom: 14 }}>
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          color: "#22D3EE",
+          fontSize: 12.5,
+          fontWeight: 800,
+          marginBottom: 9,
+          fontFamily: "'IBM Plex Mono', monospace",
+        }}>
+          📝 내 메모
+        </div>
+
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+              e.preventDefault();
+              saveMemo();
+            }
+          }}
+          placeholder="메모를 입력하세요..."
+          rows={4}
+          style={{
+            ...inputStyle,
+            resize: "vertical",
+            minHeight: 96,
+            lineHeight: 1.55,
+            fontFamily: "Inter, sans-serif",
+          }}
+        />
+
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          marginTop: 9,
+        }}>
+          <span style={{ color: "#5E86A3", fontSize: 10.5 }}>
+            Ctrl + Enter로 저장
+          </span>
+
+          <Btn
+            onClick={saveMemo}
+            disabled={!draft.trim()}
+            style={{ padding: "8px 14px", fontSize: 12 }}
+          >
+            <Save size={14} />
+            저장
+          </Btn>
+        </div>
+      </Card>
+
+      {/* 저장된 메모 */}
+      <div style={{
+        color: "#5E86A3",
+        fontSize: 11,
+        fontFamily: "'IBM Plex Mono', monospace",
+        letterSpacing: "0.08em",
+        marginBottom: 8,
+      }}>
+        SAVED MEMOS · {memos.length}
+      </div>
+
+      {memos.length === 0 ? (
+        <Card style={{
+          padding: 24,
+          textAlign: "center",
+          color: "#5E86A3",
+          fontSize: 12,
+        }}>
+          저장된 메모가 없습니다.
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {memos.map((memo) => (
+            <Card key={memo.id} style={{ padding: 13 }}>
+              <div style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: 10,
+              }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{
+                    color: "#E7EEF5",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}>
+                    {memo.text}
+                  </div>
+
+                  <div style={{
+                    color: "#5E86A3",
+                    fontSize: 10.5,
+                    marginTop: 8,
+                    fontFamily: "'IBM Plex Mono', monospace",
+                  }}>
+                    {new Date(memo.createdAt).toLocaleString("ko-KR")}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => deleteMemo(memo.id)}
+                  title="메모 삭제"
+                  style={{
+                    border: "1px solid #4A2A2A",
+                    background: "#EF535012",
+                    color: "#EF5350",
+                    borderRadius: 7,
+                    padding: "6px 8px",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
@@ -1124,6 +1388,7 @@ export default function App() {
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
+    { id: "chat", label: "실시간 대화", icon: MessageCircle },
   ];
   const NAV_IDS = NAV.map((n) => n.id);
 
@@ -1137,6 +1402,7 @@ export default function App() {
     master: "#F472B6",
     settings: "#2DD4BF",
     trash: "#EF5350",
+    chat: "#22D3EE",
   };
 
   const [slideDir, setSlideDir] = useState(1);
@@ -1399,15 +1665,43 @@ if (showSplash) {
             <Package size={17} color="#F5A623" />
           </button>
         </div>
-        <button
-          onClick={refreshAll}
-          style={{
-            background: "transparent", border: "none", color: refreshing ? "#F5A623" : "#7F97AC",
-            fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
-          }}
-        >
-          {refreshing ? "동기화..." : "↻ 동기화"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={() => goToTab("chat")}
+            title="실시간 대화 / 개인 메모"
+            style={{
+              background: tab === "chat"
+                ? "linear-gradient(135deg, #22D3EE33, #8B5CF633)"
+                : "linear-gradient(135deg, #22D3EE18, #8B5CF612)",
+              border: `1px solid ${tab === "chat" ? "#22D3EE" : "#22D3EE66"}`,
+              color: tab === "chat" ? "#FFFFFF" : "#B9F5FF",
+              borderRadius: 9,
+              padding: "7px 11px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              fontWeight: 800,
+              fontFamily: "'IBM Plex Mono', monospace",
+              boxShadow: tab === "chat"
+                ? "0 0 14px -4px #22D3EE"
+                : "0 0 10px -6px #22D3EE",
+            }}
+          >
+            <MessageCircle size={15} />
+            대화
+          </button>
+          <button
+            onClick={refreshAll}
+            style={{
+              background: "transparent", border: "none", color: refreshing ? "#F5A623" : "#7F97AC",
+              fontSize: 12, fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
+            }}
+          >
+            {refreshing ? "동기화..." : "↻ 동기화"}
+          </button>
+        </div>
       </header>
 
       {/* 메인 영역 */}
@@ -1438,6 +1732,7 @@ if (showSplash) {
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} />}
           </div>
         )}
       </main>
@@ -1493,7 +1788,13 @@ function Dashboard({ items, txs }) {
 
   const availableProjects = useMemo(() => {
     const outTxs = txs.filter(
-      (t) => t.type === "out" && t.shipNo === selectedShip && t.project && t.project !== "미입력"
+      (t) =>
+        t.type === "out" &&
+        t.deleted !== true &&
+        !/\[MRO_META:[^\]]*reversed=1/.test(String(t.reason || "")) &&
+        t.shipNo === selectedShip &&
+        t.project &&
+        t.project !== "미입력"
     );
     const uniqueProjects = Array.from(new Set(outTxs.map((t) => t.project)));
     return [ALL_PROJECTS, ...uniqueProjects];
@@ -1515,7 +1816,9 @@ function Dashboard({ items, txs }) {
       .filter(
         (t) =>
           t.type === "out" &&
-          t.shipNo === selectedShip &&
+          t.deleted !== true &&
+          !/\[MRO_META:[^\]]*reversed=1/.test(String(t.reason || "")) &&
+            t.shipNo === selectedShip &&
           (selectedProject === ALL_PROJECTS || t.project === selectedProject)
       )
       .forEach((t) => {
@@ -1538,7 +1841,10 @@ function Dashboard({ items, txs }) {
   }, [txs]);
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
 
-  const totalOutQty = txs.filter((t) => t.type === "out").reduce((s, t) => s + Number(t.qty), 0);
+  const totalOutQty = txs
+    .filter((t) => t.type === "out" && t.deleted !== true)
+    .filter((t) => !/\[MRO_META:[^\]]*reversed=1/.test(String(t.reason || "")))
+        .reduce((s, t) => s + Number(t.qty), 0);
   const totalInQty = txs.filter((t) => t.type === "in").reduce((s, t) => s + Number(t.qty), 0);
 
   return (
@@ -1873,6 +2179,7 @@ function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notif
     return txs
       .filter((t) => t.type === "out")
       .filter((t) => t.deleted !== true)
+      .filter((t) => !/\[MRO_META:[^\]]*historyHidden=1/.test(String(t.reason || "")))
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -2087,7 +2394,7 @@ function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notif
       return;
     }
 
-    if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 출고를 원복하시겠습니까?\n\n원래 출고 기록은 유지되고 재고만 복원됩니다.`)) {
+    if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 출고를 원복하시겠습니까?\n\n원복하면 재고는 출고 전 수량으로 복구되고, 누적출고에서는 제외됩니다.`)) {
       return;
     }
 
@@ -2103,10 +2410,12 @@ function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notif
           return;
         }
 
+        // RPC가 재고 + 원본 거래의 원복 상태를 한 번에 처리합니다.
         if (reloadItems) await reloadItems(true);
         if (reloadTxs) await reloadTxs(true);
 
-        notify(`출고 원복 완료 · 재고 ${targetTx.qty}${targetTx.unit}가 복원되었습니다.`, "info");
+        const restoredQty = Number(data?.reverseQty ?? targetTx.qty);
+        notify(`출고 원복 완료 · ${restoredQty}${targetTx.unit} 재고가 복구되었습니다.`, "info");
         return;
       } catch (e) {
         console.error("Outbound reversal error:", e);
@@ -2115,74 +2424,57 @@ function OutForm({ items, saveItems, txs, saveTxs, reloadItems, reloadTxs, notif
       }
     }
 
-    // Supabase가 없는 로컬/개발 환경에서는 기존 동작을 유지하되,
-    // 원래 이력을 삭제하지 않고 원복 거래를 추가합니다.
+    // Supabase가 없는 로컬/개발 환경
+    const qtyNum = Number(targetTx.qty) || 0;
     const nextItems = items.map((i) => {
       if (String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()) {
-        return { ...i, stock: Number(i.stock) + Number(targetTx.qty) };
+        return { ...i, stock: Number(i.stock || 0) + qtyNum };
       }
       return i;
     });
 
-    const reverseTx = {
-      id: uid("REV"),
-      type: "return",
-      itemCode: targetTx.itemCode,
-      itemName: targetTx.itemName,
-      unit: targetTx.unit,
-      qty: Number(targetTx.qty),
-      shipNo: targetTx.shipNo || "",
-      project: targetTx.project || "",
-      process: targetTx.process || "",
-      reason: `불출 원복 처리 [MRO_META:linked=${encodeURIComponent(targetTx.id)}&reversal=1]`,
-      worker: targetTx.worker || "",
-      at: nowStr(),
-      deleted: false,
-      linkedOutTxId: targetTx.id,
-    };
-
     const originalUpdated = {
       ...targetTx,
-      reason: `${String(targetTx.reason || "").trim()}${String(targetTx.reason || "").trim() ? " " : ""}[MRO_META:reversed=1&reverseId=${encodeURIComponent(reverseTx.id)}]`,
+      reason: `${String(targetTx.reason || "").trim()}${String(targetTx.reason || "").trim() ? " " : ""}[MRO_META:reversed=1&reverseAt=${encodeURIComponent(new Date().toISOString())}]`,
     };
 
     await saveItems(nextItems);
-    await saveTxs(txs.map((t) => t.id === targetTx.id ? originalUpdated : t).concat(reverseTx));
-    notify(`출고 원복 완료 · 재고 ${targetTx.qty}${targetTx.unit}가 복원되었습니다.`, "info");
+    await saveTxs(txs.map((t) => t.id === targetTx.id ? originalUpdated : t));
+    notify(`출고 원복 완료 · ${qtyNum}${targetTx.unit} 재고가 복구되었습니다.`, "info");
   };
 
   const deleteHistory = async (targetTx) => {
-    if (!window.confirm(`[${targetTx.itemName}] 출고 이력을 목록에서 삭제하시겠습니까?\n\n실제 DB 기록은 삭제하지 않고 보관됩니다.`)) {
+    if (!window.confirm(`[${targetTx.itemName}] 출고 이력을 목록에서 삭제하시겠습니까?\n\n재고에는 영향을 주지 않고 이 출고 이력만 목록에서 숨깁니다.`)) {
       return;
     }
 
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.rpc("mro_soft_delete_transaction", {
-          p_tx_id: String(targetTx.id),
-        });
+    try {
+      const existingReason = String(targetTx.reason || "").trim();
+      const historyHiddenMarker = "[MRO_META:historyHidden=1]";
+      const nextReason = existingReason.includes(historyHiddenMarker)
+        ? existingReason
+        : `${existingReason}${existingReason ? " " : ""}${historyHiddenMarker}`;
+      const updatedTx = { ...targetTx, reason: nextReason };
+
+      if (supabase) {
+        const { error } = await supabase
+          .from("transactions")
+          .update({ reason: nextReason })
+          .eq("id", String(targetTx.id));
 
         if (error) {
-          console.error("Outbound soft-delete RPC error:", error);
+          console.error("Outbound history-hide update error:", error);
           notify(`삭제 실패: ${error.message || "DB 오류"}`, "err");
           return;
         }
-
-        if (reloadTxs) await reloadTxs(true);
-        notify("출고 이력이 목록에서 삭제되었습니다. DB 기록은 보관됩니다.", "info");
-        return;
-      } catch (e) {
-        console.error("Outbound soft-delete error:", e);
-        notify(`삭제 중 오류가 발생했습니다: ${e?.message || "알 수 없는 오류"}`, "err");
-        return;
       }
-    }
 
-    // Supabase가 없는 로컬/개발 환경에서도 실제 배열에서 행을 제거하지 않고
-    // deleted=true로만 표시합니다.
-    const nextTxs = txs.map((t) => t.id === targetTx.id ? { ...t, deleted: true } : t);
-    await saveTxs(nextTxs);
-    notify("출고 이력이 목록에서 삭제되었습니다.", "info");
+      await saveTxs(txs.map((t) => t.id === targetTx.id ? updatedTx : t));
+      notify("출고 이력이 목록에서 숨겨졌습니다. 재고와 누적출고 데이터는 원복되지 않습니다.", "info");
+    } catch (e) {
+      console.error("Outbound history-hide error:", e);
+      notify(`삭제 중 오류가 발생했습니다: ${e?.message || "알 수 없는 오류"}`, "err");
+    }
   };
 
   return (
@@ -2490,7 +2782,11 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   const returnedQtyByOutTxId = useMemo(() => {
     const map = {};
     (txs || []).forEach((t) => {
-      if (t.type === "return" && t.linkedOutTxId) {
+      if (
+        t.type === "return" &&
+        t.linkedOutTxId &&
+        !/\[MRO_META:[^\]]*(?:reversal=1|linked=)/.test(String(t.reason || ""))
+      ) {
         map[t.linkedOutTxId] = (map[t.linkedOutTxId] || 0) + (Number(t.qty) || 0);
       }
     });
@@ -2505,7 +2801,9 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     const q = historySearch.trim().toLowerCase();
     return (txs || [])
       .filter((t) => t.type === "out")
-      .filter((t) => isRawMaterial(t.itemCode)) // 원자재만 반납 대상
+      .filter((t) => t.deleted !== true)
+      .filter((t) => !/\[MRO_META:[^\]]*reversed=1/.test(String(t.reason || "")))
+            .filter((t) => isRawMaterial(t.itemCode)) // 원자재만 반납 대상
       .filter((t) => {
         if (!q) return true;
         return (
@@ -2527,6 +2825,8 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
     };
     return (txs || [])
       .filter((t) => t.type === "return")
+      .filter((t) => t.deleted !== true)
+      .filter((t) => !/\[MRO_META:[^\]]*(?:reversal=1|linked=)/.test(String(t.reason || "")))
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -2534,6 +2834,8 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   const exportReturnCSV = () => {
     const allReturnTxs = (txs || [])
       .filter((t) => t.type === "return")
+      .filter((t) => t.deleted !== true)
+      .filter((t) => !/\[MRO_META:[^\]]*(?:reversal=1|linked=)/.test(String(t.reason || "")))
       .sort((a, b) => String(b.at).localeCompare(String(a.at)));
 
     if (allReturnTxs.length === 0) {

@@ -130,7 +130,7 @@ function useStorage(key, initial) {
           if (tableName === "transactions") {
             setValue(prev => {
               const map = new Map();
-              [...data, ...prev].forEach(item => {
+              [...prev, ...data].forEach(item => {
                 if (item && item.id) map.set(item.id, item);
               });
               const merged = Array.from(map.values());
@@ -2240,6 +2240,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [qty, setQty] = useState("");
   const [worker, setWorker] = useState("울산에이원");
   const [isScanning, setIsScanning] = useState(false);
+  const [outSubmitting, setOutSubmitting] = useState(false);
   const qrScannerRef = useRef(null);
   const infoCardRef = useRef(null);
 
@@ -2401,41 +2402,54 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   };
 
   const submit = async () => {
+    if (outSubmitting) return;
     if (!found || !qty || Number(qty) <= 0) { notify("자재를 스캔하고 수량을 입력해주세요.", "err"); return; }
     if (Number(qty) > found.stock) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
-    
-    const nextItems = items.map((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(found.code).replace(/[\r\n]+/g, "").trim() ? { ...i, stock: i.stock - Number(qty) } : i);
-    
-    const tx = {
-      id: uid("OUT"),
-      type: "out",
-      itemCode: found.code,
-      itemName: found.name,
-      unit: found.unit,
-      qty: Number(qty),
-      shipNo: shipNo || "미입력",
-      project: project,
-      process: process,
-      worker: worker,
-      at: nowStr(),
-      deleted: false,
-    };
 
-    if (supabase) {
-      await applyStockTransactionsAtomic([{ code: found.code, delta: -Number(qty), tx }]);
-      await reloadItems();
-      await reloadTxs();
-    } else {
-      await saveItems(nextItems);
-      await saveTxs([...txs, tx]);
+    setOutSubmitting(true);
+    try {
+      const nextItems = items.map((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(found.code).replace(/[\r\n]+/g, "").trim() ? { ...i, stock: i.stock - Number(qty) } : i);
+
+      const tx = {
+        id: uid("OUT"),
+        type: "out",
+        itemCode: found.code,
+        itemName: found.name,
+        unit: found.unit,
+        qty: Number(qty),
+        shipNo: shipNo || "미입력",
+        project: project,
+        process: process,
+        worker: worker,
+        at: nowStr(),
+        deleted: false,
+      };
+
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: found.code, delta: -Number(qty), tx }]);
+        try {
+          await reloadItems();
+          await reloadTxs();
+        } catch (reloadErr) {
+          console.error("출고 후 새로고침 실패(잠시 후 자동으로 갱신됩니다):", reloadErr);
+        }
+      } else {
+        await saveItems(nextItems);
+        await saveTxs([...txs, tx]);
+      }
+      const remain = found.stock - Number(qty);
+      notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
+
+      setQty(""); 
+      setShipNo("");
+      setProject(projectOptions[0] || "MSBD/LVSB");
+      setProcess(processOptions[0] || "배전반 결선");
+      setWorker(workerOptions[0] || "울산에이원");
+      setFound(null); 
+      setScan("");
+    } finally {
+      setOutSubmitting(false);
     }
-    const remain = found.stock - Number(qty);
-    notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
-    
-    setQty(""); 
-    setShipNo("");
-    setFound(null); 
-    setScan("");
   };
 
   const cancelOutTx = async (targetTx) => {
@@ -2467,8 +2481,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     if (supabase) {
       const reverseTx = { ...targetTx, reason: nextReason };
       await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: Number(targetTx.qty), txUpdate: reverseTx }]);
-      await reloadItems();
-      await reloadTxs();
+      try {
+        await reloadItems();
+        await reloadTxs();
+      } catch (reloadErr) {
+        console.error("원복 후 새로고침 실패(잠시 후 자동으로 갱신됩니다):", reloadErr);
+      }
     } else {
       await saveItems(nextItems);
       await saveTxs(nextTxs);
@@ -2689,15 +2707,15 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
               <Btn 
                 onClick={submit} 
-                disabled={!qty || Number(qty) <= 0 || Number(qty) > found.stock} 
+                disabled={outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock} 
                 style={{ 
                   marginTop: 8, width: "100%", 
-                  background: (!qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#1F3B54" : "#F5A623",
-                  color: (!qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#5E86A3" : "#0A1622",
+                  background: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#1F3B54" : "#F5A623",
+                  color: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#5E86A3" : "#0A1622",
                   fontWeight: "bold", fontSize: 15
                 }}
               >
-                <ArrowUpFromLine size={18} />출고 확정
+                <ArrowUpFromLine size={18} />{outSubmitting ? "처리 중..." : "출고 확정"}
               </Btn>
             </div>
           )}

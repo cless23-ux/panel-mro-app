@@ -21,6 +21,13 @@ const seedItems = [
 function uid(p = "T") {
   return `${p}-${Date.now().toString(36)}${Math.floor(Math.random() * 900 + 100)}`;
 }
+function csvSafe(val) {
+  const s = String(val ?? "");
+  if (/^[=+\-@\t\r]/.test(s)) {
+    return `'${s}`;
+  }
+  return s;
+}
 function nowStr() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
@@ -517,9 +524,9 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false }) {
       : ["날짜,자재명,코드,수량,단위,담당자\n"];
     const rows = list.map((t) => {
       if (isOut) {
-        return `"${t.at}","${t.itemName}","${t.itemCode}",${t.qty},"${t.unit}","${t.shipNo || ""}","${t.project || ""}","${t.process || ""}","${t.worker || ""}"\n`;
+        return `"${t.at}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.shipNo)}","${csvSafe(t.project)}","${csvSafe(t.process)}","${csvSafe(t.worker)}"\n`;
       }
-      return `"${t.at}","${t.itemName}","${t.itemCode}",${t.qty},"${t.unit}","${t.worker || ""}"\n`;
+      return `"${t.at}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.worker)}"\n`;
     });
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
@@ -1139,8 +1146,72 @@ function ChatMemoView({ onClose }) {
     </div>
   );
 }
+  /* ---------------- 간단 접근 코드 게이트 ---------------- */
+const APP_ACCESS_CODE = "a1234"; // ← 원하는 비밀번호로 바꾸세요
+const ACCESS_GATE_KEY = "panel:accessGranted";
+
+function AccessGate({ children }) {
+  const [granted, setGranted] = useState(() => {
+    try { return localStorage.getItem(ACCESS_GATE_KEY) === "1"; } catch { return false; }
+  });
+  const [input, setInput] = useState("");
+  const [err, setErr] = useState("");
+
+  if (granted) return children;
+
+  const submit = () => {
+    if (input.trim() === APP_ACCESS_CODE) {
+      try { localStorage.setItem(ACCESS_GATE_KEY, "1"); } catch {}
+      setGranted(true);
+    } else {
+      setErr("코드가 올바르지 않습니다.");
+    }
+  };
+
+  return (
+    <>
+      <style>{`
+        .access-gate-box * { box-sizing: border-box; }
+      `}</style>
+      <div className="access-gate-box" style={{
+        position: "fixed", inset: 0, background: "#0A1622", display: "flex",
+        alignItems: "center", justifyContent: "center", zIndex: 99999, padding: 20,
+        fontFamily: "Inter, -apple-system, sans-serif",
+      }}>
+        <div style={{ width: "100%", maxWidth: 320, background: "#0F2233", border: "1px solid #274460", borderRadius: 14, padding: 24, textAlign: "center" }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#E7EEF5", marginBottom: 4 }}>선박 생산부 부자재 관리</div>
+          <div style={{ fontSize: 12, color: "#7F97AC", marginBottom: 16 }}>접속 코드를 입력하세요</div>
+          <input
+            type="password"
+            value={input}
+            onChange={(e) => { setInput(e.target.value); setErr(""); }}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            style={{ background: "#0B1C2C", border: "1px solid #26445F", borderRadius: 8, color: "#E7EEF5", padding: "12px 14px", fontSize: 14, outline: "none", width: "100%", textAlign: "center", marginBottom: 10 }}
+            placeholder="접속 코드"
+            autoFocus
+          />
+          {err && <div style={{ color: "#EF5350", fontSize: 12, marginBottom: 10 }}>{err}</div>}
+          <button
+            onClick={submit}
+            style={{ width: "100%", background: "#F5A623", color: "#0A1622", border: "1px solid #F5A623", fontWeight: 600, fontSize: 14, padding: "12px 20px", borderRadius: 8, cursor: "pointer" }}
+          >
+            입장
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
 
 export default function App() {
+  return (
+    <AccessGate>
+      <AppInner />
+    </AccessGate>
+  );
+}
+
+function AppInner() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
 
@@ -2813,7 +2884,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
     const headers = ["날짜,자재명,코드,수량,단위,호선,프로젝트,반납사유,반납자,비고\n"];
     const rows = allReturnTxs.map((t) =>
-      `"${t.at}","${t.itemName}","${t.itemCode}",${t.qty},"${t.unit}","${t.shipNo || ""}","${t.project || ""}","${t.reason || ""}","${t.worker || ""}","${t.note || ""}"\n`
+      `"${t.at}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.shipNo)}","${csvSafe(t.project)}","${csvSafe(t.reason)}","${csvSafe(t.worker)}","${csvSafe(t.note)}"\n`
     );
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
@@ -3765,8 +3836,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   };
 
   const exportCSV = () => {
-    const headers = ["code,name,spec,category,unit,stock,safety,location,manufacturer,image_url\n"];
-    const rows = items.map(i => `"${i.code}","${i.name}","${i.spec}","${i.category || ""}","${i.unit}",${i.stock},${i.safety},"${i.location || ""}","${i.manufacturer || ""}","${i.image_url || ""}"\n`);
+    const headers = ["코드,품명,규격,카테고리,단위,현재고,안전재고,위치,거래처,이미지주소\n"];
+    const rows = items.map(i => `"${csvSafe(i.code)}","${csvSafe(i.name)}","${csvSafe(i.spec)}","${csvSafe(i.category)}","${i.unit}",${i.stock},${i.safety},"${csvSafe(i.location)}","${csvSafe(i.manufacturer)}","${csvSafe(i.image_url)}"\n`);
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -3860,7 +3931,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
           e.target.value = "";
         }
       };
-      reader.readAsBuffer ? reader.readAsBuffer(file) : reader.readAsArrayBuffer(file);
+      reader.readAsArrayBuffer(file);
     }
   };
 

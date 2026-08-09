@@ -1485,7 +1485,7 @@ function AppInner() {
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
-    { id: "trash", label: "삭제복원", icon: Trash2, pcOnly: true },
+    { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
     { id: "chat", label: "실시간 대화", icon: MessageCircle },
   ];
   const NAV_IDS = NAV.map((n) => n.id);

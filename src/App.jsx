@@ -3448,6 +3448,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [memoDrafts, setMemoDrafts] = useState({});
+  const [editingMemos, setEditingMemos] = useState({});
   const { isFavorite, toggleFavorite } = useFavoriteItems(notify);
 
   // 자재마스터에 실제 지정된 카테고리만 자동으로 필터 버튼으로 표시합니다.
@@ -3489,6 +3490,11 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
     }
   };
 
+  const handleMemoEdit = (code) => {
+    setEditingMemos((prev) => ({ ...prev, [code]: true }));
+    setMemoDrafts((prev) => ({ ...prev, [code]: String(items.find((i) => i.code === code)?.memo || "") }));
+  };
+
   const handleMemoChange = (code, value) => {
     setMemoDrafts((prev) => ({ ...prev, [code]: value }));
   };
@@ -3498,6 +3504,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
     const currentMemo = String(item.memo ?? "").trim();
     if (nextMemo === currentMemo) {
       setMemoDrafts((prev) => { const next = { ...prev }; delete next[item.code]; return next; });
+      setEditingMemos((prev) => { const next = { ...prev }; delete next[item.code]; return next; });
       return;
     }
 
@@ -3515,6 +3522,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
       );
       await saveItems(nextItems);
       setMemoDrafts((prev) => { const next = { ...prev }; delete next[item.code]; return next; });
+      setEditingMemos((prev) => { const next = { ...prev }; delete next[item.code]; return next; });
       notify("명칭/메모가 저장되었습니다.", "ok");
     } catch (e) {
       console.error("Stock memo save error:", e);
@@ -3666,22 +3674,38 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                   </div>
 
                   <div className="stock-mobile-bottom" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="text"
-                      className="stock-mobile-note"
-                      placeholder="명칭 / 메모 입력"
-                      aria-label={`${item.name} 명칭 또는 메모 입력`}
-                      value={Object.prototype.hasOwnProperty.call(memoDrafts, item.code) ? memoDrafts[item.code] : (item.memo || "")}
-                      onChange={(e) => handleMemoChange(item.code, e.target.value)}
-                      onBlur={(e) => handleMemoSave(item, e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                    {editingMemos[item.code] ? (
+                      <input
+                        type="text"
+                        className="stock-mobile-note"
+                        placeholder="명칭 / 메모 입력"
+                        aria-label={`${item.name} 명칭 또는 메모 입력`}
+                        autoFocus
+                        value={Object.prototype.hasOwnProperty.call(memoDrafts, item.code) ? memoDrafts[item.code] : (item.memo || "")}
+                        onChange={(e) => handleMemoChange(item.code, e.target.value)}
+                        onBlur={(e) => handleMemoSave(item, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <div className="stock-mobile-note-closed">
+                        <span className={item.memo ? "stock-mobile-note-text" : "stock-mobile-note-empty"} title={item.memo || "명칭 / 메모 없음"}>
+                          {item.memo || "명칭 / 메모 없음"}
+                        </span>
+                        <button
+                          type="button"
+                          className="stock-mobile-note-edit"
+                          onClick={(e) => { e.stopPropagation(); handleMemoEdit(item.code); }}
+                        >
+                          수정
+                        </button>
+                      </div>
+                    )}
                     <div className="stock-mobile-actions">
                       <div className="stock-mobile-quantity" style={{
                         color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C",
@@ -3786,6 +3810,39 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
           }
           .stock-mobile-note::placeholder { color: #5E86A3; }
           .stock-mobile-note:focus { border-color: #38BDF8; }
+          .stock-mobile-note-closed {
+            flex: 1;
+            min-width: 0;
+            height: 34px;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 0 5px 0 10px;
+            border-radius: 7px;
+            border: 1px solid #274460;
+            background: #0B1C2C;
+          }
+          .stock-mobile-note-text,
+          .stock-mobile-note-empty {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 15px;
+          }
+          .stock-mobile-note-text { color: #E7EEF5; }
+          .stock-mobile-note-empty { color: #5E86A3; }
+          .stock-mobile-note-edit {
+            flex: 0 0 auto;
+            border: 0;
+            border-radius: 5px;
+            padding: 4px 8px;
+            background: #16344D;
+            color: #38BDF8;
+            font-size: 12px;
+            cursor: pointer;
+          }
           .stock-mobile-actions {
             display: flex;
             align-items: center;

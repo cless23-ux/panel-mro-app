@@ -1179,6 +1179,734 @@ function ChatMemoView({ onClose }) {
     </div>
   );
 }
+
+/* ---------------- 간단 접근 코드 게이트 ---------------- */
+const APP_ACCESS_CODE = "a1234"; // ← 원하는 비밀번호로 바꾸세요
+const ACCESS_GATE_KEY = "panel:accessGranted";
+
+function AccessGate({ children }) {
+  const [granted, setGranted] = useState(() => {
+    try { return localStorage.getItem(ACCESS_GATE_KEY) === "1"; } catch { return false; }
+  });
+  const [input, setInput] = useState("");
+  const [err, setErr] = useState("");
+
+  if (granted) return children;
+
+  const submit = () => {
+    if (input.trim() === APP_ACCESS_CODE) {
+      try { localStorage.setItem(ACCESS_GATE_KEY, "1"); } catch {}
+      setGranted(true);
+    } else {
+      setErr("코드가 올바르지 않습니다.");
+    }
+  };
+
+  return (
+    <>
+      <style>{`
+        .access-gate-box * { box-sizing: border-box; }
+      `}</style>
+      <div className="access-gate-box" style={{
+        position: "fixed", inset: 0, background: "#0A1622", display: "flex",
+        alignItems: "center", justifyContent: "center", zIndex: 99999, padding: 20,
+        fontFamily: "Inter, -apple-system, sans-serif",
+      }}>
+        <div style={{ width: "100%", maxWidth: 320, background: "#0F2233", border: "1px solid #274460", borderRadius: 14, padding: 24, textAlign: "center" }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#E7EEF5", marginBottom: 4 }}>선박 생산부 부자재 관리</div>
+          <div style={{ fontSize: 12, color: "#7F97AC", marginBottom: 16 }}>접속 코드를 입력하세요</div>
+          <input
+            type="password"
+            value={input}
+            onChange={(e) => { setInput(e.target.value); setErr(""); }}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            style={{ background: "#0B1C2C", border: "1px solid #26445F", borderRadius: 8, color: "#E7EEF5", padding: "12px 14px", fontSize: 14, outline: "none", width: "100%", textAlign: "center", marginBottom: 10 }}
+            placeholder="접속 코드"
+            autoFocus
+          />
+          {err && <div style={{ color: "#EF5350", fontSize: 12, marginBottom: 10 }}>{err}</div>}
+          <button
+            onClick={submit}
+            style={{ width: "100%", background: "#F5A623", color: "#0A1622", border: "1px solid #F5A623", fontWeight: 600, fontSize: 14, padding: "12px 20px", borderRadius: 8, cursor: "pointer" }}
+          >
+            입장
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <AccessGate>
+      <AppInner />
+    </AccessGate>
+  );
+}
+
+function AppInner() {
+  const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
+  const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
+
+  // 누적출고 전용 조회:
+  // 일반 txs는 deleted=false만 보여주므로, 누적출고 창에서만 전체 거래를 가져온다.
+  const loadCumulativeOutTxs = useCallback(async () => {
+    if (!supabase) return txs;
+    try {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .eq("type", "out")
+        .order("at", { ascending: false });
+
+      if (error) {
+        console.error("누적출고 조회 오류:", error);
+        return txs.filter((t) => t.type === "out");
+      }
+      // 원복 완료된 출고는 누적출고 집계/상세 목록에서 제외합니다.
+      // 원본 거래 자체는 DB에 보존하고, 출고 이력 화면에서는 원복완료 상태로 표시합니다.
+      return (Array.isArray(data) ? data : txs.filter((t) => t.type === "out"))
+        .filter((t) => t.type === "out" && !String(t.reason || "").includes("MRO_REVERSED_OUT:"));
+    } catch (e) {
+      console.error("누적출고 조회 오류:", e);
+      return txs.filter((t) => t.type === "out");
+    }
+  }, [txs]);
+
+  const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
+  const { requests: urgentRequests, addRequest: addUrgentRequest, resolveRequest: resolveUrgentRequest } = useUrgentRequests();
+  
+  /* 발주 장바구니 상태 (자재코드 및 정보 담기) */
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const saved = localStorage.getItem("panel:orderCart");
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  const addToCart = useCallback((item) => {
+    setCartItems(prev => {
+      if (prev.some(c => c.code === item.code)) return prev;
+      const next = [...prev, item];
+      try { localStorage.setItem("panel:orderCart", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const removeFromCart = useCallback((code) => {
+    setCartItems(prev => {
+      const next = prev.filter(c => c.code !== code);
+      try { localStorage.setItem("panel:orderCart", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  const clearCart = useCallback(() => {
+    setCartItems([]);
+    try { localStorage.removeItem("panel:orderCart"); } catch {}
+  }, []);
+
+  /* 초기 열림 탭: PC는 대시보드, 모바일은 대시보드가 숨겨져 있으므로 출고(스캔)로 시작 */
+  const [tab, setTab] = useState(() => (typeof window !== "undefined" && window.innerWidth <= 768 ? "out" : "dashboard"));
+  const [presetItem, setPresetItem] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  /* 화면 크기가 모바일로 바뀌었는데 대시보드에 머물러 있으면 출고(스캔)로 이동 */
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth <= 768 && tab === "dashboard") {
+        setTab("out");
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    handleResize();
+    return () => window.removeEventListener("resize", handleResize);
+  }, [tab]);
+
+  const backPressedRef = useRef(false);
+  const backTimerRef = useRef(null);
+
+  /* 모바일 좌우 스와이프로 하단 탭(출고/재고/입고/반납) 전환 - 손가락을 따라오는 드래그 연출 */
+  const mainPanelRef = useRef(null);
+  const dragStateRef = useRef({ startX: 0, startY: 0, dragging: null, deltaX: 0 });
+  const MOBILE_SWIPE_TABS = ["out", "stock", "in", "return"];
+  const SWIPE_THRESHOLD = 60;
+
+  /* 모달(긴급요청/이력/QR 등)이 열려 있는 동안에는 스와이프를 완전히 무시한다.
+     tab-panel에 transform이 걸리면 그 안에 렌더된 position:fixed 모달이
+     뷰포트 기준이 아니라 tab-panel 기준으로 갇혀버려서 화면 밖으로 밀려나 보이는
+     버그가 있었음 (재고조회 > 긴급요청 모달 후 스와이프 시 모달이 아래로 내려가던 문제) */
+  const isInsideModal = (target) => !!(target && target.closest && target.closest(".app-modal-overlay"));
+
+  const handleMainTouchStart = (e) => {
+    if (isInsideModal(e.target)) {
+      dragStateRef.current = { startX: 0, startY: 0, dragging: false, deltaX: 0 };
+      return;
+    }
+    const t = e.touches[0];
+    dragStateRef.current = { startX: t.clientX, startY: t.clientY, dragging: null, deltaX: 0 };
+  };
+
+  const handleMainTouchMove = (e) => {
+    if (typeof window === "undefined" || window.innerWidth > 768) return;
+    if (isInsideModal(e.target)) return;
+    const ds = dragStateRef.current;
+    const t = e.touches[0];
+    const deltaX = t.clientX - ds.startX;
+    const deltaY = t.clientY - ds.startY;
+
+    if (ds.dragging === null) {
+      if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) return; // 의도 파악 전
+      const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
+      ds.dragging = curIdx !== -1 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2;
+    }
+    if (!ds.dragging) return;
+
+    const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
+    const atFirst = curIdx <= 0;
+    const atLast = curIdx >= MOBILE_SWIPE_TABS.length - 1;
+    /* 더 넘어갈 탭이 없는 방향으로는 고무줄처럼 저항감 부여 */
+    const resisted = (deltaX > 0 && atFirst) || (deltaX < 0 && atLast) ? deltaX * 0.35 : deltaX;
+    ds.deltaX = resisted;
+
+    const el = mainPanelRef.current;
+    if (el) {
+      el.style.transition = "none";
+      el.style.transform = `translateX(${resisted}px)`;
+      el.style.opacity = String(Math.max(0.7, 1 - Math.abs(resisted) / 600));
+    }
+  };
+
+  const handleMainTouchEnd = () => {
+    const ds = dragStateRef.current;
+    const el = mainPanelRef.current;
+
+    if (!ds.dragging) {
+      dragStateRef.current = { startX: 0, startY: 0, dragging: null, deltaX: 0 };
+      return;
+    }
+
+    const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
+    const goNext = ds.deltaX <= -SWIPE_THRESHOLD && curIdx < MOBILE_SWIPE_TABS.length - 1;
+    const goPrev = ds.deltaX >= SWIPE_THRESHOLD && curIdx > 0;
+
+    if (goNext || goPrev) {
+      /* 임계값을 넘겼으면 즉시 다음 탭으로 - 새 창이 슬라이드 애니메이션으로 이어받음 */
+      if (el) { el.style.transition = ""; el.style.transform = ""; el.style.opacity = ""; }
+      goToTab(MOBILE_SWIPE_TABS[curIdx + (goNext ? 1 : -1)]);
+    } else if (el) {
+      /* 임계값 미달 - 손을 뗀 원위치로 고무줄처럼 되돌아옴 */
+      el.style.transition = "transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease";
+      el.style.transform = "translateX(0px)";
+      el.style.opacity = "1";
+      const cleanup = () => {
+        if (mainPanelRef.current === el) el.style.transition = "";
+        el.removeEventListener("transitionend", cleanup);
+      };
+      el.addEventListener("transitionend", cleanup);
+    }
+
+    dragStateRef.current = { startX: 0, startY: 0, dragging: null, deltaX: 0 };
+  };
+
+  const notify = useCallback((msg, type = "ok") => {
+    setToast({ text: msg, type });
+    setTimeout(() => { setToast(null); }, 2500);
+  }, []);
+
+  useEffect(() => {
+    window.history.pushState({ page: "app" }, "", window.location.href);
+
+    const handlePopState = (e) => {
+      if (backPressedRef.current) {
+        clearTimeout(backTimerRef.current);
+        window.history.back();
+      } else {
+        backPressedRef.current = true;
+        window.history.pushState({ page: "app" }, "", window.location.href);
+        notify("뒤로가기를 한 번 더 누르면 종료됩니다.", "info");
+
+        backTimerRef.current = setTimeout(() => {
+          backPressedRef.current = false;
+        }, 2000);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      if (backTimerRef.current) clearTimeout(backTimerRef.current);
+    };
+  }, [notify]);
+
+  useEffect(() => {
+    if (!window.XLSX) {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
+
+  const refreshAll = async () => {
+    setRefreshing(true);
+    await Promise.all([reloadItems(), reloadTxs()]);
+    setRefreshing(false);
+  };
+
+  const alerts = useMemo(() => items.filter((i) => statusOf(i) === "danger"), [items]);
+  const warns = useMemo(() => items.filter((i) => statusOf(i) === "warn"), [items]);
+  const pendingUrgentCount = useMemo(
+    () => urgentRequests.filter((r) => r.status === "pending").length,
+    [urgentRequests]
+  );
+
+  /* PC 전용: 탭 제목에 긴급요청 대기 건수 표시 */
+  const baseTitleRef = useRef(document.title);
+  useEffect(() => {
+    if (window.innerWidth <= 768) return;
+    if (pendingUrgentCount > 0) {
+      document.title = `🚨(${pendingUrgentCount}) ${baseTitleRef.current}`;
+    } else {
+      document.title = baseTitleRef.current;
+    }
+    return () => { document.title = baseTitleRef.current; };
+  }, [pendingUrgentCount]);
+
+  /* PC 전용: 새 긴급요청 발생 시 알림음 */
+  const hasInteractedRef = useRef(false);
+  const prevPendingCountRef = useRef(pendingUrgentCount);
+  useEffect(() => {
+    const markInteracted = () => { hasInteractedRef.current = true; };
+    window.addEventListener("pointerdown", markInteracted, { once: true });
+    window.addEventListener("keydown", markInteracted, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", markInteracted);
+      window.removeEventListener("keydown", markInteracted);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (window.innerWidth <= 768) { prevPendingCountRef.current = pendingUrgentCount; return; }
+    if (pendingUrgentCount > prevPendingCountRef.current && hasInteractedRef.current) {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "square";
+          osc.frequency.value = 880;
+          gain.gain.setValueAtTime(0.001, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.4);
+        }
+      } catch (e) { /* 알림음 재생 불가 시 조용히 무시 */ }
+    }
+    prevPendingCountRef.current = pendingUrgentCount;
+  }, [pendingUrgentCount]);
+
+  const NAV = [
+    { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
+    { id: "in", label: "입고등록", icon: ArrowDownToLine },
+    { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
+    { id: "return", label: "원자재반납", icon: RotateCcw },
+    { id: "stock", label: "재고조회", icon: Boxes },
+    { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
+    { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
+    { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
+    { id: "chat", label: "실시간 대화", icon: MessageCircle },
+  ];
+  const NAV_IDS = NAV.map((n) => n.id);
+
+  /* 탭(메뉴창)별 네온 포인트 컬러 - 테두리/그로우에 사용 */
+  const TAB_NEON = {
+    dashboard: "#38BDF8",
+    in: "#35D08C",
+    out: "#F5A623",
+    return: "#22D3EE",
+    stock: "#A78BFA",
+    master: "#F472B6",
+    settings: "#2DD4BF",
+    trash: "#EF5350",
+    chat: "#22D3EE",
+  };
+
+  const [slideDir, setSlideDir] = useState(1);
+  const goToTab = (next) => {
+    if (next === tab) return;
+    const curIdx = NAV_IDS.indexOf(tab);
+    const nextIdx = NAV_IDS.indexOf(next);
+    setSlideDir(nextIdx >= curIdx ? 1 : -1);
+    setTab(next);
+  };
+
+const [showSplash, setShowSplash] = useState(true);
+
+useEffect(() => {
+  const timer = setTimeout(() => {
+    setShowSplash(false);
+  }, 2000);
+
+  return () => clearTimeout(timer);
+}, []);
+  const ready = itemsLoaded && txsLoaded && outFormSettingsLoaded;
+if (showSplash) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "#00122B",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: 99999,
+      }}
+    >
+      <img
+        src="/splash.png"
+        alt="LUXCO"
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+        }}
+      />
+    </div>
+  );
+}
+  return (
+    <div className="app-container" style={{
+      background: "#0A1622", color: "#E7EEF5", fontFamily: "Inter, sans-serif",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=${FONT_LINK}&display=swap');
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body, #root { width: 100%; max-width: none; margin: 0; padding: 0; }
+        ::selection { background: #F5A62355; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { text-align: left; padding: 10px 12px; font-size: 13.5px; }
+        tbody tr { border-top: 1px solid #17293B; }
+        tbody tr:hover { background: #0F2030; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-thumb { background: #21405B; border-radius: 4px; }
+        @keyframes riseIn { from { opacity:0; transform: translate(-50%,12px);} to {opacity:1; transform: translate(-50%,0);} }
+        @keyframes urgentBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+        @keyframes tabSlideInFromRight { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes tabSlideInFromLeft { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: translateX(0); } }
+        input:focus, select:focus { border-color: #F5A623 !important; }
+        button:active { transform: scale(0.98); }
+
+        .app-container { display: flex; min-height: 100vh; width: 100%; }
+        .pc-sidebar { width: 250px; flex-shrink: 0; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; }
+        .mobile-header { display: none; }
+        .mobile-bottom-nav { display: none; }
+        .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; overflow-x: hidden; min-width: 0; touch-action: pan-y; }
+        .toast-box { bottom: 26px; left: 50%; transform: translateX(-50%); }
+
+        .tab-panel {
+          border: 1px solid var(--tab-neon-border, #274460);
+          border-radius: 16px;
+          padding: 18px 20px;
+          background: var(--tab-neon-bg, transparent);
+          box-shadow: 0 0 0 1px var(--tab-neon-border, transparent), 0 0 26px -8px var(--tab-neon-glow, transparent), inset 0 0 40px -30px var(--tab-neon-glow, transparent);
+          animation: tabSlideInFromRight 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: border-color 0.25s ease, box-shadow 0.25s ease;
+          overflow-x: hidden;
+          max-width: 100%;
+        }
+        .tab-panel.dir-back { animation-name: tabSlideInFromLeft; }
+
+        .dashboard-recent-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .dashboard-recent-cards { display: none; flex-direction: column; gap: 10px; }
+
+        .inbound-grid-container {
+          display: grid;
+          grid-template-columns: 1.3fr 1fr;
+          gap: 20px;
+          align-items: start;
+        }
+        .inbound-grid-container > * { min-width: 0; }
+
+        .outform-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+          gap: 20px;
+          width: 100%;
+        }
+        .outform-grid > * { min-width: 0; }
+
+        @media (max-width: 768px) {
+          .pc-only-block { display: none !important; }
+          .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
+          .pc-sidebar { display: none; }
+          .mobile-header {
+            height: 52px; padding: 0 16px; border-bottom: 1px solid #16293C; background: #0F2233;
+            display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10;
+          }
+          .mobile-bottom-nav {
+            height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
+            grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
+          }
+          .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
+          .tab-panel { padding: 14px 12px; border-radius: 14px; }
+          .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
+          .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+          .dashboard-recent-table { display: none; }
+          .dashboard-recent-cards { display: flex; }
+
+          .inbound-grid-container {
+            grid-template-columns: 1fr;
+            gap: 16px;
+          }
+
+          .outform-grid {
+            grid-template-columns: 1fr;
+            gap: 14px;
+          }
+        }
+      `}</style>
+
+      {/* PC 사이드바 */}
+      <div className="pc-sidebar">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 4px" }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <img src="/Luxco.png" alt="Luxco" style={{ width: "250%", height: "300%", objectFit: "contain" }} />
+          </div>
+          <div>
+            <div style={{ fontFamily: "Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.02em" }}>선박 생산부</div>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5E86A3", letterSpacing: "0.08em" }}>부자재 관리 시스템</div>
+          </div>
+        </div>
+
+        {/* [수정 2] 클릭 시 자재마스터 화면('master')으로 이동하도록 onClick 변경 */}
+        {pendingUrgentCount > 0 && (
+          <button
+            onClick={() => goToTab("master")}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+              padding: "10px 14px", borderRadius: 8, border: "1px solid #EF535066",
+              background: "linear-gradient(90deg, #3A1414, #1F0B0B)", cursor: "pointer",
+              fontFamily: "'IBM Plex Mono', monospace",
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#FF6B6B", fontWeight: 700 }}>
+              🔔 긴급요청 대기중
+            </span>
+            <span style={{
+              minWidth: 20, height: 20, padding: "0 5px", borderRadius: 999, background: "#EF5350",
+              color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              {pendingUrgentCount}
+            </span>
+          </button>
+        )}
+
+        <button
+          onClick={refreshAll}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+            padding: "10px 14px", borderRadius: 8, border: "1px solid #1F3B54", background: "#0F2233",
+            cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
+          }}
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#35D08C" }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#35D08C" }} />
+            Supabase 연동됨
+          </span>
+          <span style={{ fontSize: 11, color: refreshing ? "#F5A623" : "#7F97AC" }}>
+            {refreshing ? "동기화..." : "↻ 새로고침"}
+          </span>
+        </button>
+
+        <nav style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {NAV.filter((n) => !n.mobileTopOnly).map((n) => {
+            const active = tab === n.id;
+            const Icon = n.icon;
+            return (
+              <button
+                key={n.id}
+                onClick={() => goToTab(n.id)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 8,
+                  border: "1px solid " + (active ? "#F5A62355" : "transparent"),
+                  background: active ? "linear-gradient(90deg, #F5A62322, transparent)" : "transparent",
+                  color: active ? "#F5A623" : "#9FB4C7", cursor: "pointer", fontSize: 15,
+                  fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, textAlign: "left",
+                  borderLeft: active ? "3px solid #F5A623" : "3px solid transparent",
+                }}
+              >
+                <Icon size={18} />
+                {n.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div style={{ marginTop: "auto" }}>
+          <Card style={{ padding: 16 }}>
+            <SectionLabel>재고 요약</SectionLabel>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 7, color: "#9FB4C7" }}><Led status="danger" />부족</span>
+                <b style={{ color: "#EF5350" }}>{alerts.length}</b>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 7, color: "#9FB4C7" }}><Led status="warn" />주의</span>
+                <b style={{ color: "#F5A623" }}>{warns.length}</b>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 7, color: "#9FB4C7" }}><Led status="ok" />정상</span>
+                <b style={{ color: "#35D08C" }}>{items.length - alerts.length - warns.length}</b>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {/* 모바일 헤더 */}
+      <header className="mobile-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <img src="/Luxco.png" alt="Luxco" style={{ height: 34, width: "auto", objectFit: "contain", display: "block" }} />
+          <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
+            선박 생산부
+          </span>
+          <button
+            onClick={() => goToTab("master")}
+            title="자재마스터 이동"
+            style={{
+              background: tab === "master" ? "#F5A62322" : "transparent",
+              border: `1px solid ${tab === "master" ? "#F5A623" : "#274460"}`,
+              borderRadius: 6,
+              padding: "4px 6px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#F5A623",
+              marginLeft: 4
+            }}
+          >
+            <Package size={17} color="#F5A623" />
+          </button>
+        </div>
+        <button
+          onClick={() => goToTab("chat")}
+          title="실시간 대화 / 개인 메모"
+          style={{
+            background: tab === "chat"
+              ? "linear-gradient(135deg, #22D3EE33, #8B5CF633)"
+              : "linear-gradient(135deg, #22D3EE18, #8B5CF612)",
+            border: `1px solid ${tab === "chat" ? "#22D3EE" : "#22D3EE66"}`,
+            color: tab === "chat" ? "#FFFFFF" : "#B9F5FF",
+            borderRadius: 9,
+            padding: "7px 11px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontSize: 12,
+            fontWeight: 800,
+            fontFamily: "'IBM Plex Mono', monospace",
+            boxShadow: tab === "chat"
+              ? "0 0 14px -4px #22D3EE"
+              : "0 0 10px -6px #22D3EE",
+          }}
+        >
+          <MessageCircle size={15} />
+          대화
+        </button>
+      </header>
+
+      {/* 메인 영역 */}
+      <main
+        className="main-content"
+        onTouchStart={handleMainTouchStart}
+        onTouchMove={handleMainTouchMove}
+        onTouchEnd={handleMainTouchEnd}
+      >
+        {!ready ? (
+          <div style={{ color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", textAlign: "center", padding: 40 }}>Supabase 불러오는 중...</div>
+        ) : (
+          <div
+            key={tab}
+            ref={mainPanelRef}
+            className={`tab-panel${slideDir < 0 ? " dir-back" : ""}`}
+            style={{
+              "--tab-neon-border": `${TAB_NEON[tab] || "#274460"}55`,
+              "--tab-neon-glow": `${TAB_NEON[tab] || "#274460"}45`,
+              "--tab-neon-bg": `${TAB_NEON[tab] || "#274460"}0d`,
+            }}
+          >
+            {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} />}
+            {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
+            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
+            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
+            {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
+            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
+            {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
+            {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} />}
+          </div>
+        )}
+      </main>
+
+      {/* 모바일 하단 탭 */}
+      <nav className="mobile-bottom-nav">
+        {["out", "stock", "in", "return"].map((id) => {
+          const n = NAV.find((item) => item.id === id);
+          if (!n) return null;
+          const active = tab === n.id;
+          const Icon = n.icon;
+          const neon = TAB_NEON[n.id] || "#7F97AC";
+          const isOut = n.id === "out";
+
+          return (
+            <button
+              key={n.id}
+              onClick={() => goToTab(n.id)}
+              style={{
+                background: isOut ? (active ? `${neon}22` : `${neon}10`) : "transparent",
+                border: isOut ? `1px solid ${neon}${active ? "88" : "44"}` : "none",
+                borderRadius: isOut ? 10 : 0,
+                color: active ? neon : "#7F97AC",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: isOut ? 2 : 4,
+                cursor: "pointer",
+                padding: isOut ? "3px 4px" : 0,
+                margin: isOut ? "4px 2px" : 0,
+                transform: isOut ? "translateY(-4px)" : "none",
+                boxShadow: isOut && active ? `0 0 18px -8px ${neon}` : "none",
+              }}
+            >
+              <Icon size={isOut ? 23 : 19} color={active ? neon : "#7F97AC"} />
+              <span style={{
+                fontSize: isOut ? 10.5 : 10,
+                fontFamily: "Inter, sans-serif",
+                fontWeight: active || isOut ? 700 : 500,
+              }}>
+                {n.label}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
+
+      <Toast toast={toast} />
+    </div>
+  );
+}
+
 /* ---------------- Dashboard ---------------- */
 function Dashboard({ items, txs, loadCumulativeOutTxs }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
@@ -2894,9 +3622,9 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                 {/* PC: 기존 배치 그대로 유지 */}
                 <div className="stock-card-pc-layout" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                   {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} style={{ width: 76, height: 76, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                    <img src={item.image_url} alt={item.name} style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
                   ) : (
-                    <div style={{ width: 76, height: 76, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <div style={{ width: 50, height: 50, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <ImageIcon size={20} color="#5E86A3" />
                     </div>
                   )}
@@ -2908,7 +3636,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                         title={item.name}
                         style={{
                           fontWeight: 700,
-                          fontSize: 15,
+                          fontSize: 14,
                           color: "#38BDF8",
                           lineHeight: 1.35,
                           display: "-webkit-box",
@@ -2922,8 +3650,10 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                         {item.name}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: "#A8B9C8", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>사양/규격: {item.spec || "-"}</div>
-                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>코드: {item.code}</div>
+                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>코드: {item.code}</div>
+                    {item.manufacturer && (
+                      <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>제조사: {item.manufacturer}</div>
+                    )}
                   </div>
 
                   <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flexShrink: 0 }}>
@@ -2973,6 +3703,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                     )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
+                    <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
@@ -3074,27 +3805,27 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
 
       <style>{`
         .stock-card-mobile-layout { display: none; }
-        .stock-pc-note-wrap { flex: 0 1 45%; min-width: 220px; max-width: 45%; }
+        .stock-pc-note-wrap { flex: 1; min-width: 0; max-width: 70%; }
         .stock-pc-note {
-          width: 100%; box-sizing: border-box; height: 30px; padding: 5px 8px;
+          width: 100%; box-sizing: border-box; height: 34px; padding: 7px 10px;
           border-radius: 7px; border: 1px solid #274460; background: #0B1C2C;
-          color: #E7EEF5; outline: none; font-size: 13px;
+          color: #E7EEF5; outline: none; font-size: 15px;
         }
         .stock-pc-note::placeholder { color: #5E86A3; }
         .stock-pc-note:focus { border-color: #38BDF8; }
         .stock-pc-note-closed {
-          width: 100%; box-sizing: border-box; height: 30px; display: flex; align-items: center;
+          width: 100%; box-sizing: border-box; height: 34px; display: flex; align-items: center;
           gap: 8px; padding: 0 5px 0 10px; border-radius: 7px; border: 1px solid #274460; background: #0B1C2C;
         }
         .stock-pc-note-text, .stock-pc-note-empty {
           flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          font-size: 13px; line-height: 1.2;
+          font-size: 15px; line-height: 1.2;
         }
         .stock-pc-note-text { color: #E7EEF5; }
         .stock-pc-note-empty { color: #5E86A3; }
         .stock-pc-note-edit {
           flex-shrink: 0; border: 1px solid #315775; background: #122B40; color: #8FCBE8;
-          border-radius: 5px; padding: 3px 7px; font-size: 11px; cursor: pointer;
+          border-radius: 5px; padding: 4px 8px; font-size: 12px; cursor: pointer;
         }
         .stock-pc-note-edit:hover { border-color: #38BDF8; color: #38BDF8; }
 
@@ -4660,7 +5391,7 @@ keyCode = String(keyCode)
       deleted: false,
     };
 
-   const nextItems = [...items, newItem];
+    const nextItems = [newItem, ...items];
     await saveItems(nextItems);
 
     if (invoiceData) {

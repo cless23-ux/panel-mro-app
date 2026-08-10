@@ -3446,8 +3446,24 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 /* ---------------- 재고 조회 ---------------- */
 function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentRequest }) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const { isFavorite, toggleFavorite } = useFavoriteItems(notify);
+
+  // 자재마스터에 실제 지정된 카테고리만 자동으로 필터 버튼으로 표시합니다.
+  const categoryOptions = useMemo(() => {
+    const set = new Set();
+    items.forEach((item) => {
+      const value = String(item.category || "").trim();
+      if (value) set.add(value);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
+  }, [items]);
+
+  useEffect(() => {
+    if (categoryFilter !== "all" && !categoryOptions.includes(categoryFilter)) {
+      setCategoryFilter("all");
+    }
+  }, [categoryFilter, categoryOptions]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -3457,16 +3473,13 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
         item.code.toLowerCase().includes(search.toLowerCase()) ||
         (item.manufacturer && item.manufacturer.toLowerCase().includes(search.toLowerCase()));
 
-      const st = statusOf(item);
-      const matchStatus =
-        statusFilter === "all" ||
-        (statusFilter === "normal" && st === "ok") ||
-        (statusFilter === "warning" && st === "warn") ||
-        (statusFilter === "danger" && st === "danger");
+      const itemCategory = String(item.category || "").trim();
+      const matchCategory =
+        categoryFilter === "all" || itemCategory === categoryFilter;
 
-      return matchSearch && matchStatus;
+      return matchSearch && matchCategory;
     });
-  }, [items, search, statusFilter]);
+  }, [items, search, categoryFilter]);
 
   const handleCardClick = (item) => {
     if (onSelectItem) {
@@ -3495,18 +3508,16 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
           <div style={{ display: "flex", gap: 6, overflowX: "auto" }}>
             {[
               { id: "all", label: "전체" },
-              { id: "normal", label: "정상" },
-              { id: "warning", label: "주의" },
-              { id: "danger", label: "부족" },
+              ...categoryOptions.map((category) => ({ id: category, label: category })),
             ].map((f) => (
               <button
                 key={f.id}
-                onClick={() => setStatusFilter(f.id)}
+                onClick={() => setCategoryFilter(f.id)}
                 style={{
                   padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: "bold",
-                  border: statusFilter === f.id ? "1px solid #38BDF8" : "1px solid #1F3B54",
-                  background: statusFilter === f.id ? "#1E3A5F" : "#0B1C2C",
-                  color: statusFilter === f.id ? "#38BDF8" : "#7F97AC",
+                  border: categoryFilter === f.id ? "1px solid #38BDF8" : "1px solid #1F3B54",
+                  background: categoryFilter === f.id ? "#1E3A5F" : "#0B1C2C",
+                  color: categoryFilter === f.id ? "#38BDF8" : "#7F97AC",
                   cursor: "pointer", whiteSpace: "nowrap",
                 }}
               >
@@ -3531,7 +3542,8 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
                 style={{ padding: 14, cursor: "pointer" }}
                 onClick={() => handleCardClick(item)}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                {/* PC: 기존 배치 그대로 유지 */}
+                <div className="stock-card-pc-layout" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                   {item.image_url ? (
                     <img src={item.image_url} alt={item.name} style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
                   ) : (
@@ -3578,9 +3590,8 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
                   </div>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid #1F3B54", marginTop: 10, paddingTop: 10 }}>
+                <div className="stock-card-pc-layout" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid #1F3B54", marginTop: 10, paddingTop: 10 }}>
                   <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
-
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
@@ -3597,11 +3608,169 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
                     />
                   </button>
                 </div>
+
+                {/* 모바일 전용: 사진 → 품명 / 사양·규격 → 메모·수량·즐겨찾기 */}
+                <div className="stock-card-mobile-layout">
+                  <div className="stock-mobile-top">
+                    {item.image_url ? (
+                      <img src={item.image_url} alt={item.name} className="stock-mobile-image" />
+                    ) : (
+                      <div className="stock-mobile-image stock-mobile-image-empty">
+                        <ImageIcon size={22} color="#5E86A3" />
+                      </div>
+                    )}
+                    <div className="stock-mobile-info">
+                      <div className="stock-mobile-name-row">
+                        <Led status={st} size={9} />
+                        <span className="stock-mobile-name" title={item.name}>{item.name}</span>
+                      </div>
+                      <div className="stock-mobile-spec">
+                        {item.spec ? `사양/규격: ${item.spec}` : "사양/규격: -"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="stock-mobile-bottom" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="text"
+                      className="stock-mobile-note"
+                      placeholder="명칭 / 메모 입력"
+                      aria-label={`${item.name} 명칭 또는 메모 입력`}
+                    />
+                    <div className="stock-mobile-actions">
+                      <div className="stock-mobile-quantity" style={{
+                        color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C",
+                      }}>
+                        {item.stock} <span>{item.unit}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleFavorite(item.code)}
+                        aria-label="즐겨찾기 토글"
+                        className="stock-mobile-favorite"
+                      >
+                        <Star
+                          size={20}
+                          color={isFavorite(item.code) ? "#F5A623" : "#3E5975"}
+                          fill={isFavorite(item.code) ? "#F5A623" : "none"}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </Card>
             );
           })}
         </div>
       )}
+
+      <style>{`
+        .stock-card-mobile-layout { display: none; }
+
+        @media (max-width: 768px) {
+          .stock-card-pc-layout { display: none !important; }
+          .stock-card-mobile-layout {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+          }
+          .stock-mobile-top {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            min-width: 0;
+          }
+          .stock-mobile-image {
+            width: 58px;
+            height: 58px;
+            border-radius: 8px;
+            object-fit: cover;
+            flex: 0 0 58px;
+          }
+          .stock-mobile-image-empty {
+            background: #0B1C2C;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .stock-mobile-info {
+            min-width: 0;
+            flex: 1;
+            padding-top: 1px;
+          }
+          .stock-mobile-name-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            min-width: 0;
+          }
+          .stock-mobile-name {
+            font-weight: 700;
+            font-size: 14px;
+            line-height: 1.35;
+            color: #38BDF8;
+            word-break: break-word;
+            white-space: normal;
+          }
+          .stock-mobile-spec {
+            margin-top: 7px;
+            font-size: 11.5px;
+            line-height: 1.4;
+            color: #7F97AC;
+            word-break: break-word;
+            white-space: normal;
+          }
+          .stock-mobile-bottom {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            padding-top: 2px;
+          }
+          .stock-mobile-note {
+            flex: 1;
+            min-width: 0;
+            height: 34px;
+            padding: 7px 9px;
+            border-radius: 7px;
+            border: 1px solid #274460;
+            background: #0B1C2C;
+            color: #E7EEF5;
+            outline: none;
+            font-size: 11.5px;
+          }
+          .stock-mobile-note::placeholder { color: #5E86A3; }
+          .stock-mobile-note:focus { border-color: #38BDF8; }
+          .stock-mobile-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 7px;
+            flex-shrink: 0;
+          }
+          .stock-mobile-quantity {
+            font-family: "IBM Plex Mono", monospace;
+            font-size: 16px;
+            font-weight: 700;
+            white-space: nowrap;
+          }
+          .stock-mobile-quantity span {
+            font-size: 10.5px;
+            font-weight: 500;
+          }
+          .stock-mobile-favorite {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            border: none;
+            background: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -3797,6 +3966,22 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     setEditingManufacturerValue("");
   };
 
+  const [editingCategoryCode, setEditingCategoryCode] = useState(null);
+  const [editingCategoryValue, setEditingCategoryValue] = useState("");
+
+  const startEditCategory = (item) => {
+    setEditingCategoryCode(item.code);
+    setEditingCategoryValue(item.category || "");
+  };
+
+  const commitEditCategory = async (code) => {
+    const nextItems = items.map((i) => (i.code === code ? { ...i, category: editingCategoryValue.trim() } : i));
+    await saveItems(nextItems);
+    notify("카테고리가 수정되었습니다.", "ok");
+    setEditingCategoryCode(null);
+    setEditingCategoryValue("");
+  };
+
   const addItem = async () => {
     if (!form.code.trim() || !form.name.trim()) {
       notify("자재코드와 품명은 필수 입력 항목입니다.", "err");
@@ -3825,7 +4010,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       deleted: false,
     };
 
-    const nextItems = [newItem, ...items];
+    const nextItems = [...items, newItem];
     await saveItems(nextItems);
     notify(`[${newItem.name}] 자재가 성공적으로 등록되었습니다.`, "ok");
     setForm(blank);
@@ -4250,7 +4435,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                <th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
               </tr>
             </thead>
             <tbody>
@@ -4314,6 +4499,30 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                         style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
                       >
                         {i.manufacturer || "-"}
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>
+                    {editingCategoryCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingCategoryValue}
+                        onChange={(e) => setEditingCategoryValue(e.target.value)}
+                        onBlur={() => commitEditCategory(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditCategory(i.code);
+                          if (e.key === "Escape") setEditingCategoryCode(null);
+                        }}
+                        style={{ ...inputStyle, width: 110, padding: "4px 8px", fontSize: 13 }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditCategory(i)}
+                        title="클릭하여 카테고리 수정"
+                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
+                      >
+                        {i.category || "-"}
                       </span>
                     )}
                   </td>
@@ -4497,6 +4706,27 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                     ) : (
                       <span onClick={() => startEditLocation(i)} style={{ color: "#E7EEF5", borderBottom: "1px dashed #5E86A3" }}>
                         {i.location || "미지정"}
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>카테고리</span>
+                    {editingCategoryCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingCategoryValue}
+                        onChange={(e) => setEditingCategoryValue(e.target.value)}
+                        onBlur={() => commitEditCategory(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditCategory(i.code);
+                          if (e.key === "Escape") setEditingCategoryCode(null);
+                        }}
+                        style={{ ...inputStyle, width: "100%", padding: "2px 4px", fontSize: 12 }}
+                      />
+                    ) : (
+                      <span onClick={() => startEditCategory(i)} style={{ color: "#E7EEF5", borderBottom: "1px dashed #5E86A3", cursor: "pointer" }}>
+                        {i.category || "미지정"}
                       </span>
                     )}
                   </div>

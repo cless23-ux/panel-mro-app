@@ -5354,7 +5354,7 @@ keyCode = String(keyCode)
       deleted: false,
     };
 
-    const nextItems = [newItem, ...items];
+    const nextItems = [...items, newItem];
     await saveItems(nextItems);
 
     if (invoiceData) {

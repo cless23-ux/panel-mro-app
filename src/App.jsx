@@ -13,9 +13,9 @@ const FONT_LINK =
 "Rajdhani:wght@500;600;700|Oswald:wght@500;600;700|IBM+Plex+Mono:wght@400;500;600|Inter:wght@400;500;600;700";
 
 const seedItems = [
-  { code: "BB-C1100-T3", name: "부스바 (동바)", spec: "C1100 T3 x 20mm", unit: "m", stock: 62, safety: 50, location: "A-01", manufacturer: "대한전선", category: "부스바", image_url: "" },
-  { code: "RT-2.5SQ", name: "압착단자", spec: "Ring Terminal 2.5 sq", unit: "EA", stock: 840, safety: 1000, location: "B-04", manufacturer: "KEC", category: "압착단자", image_url: "" },
-  { code: "CG-M20-BR", name: "케이블 글랜드", spec: "Brass Gland M20", unit: "EA", stock: 260, safety: 200, location: "B-07", manufacturer: "동아베스텍", category: "케이블 글랜드", image_url: "" },
+  { code: "BB-C1100-T3", name: "부스바 (동바)", spec: "C1100 T3 x 20mm", unit: "m", stock: 62, safety: 50, location: "A-01", manufacturer: "대한전선", category: "부스바", memo: "", image_url: "" },
+  { code: "RT-2.5SQ", name: "압착단자", spec: "Ring Terminal 2.5 sq", unit: "EA", stock: 840, safety: 1000, location: "B-04", manufacturer: "KEC", category: "압착단자", memo: "", image_url: "" },
+  { code: "CG-M20-BR", name: "케이블 글랜드", spec: "Brass Gland M20", unit: "EA", stock: 260, safety: 200, location: "B-07", manufacturer: "동아베스텍", category: "케이블 글랜드", memo: "", image_url: "" },
 ];
 
 function uid(p = "T") {
@@ -1815,7 +1815,7 @@ if (showSplash) {
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
-            {tab === "stock" && <StockView items={items} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
+            {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
@@ -3444,9 +3444,10 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 }
 
 /* ---------------- 재고 조회 ---------------- */
-function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentRequest }) {
+function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, addUrgentRequest }) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [memoDrafts, setMemoDrafts] = useState({});
   const { isFavorite, toggleFavorite } = useFavoriteItems(notify);
 
   // 자재마스터에 실제 지정된 카테고리만 자동으로 필터 버튼으로 표시합니다.
@@ -3471,7 +3472,8 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
         !search ||
         item.name.toLowerCase().includes(search.toLowerCase()) ||
         item.code.toLowerCase().includes(search.toLowerCase()) ||
-        (item.manufacturer && item.manufacturer.toLowerCase().includes(search.toLowerCase()));
+        (item.manufacturer && item.manufacturer.toLowerCase().includes(search.toLowerCase())) ||
+        (item.memo && item.memo.toLowerCase().includes(search.toLowerCase()));
 
       const itemCategory = String(item.category || "").trim();
       const matchCategory =
@@ -3484,6 +3486,39 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
   const handleCardClick = (item) => {
     if (onSelectItem) {
       onSelectItem(item);
+    }
+  };
+
+  const handleMemoChange = (code, value) => {
+    setMemoDrafts((prev) => ({ ...prev, [code]: value }));
+  };
+
+  const handleMemoSave = async (item, value) => {
+    const nextMemo = String(value ?? "").trim();
+    const currentMemo = String(item.memo ?? "").trim();
+    if (nextMemo === currentMemo) {
+      setMemoDrafts((prev) => { const next = { ...prev }; delete next[item.code]; return next; });
+      return;
+    }
+
+    try {
+      if (supabase) {
+        const { error } = await supabase
+          .from("items")
+          .update({ memo: nextMemo })
+          .eq("code", item.code);
+        if (error) throw error;
+      }
+
+      const nextItems = items.map((i) =>
+        i.code === item.code ? { ...i, memo: nextMemo } : i
+      );
+      await saveItems(nextItems);
+      setMemoDrafts((prev) => { const next = { ...prev }; delete next[item.code]; return next; });
+      notify("명칭/메모가 저장되었습니다.", "ok");
+    } catch (e) {
+      console.error("Stock memo save error:", e);
+      notify("명칭/메모 저장에 실패했습니다.", "err");
     }
   };
 
@@ -3636,6 +3671,16 @@ function StockView({ items, onSelectItem, notify, urgentRequests, addUrgentReque
                       className="stock-mobile-note"
                       placeholder="명칭 / 메모 입력"
                       aria-label={`${item.name} 명칭 또는 메모 입력`}
+                      value={Object.prototype.hasOwnProperty.call(memoDrafts, item.code) ? memoDrafts[item.code] : (item.memo || "")}
+                      onChange={(e) => handleMemoChange(item.code, e.target.value)}
+                      onBlur={(e) => handleMemoSave(item, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
                     />
                     <div className="stock-mobile-actions">
                       <div className="stock-mobile-quantity" style={{
@@ -3849,7 +3894,7 @@ async function buildQrLabelWorkbook(items) {
 
 /* ---------------- 자재 마스터 관리 ---------------- */
 function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
-  const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", image_url: "" };
+  const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", memo: "", image_url: "" };
   const [form, setForm] = useState(blank);
   const [formMaterialType, setFormMaterialType] = useState("raw"); // "raw"(원자재) | "sub"(부자재)
   const [showForm, setShowForm] = useState(false);

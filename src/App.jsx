@@ -899,7 +899,7 @@ function Toast({ toast }) {
 ----------------------------------------------------------------------- */
 const PERSONAL_MEMO_KEY = "panel:personalMemos";
 
-function ChatMemoView({ onClose }) {
+function ChatMemoView({ onClose, unreadCount = 0, onClearUnread }) {
   const CHAT_NAME_KEY = "panel:chatDisplayName";
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
@@ -1034,8 +1034,29 @@ function ChatMemoView({ onClose }) {
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <MessageCircle size={21} color="#22D3EE" />
           <div>
-            <div style={{ fontSize: 17, fontWeight: 800, color: "#E7EEF5" }}>
-              실시간 대화
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "#E7EEF5" }}>
+                실시간 대화
+              </div>
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={onClearUnread}
+                  style={{
+                    border: "none",
+                    background: "#EF4444",
+                    color: "#FFFFFF",
+                    borderRadius: 999,
+                    padding: "3px 8px",
+                    fontSize: 10.5,
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  새 글 {unreadCount > 99 ? "99+" : unreadCount}
+                </button>
+              )}
             </div>
             <div style={{ fontSize: 11, color: online ? "#35D08C" : "#F5A623", marginTop: 2 }}>
               {online ? "● 실시간 연결됨" : "● 연결 중..."}
@@ -1309,6 +1330,8 @@ function AppInner() {
 
   /* 초기 열림 탭: PC는 대시보드, 모바일은 대시보드가 숨겨져 있으므로 출고(스캔)로 시작 */
   const [tab, setTab] = useState(() => (typeof window !== "undefined" && window.innerWidth <= 768 ? "out" : "dashboard"));
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  const chatLastSeenRef = useRef(null);
   const [presetItem, setPresetItem] = useState(null);
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -1324,6 +1347,78 @@ function AppInner() {
     handleResize();
     return () => window.removeEventListener("resize", handleResize);
   }, [tab]);
+
+  /* 실시간 대화 새 글 알림: 대화창 밖에서도 수신하고, 채팅 아이콘에 빨간 배지를 표시합니다. */
+  useEffect(() => {
+    if (!supabase) return;
+
+    const LAST_SEEN_KEY = "panel:chatLastSeenAt";
+    const CHAT_NAME_KEY = "panel:chatDisplayName";
+    let mounted = true;
+    let channel = null;
+
+    try {
+      chatLastSeenRef.current = localStorage.getItem(LAST_SEEN_KEY);
+    } catch {
+      chatLastSeenRef.current = null;
+    }
+
+    const markRead = () => {
+      const now = new Date().toISOString();
+      chatLastSeenRef.current = now;
+      try { localStorage.setItem(LAST_SEEN_KEY, now); } catch {}
+      setChatUnreadCount(0);
+    };
+
+    if (tab === "chat") {
+      markRead();
+    } else if (!chatLastSeenRef.current) {
+      const now = new Date().toISOString();
+      chatLastSeenRef.current = now;
+      try { localStorage.setItem(LAST_SEEN_KEY, now); } catch {}
+    }
+
+    const loadUnread = async () => {
+      const since = chatLastSeenRef.current;
+      if (!since || tab === "chat") return;
+      const { count, error } = await supabase
+        .from("chat_messages")
+        .select("id", { count: "exact", head: true })
+        .gt("created_at", since);
+      if (!mounted || error) return;
+      setChatUnreadCount(count || 0);
+    };
+
+    loadUnread();
+
+    channel = supabase
+      .channel("panel-chat-notification")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "chat_messages" },
+        (payload) => {
+          if (!mounted) return;
+          const sender = payload?.new?.sender_name || "사용자";
+          let myName = "사용자";
+          try { myName = localStorage.getItem(CHAT_NAME_KEY) || "사용자"; } catch {}
+          if (sender === myName) return;
+          setChatUnreadCount((prev) => Math.min(prev + 1, 99));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [tab]);
+
+  const clearChatUnread = useCallback(() => {
+    const now = new Date().toISOString();
+    chatLastSeenRef.current = now;
+    try { localStorage.setItem("panel:chatLastSeenAt", now); } catch {}
+    setChatUnreadCount(0);
+  }, []);
 
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
@@ -1820,7 +1915,30 @@ if (showSplash) {
               : "0 0 10px -6px #22D3EE",
           }}
         >
-          <MessageCircle size={15} />
+          <span style={{ position: "relative", display: "inline-flex" }}>
+            <MessageCircle size={15} />
+            {chatUnreadCount > 0 && (
+              <span style={{
+                position: "absolute",
+                top: -9,
+                right: -11,
+                minWidth: 15,
+                height: 15,
+                padding: "0 4px",
+                borderRadius: 999,
+                background: "#EF4444",
+                color: "#FFFFFF",
+                fontSize: 9,
+                fontWeight: 900,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "2px solid #0B1724",
+                lineHeight: 1,
+              }}
+              >{chatUnreadCount > 99 ? "99+" : chatUnreadCount}</span>
+            )}
+          </span>
           대화
         </button>
       </header>
@@ -1853,7 +1971,7 @@ if (showSplash) {
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
-            {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} />}
+            {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
           </div>
         )}
       </main>
@@ -5391,7 +5509,7 @@ keyCode = String(keyCode)
       deleted: false,
     };
 
-    const nextItems = [newItem, ...items];
+    const nextItems = [...items, newItem];
     await saveItems(nextItems);
 
     if (invoiceData) {

@@ -3782,7 +3782,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
             background: #0B1C2C;
             color: #E7EEF5;
             outline: none;
-            font-size: 11.5px;
+            font-size: 15px;
           }
           .stock-mobile-note::placeholder { color: #5E86A3; }
           .stock-mobile-note:focus { border-color: #38BDF8; }

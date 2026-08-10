@@ -3588,9 +3588,9 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                 {/* PC: 기존 배치 그대로 유지 */}
                 <div className="stock-card-pc-layout" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                   {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                    <img src={item.image_url} alt={item.name} style={{ width: 76, height: 76, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
                   ) : (
-                    <div style={{ width: 50, height: 50, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <div style={{ width: 76, height: 76, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <ImageIcon size={20} color="#5E86A3" />
                     </div>
                   )}
@@ -3602,7 +3602,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                         title={item.name}
                         style={{
                           fontWeight: 700,
-                          fontSize: 14,
+                          fontSize: 15,
                           color: "#38BDF8",
                           lineHeight: 1.35,
                           display: "-webkit-box",
@@ -3616,10 +3616,8 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                         {item.name}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>코드: {item.code}</div>
-                    {item.manufacturer && (
-                      <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>제조사: {item.manufacturer}</div>
-                    )}
+                    <div style={{ fontSize: 11.5, color: "#A8B9C8", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>사양/규격: {item.spec || "-"}</div>
+                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>코드: {item.code}</div>
                   </div>
 
                   <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flexShrink: 0 }}>
@@ -3669,7 +3667,6 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                     )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
-                    <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
@@ -3771,27 +3768,27 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
 
       <style>{`
         .stock-card-mobile-layout { display: none; }
-        .stock-pc-note-wrap { flex: 1; min-width: 0; max-width: 70%; }
+        .stock-pc-note-wrap { flex: 0 1 45%; min-width: 220px; max-width: 45%; }
         .stock-pc-note {
-          width: 100%; box-sizing: border-box; height: 34px; padding: 7px 10px;
+          width: 100%; box-sizing: border-box; height: 30px; padding: 5px 8px;
           border-radius: 7px; border: 1px solid #274460; background: #0B1C2C;
-          color: #E7EEF5; outline: none; font-size: 15px;
+          color: #E7EEF5; outline: none; font-size: 13px;
         }
         .stock-pc-note::placeholder { color: #5E86A3; }
         .stock-pc-note:focus { border-color: #38BDF8; }
         .stock-pc-note-closed {
-          width: 100%; box-sizing: border-box; height: 34px; display: flex; align-items: center;
+          width: 100%; box-sizing: border-box; height: 30px; display: flex; align-items: center;
           gap: 8px; padding: 0 5px 0 10px; border-radius: 7px; border: 1px solid #274460; background: #0B1C2C;
         }
         .stock-pc-note-text, .stock-pc-note-empty {
           flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          font-size: 15px; line-height: 1.2;
+          font-size: 13px; line-height: 1.2;
         }
         .stock-pc-note-text { color: #E7EEF5; }
         .stock-pc-note-empty { color: #5E86A3; }
         .stock-pc-note-edit {
           flex-shrink: 0; border: 1px solid #315775; background: #122B40; color: #8FCBE8;
-          border-radius: 5px; padding: 4px 8px; font-size: 12px; cursor: pointer;
+          border-radius: 5px; padding: 3px 7px; font-size: 11px; cursor: pointer;
         }
         .stock-pc-note-edit:hover { border-color: #38BDF8; color: #38BDF8; }
 
@@ -5357,7 +5354,7 @@ keyCode = String(keyCode)
       deleted: false,
     };
 
-    const nextItems = [...items, newItem];
+    const nextItems = [newItem, ...items];
     await saveItems(nextItems);
 
     if (invoiceData) {

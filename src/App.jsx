@@ -1023,7 +1023,7 @@ function ChatMemoView({ onClose, unreadCount = 0, onClearUnread }) {
   };
 
   return (
-    <div style={{ width: "100%", maxWidth: 900, margin: "0 auto" }}>
+    <div className="chat-view" style={{ width: "100%", maxWidth: 900, margin: "0 auto" }}>
       <div style={{
         display: "flex",
         alignItems: "center",
@@ -1101,7 +1101,7 @@ function ChatMemoView({ onClose, unreadCount = 0, onClearUnread }) {
       </Card>
 
       <Card style={{ padding: 12 }}>
-        <div style={{
+        <div className="chat-messages" style={{
           height: "min(55vh, 560px)",
           minHeight: 300,
           overflowY: "auto",
@@ -1159,7 +1159,7 @@ function ChatMemoView({ onClose, unreadCount = 0, onClearUnread }) {
           <div ref={messagesEndRef} />
         </div>
 
-        <div style={{
+        <div className="chat-composer" style={{
           display: "flex",
           gap: 8,
           alignItems: "flex-end",
@@ -1348,6 +1348,16 @@ function AppInner() {
     return () => window.removeEventListener("resize", handleResize);
   }, [tab]);
 
+  const updateChatAppBadge = useCallback((count) => {
+    try {
+      if (count > 0 && typeof navigator !== "undefined" && "setAppBadge" in navigator) {
+        navigator.setAppBadge(Math.min(count, 99)).catch?.(() => {});
+      } else if (count <= 0 && typeof navigator !== "undefined" && "clearAppBadge" in navigator) {
+        navigator.clearAppBadge().catch?.(() => {});
+      }
+    } catch {}
+  }, []);
+
   /* 실시간 대화 새 글 알림: 대화창 밖에서도 수신하고, 채팅 아이콘에 빨간 배지를 표시합니다. */
   useEffect(() => {
     if (!supabase) return;
@@ -1386,7 +1396,9 @@ function AppInner() {
         .select("id", { count: "exact", head: true })
         .gt("created_at", since);
       if (!mounted || error) return;
-      setChatUnreadCount(count || 0);
+      const next = count || 0;
+      setChatUnreadCount(next);
+      updateChatAppBadge(next);
     };
 
     loadUnread();
@@ -1402,7 +1414,11 @@ function AppInner() {
           let myName = "사용자";
           try { myName = localStorage.getItem(CHAT_NAME_KEY) || "사용자"; } catch {}
           if (sender === myName) return;
-          setChatUnreadCount((prev) => Math.min(prev + 1, 99));
+          setChatUnreadCount((prev) => {
+            const next = Math.min(prev + 1, 99);
+            updateChatAppBadge(next);
+            return next;
+          });
         }
       )
       .subscribe();
@@ -1411,14 +1427,15 @@ function AppInner() {
       mounted = false;
       if (channel) supabase.removeChannel(channel);
     };
-  }, [tab]);
+  }, [tab, updateChatAppBadge]);
 
   const clearChatUnread = useCallback(() => {
     const now = new Date().toISOString();
     chatLastSeenRef.current = now;
     try { localStorage.setItem("panel:chatLastSeenAt", now); } catch {}
     setChatUnreadCount(0);
-  }, []);
+    updateChatAppBadge(0);
+  }, [updateChatAppBadge]);
 
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
@@ -1765,6 +1782,40 @@ if (showSplash) {
           .outform-grid {
             grid-template-columns: 1fr;
             gap: 14px;
+          }
+
+          /* 실시간 대화 모바일: 입력창이 화면 아래로 밀리지 않도록 채팅 영역 자체를 고정 */
+          .chat-view {
+            height: calc(100dvh - 52px - 64px - 24px - 28px);
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+          }
+          .chat-view > div:nth-child(2) {
+            flex-shrink: 0;
+          }
+          .chat-view > div:nth-child(3) {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+          }
+          .chat-messages {
+            height: auto !important;
+            min-height: 0 !important;
+            flex: 1 1 auto;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+          .chat-composer {
+            flex-shrink: 0;
+            padding-bottom: max(4px, env(safe-area-inset-bottom));
+          }
+          .chat-composer textarea {
+            min-height: 46px !important;
+          }
+          .chat-composer button {
+            min-height: 46px !important;
           }
         }
       `}</style>

@@ -3633,23 +3633,59 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                   </div>
                 </div>
 
-                <div className="stock-card-pc-layout" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid #1F3B54", marginTop: 10, paddingTop: 10 }}>
-                  <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
-                    aria-label="즐겨찾기 토글"
-                    style={{
-                      flexShrink: 0, background: "none", border: "none", cursor: "pointer",
-                      padding: 6, display: "flex", alignItems: "center", justifyContent: "center",
-                    }}
-                  >
-                    <Star
-                      size={19}
-                      color={isFavorite(item.code) ? "#F5A623" : "#3E5975"}
-                      fill={isFavorite(item.code) ? "#F5A623" : "none"}
-                    />
-                  </button>
+                <div className="stock-card-pc-layout" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderTop: "1px solid #1F3B54", marginTop: 10, paddingTop: 10 }}>
+                  <div className="stock-pc-note-wrap" onClick={(e) => e.stopPropagation()}>
+                    {editingMemos[item.code] ? (
+                      <input
+                        type="text"
+                        className="stock-pc-note"
+                        placeholder="명칭 / 메모 입력"
+                        aria-label={`${item.name} 명칭 또는 메모 입력`}
+                        autoFocus
+                        value={Object.prototype.hasOwnProperty.call(memoDrafts, item.code) ? memoDrafts[item.code] : (item.memo || "")}
+                        onChange={(e) => handleMemoChange(item.code, e.target.value)}
+                        onBlur={(e) => handleMemoSave(item, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <div className="stock-pc-note-closed">
+                        <span className={item.memo ? "stock-pc-note-text" : "stock-pc-note-empty"} title={item.memo || "명칭 / 메모 없음"}>
+                          {item.memo || "명칭 / 메모 없음"}
+                        </span>
+                        <button
+                          type="button"
+                          className="stock-pc-note-edit"
+                          onClick={(e) => { e.stopPropagation(); handleMemoEdit(item.code); }}
+                        >
+                          수정
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
+                    <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
+                      aria-label="즐겨찾기 토글"
+                      style={{
+                        flexShrink: 0, background: "none", border: "none", cursor: "pointer",
+                        padding: 6, display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >
+                      <Star
+                        size={19}
+                        color={isFavorite(item.code) ? "#F5A623" : "#3E5975"}
+                        fill={isFavorite(item.code) ? "#F5A623" : "none"}
+                      />
+                    </button>
+                  </div>
                 </div>
 
                 {/* 모바일 전용: 사진 → 품명 / 사양·규격 → 메모·수량·즐겨찾기 */}
@@ -3735,6 +3771,29 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
 
       <style>{`
         .stock-card-mobile-layout { display: none; }
+        .stock-pc-note-wrap { flex: 1; min-width: 0; max-width: 70%; }
+        .stock-pc-note {
+          width: 100%; box-sizing: border-box; height: 34px; padding: 7px 10px;
+          border-radius: 7px; border: 1px solid #274460; background: #0B1C2C;
+          color: #E7EEF5; outline: none; font-size: 15px;
+        }
+        .stock-pc-note::placeholder { color: #5E86A3; }
+        .stock-pc-note:focus { border-color: #38BDF8; }
+        .stock-pc-note-closed {
+          width: 100%; box-sizing: border-box; height: 34px; display: flex; align-items: center;
+          gap: 8px; padding: 0 5px 0 10px; border-radius: 7px; border: 1px solid #274460; background: #0B1C2C;
+        }
+        .stock-pc-note-text, .stock-pc-note-empty {
+          flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+          font-size: 15px; line-height: 1.2;
+        }
+        .stock-pc-note-text { color: #E7EEF5; }
+        .stock-pc-note-empty { color: #5E86A3; }
+        .stock-pc-note-edit {
+          flex-shrink: 0; border: 1px solid #315775; background: #122B40; color: #8FCBE8;
+          border-radius: 5px; padding: 4px 8px; font-size: 12px; cursor: pointer;
+        }
+        .stock-pc-note-edit:hover { border-color: #38BDF8; color: #38BDF8; }
 
         @media (max-width: 768px) {
           .stock-card-pc-layout { display: none !important; }

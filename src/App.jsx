@@ -1739,7 +1739,9 @@ if (showSplash) {
         button:active { transform: scale(0.98); }
 
         .app-container { display: flex; min-height: 100vh; width: 100%; }
-        .pc-sidebar { width: 250px; flex-shrink: 0; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; position: sticky; top: 0; height: 100vh; overflow: hidden; }
+        .pc-sidebar { width: 250px; flex-shrink: 0; box-sizing: border-box; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; position: sticky; top: 0; height: 100vh; overflow: hidden; }
+        .pc-sidebar .sidebar-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 3px; padding-bottom: 4px; scrollbar-width: thin; }
+        .pc-sidebar .sidebar-stock-summary { flex: 0 0 auto; position: relative !important; left: auto !important; right: auto !important; bottom: auto !important; z-index: 1; }
         .mobile-header { display: none; }
         .mobile-bottom-nav { display: none; }
         .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; overflow-x: hidden; min-width: 0; touch-action: pan-y; }
@@ -1987,7 +1989,7 @@ if (showSplash) {
           </span>
         </button>
 
-        <nav style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <nav className="sidebar-nav" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {NAV.filter((n) => !n.mobileTopOnly).map((n) => {
             const active = tab === n.id;
             const Icon = n.icon;
@@ -2011,7 +2013,7 @@ if (showSplash) {
           })}
         </nav>
 
-        <div style={{ position: "absolute", left: 18, right: 18, bottom: 18, zIndex: 5 }}>
+        <div className="sidebar-stock-summary" style={{ position: "relative", zIndex: 1 }}>
           <Card style={{ padding: 16 }}>
             <SectionLabel>재고 요약</SectionLabel>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>

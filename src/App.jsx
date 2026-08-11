@@ -2011,7 +2011,7 @@ if (showSplash) {
           })}
         </nav>
 
-        <div style={{ marginTop: "auto", flexShrink: 0, position: "sticky", bottom: 0 }}>
+        <div style={{ position: "absolute", left: 18, right: 18, bottom: 18, zIndex: 5 }}>
           <Card style={{ padding: 16 }}>
             <SectionLabel>재고 요약</SectionLabel>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>
@@ -2195,6 +2195,8 @@ if (showSplash) {
 function Dashboard({ items, txs, loadCumulativeOutTxs }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
   const [cumulativeOutTxs, setCumulativeOutTxs] = useState([]);
+  const [recentPage, setRecentPage] = useState(1);
+  const RECENT_PAGE_SIZE = 10;
 
   useEffect(() => {
     if (historyModal !== "out") return;
@@ -2260,13 +2262,29 @@ function Dashboard({ items, txs, loadCumulativeOutTxs }) {
     return Object.values(map);
   }, [txs, selectedShip, selectedProject]);
 
-  const recent = useMemo(() => {
+  const recentAll = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
-    return [...txs].sort((a, b) => parseAt(b) - parseAt(a)).slice(0, 10);
+    return [...txs].sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
+
+  const recentTotalPages = Math.max(1, Math.ceil(recentAll.length / RECENT_PAGE_SIZE));
+  const recent = useMemo(() => {
+    const safePage = Math.min(recentPage, recentTotalPages);
+    const start = (safePage - 1) * RECENT_PAGE_SIZE;
+    return recentAll.slice(start, start + RECENT_PAGE_SIZE);
+  }, [recentAll, recentPage, recentTotalPages]);
+
+  useEffect(() => {
+    setRecentPage(1);
+  }, [txs]);
+
+  useEffect(() => {
+    if (recentPage > recentTotalPages) setRecentPage(recentTotalPages);
+  }, [recentPage, recentTotalPages]);
+
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
 
   const totalOutSource = cumulativeOutTxs.length
@@ -2482,6 +2500,25 @@ function Dashboard({ items, txs, loadCumulativeOutTxs }) {
                 </div>
               ))}
             </div>
+            {recentAll.length > RECENT_PAGE_SIZE && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
+                <button
+                  type="button"
+                  onClick={() => setRecentPage((p) => Math.max(1, p - 1))}
+                  disabled={recentPage <= 1}
+                  style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: recentPage <= 1 ? "#395268" : "#9FB4C7", cursor: recentPage <= 1 ? "default" : "pointer" }}
+                >이전</button>
+                <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                  {recentPage} / {recentTotalPages} 페이지
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRecentPage((p) => Math.min(recentTotalPages, p + 1))}
+                  disabled={recentPage >= recentTotalPages}
+                  style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: recentPage >= recentTotalPages ? "#395268" : "#9FB4C7", cursor: recentPage >= recentTotalPages ? "default" : "pointer" }}
+                >다음</button>
+              </div>
+            )}
           </>
         )}
       </Card>
@@ -4382,13 +4419,12 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
-  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", manufacturer: "", category: "all", unit: "all", location: "all", stock: "all" });
+  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all" });
   const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
-  const clearColumnFilters = () => setColumnFilters({ code: "", name: "", manufacturer: "", category: "all", unit: "all", location: "all", stock: "all" });
+  const clearColumnFilters = () => setColumnFilters({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all" });
   const masterFilterOptions = useMemo(() => ({
     category: Array.from(new Set(items.map((i) => String(i.category || "").trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, "ko")),
     unit: Array.from(new Set(items.map((i) => String(i.unit || "").trim()).filter(Boolean))).sort(),
-    location: Array.from(new Set(items.map((i) => String(i.location || "").trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, "ko")),
   }), [items]);
   const displayedItems = useMemo(() => {
     const f = columnFilters;
@@ -4398,7 +4434,6 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       if (!text(i.code, f.code) || !text(i.name, f.name) || !text(i.manufacturer, f.manufacturer)) return false;
       if (f.category !== "all" && String(i.category || "").trim() !== f.category) return false;
       if (f.unit !== "all" && String(i.unit || "").trim() !== f.unit) return false;
-      if (f.location !== "all" && String(i.location || "").trim() !== f.location) return false;
       if (f.stock === "low" && !(Number(i.stock) <= Number(i.safety))) return false;
       if (f.stock === "normal" && !(Number(i.stock) > Number(i.safety))) return false;
       return true;
@@ -4582,8 +4617,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   };
 
   const exportCSV = () => {
-    const headers = ["코드,품명,규격,카테고리,단위,현재고,안전재고,위치,거래처,이미지주소\n"];
-    const rows = items.map(i => `"${csvSafe(i.code)}","${csvSafe(i.name)}","${csvSafe(i.spec)}","${csvSafe(i.category)}","${i.unit}",${i.stock},${i.safety},"${csvSafe(i.location)}","${csvSafe(i.manufacturer)}","${csvSafe(i.image_url)}"\n`);
+    const headers = ["코드,품명,규격,카테고리,단위,현재고,안전재고,거래처,비고,이미지주소\n"];
+    const rows = items.map(i => `"${csvSafe(i.code)}","${csvSafe(i.name)}","${csvSafe(i.spec)}","${csvSafe(i.category)}","${i.unit}",${i.stock},${i.safety},"${csvSafe(i.manufacturer)}","${csvSafe(i.memo)}","${csvSafe(i.image_url)}"\n`);
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -4643,6 +4678,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
             const fullName = getCol('품명 / 규격', '품명/규격', '품명', 'name');
             const spec = getCol('규격', 'spec');
             const manufacturer = getCol('거래처', '생산업체', '제조사', 'manufacturer');
+            const category = getCol('카테고리', 'category', '구분');
+            const memo = getCol('비고', '메모', '명칭 / 메모', '명칭/메모', 'memo');
             const unit = getCol('단위', 'unit') || 'EA';
             const stock = Number(getCol('현재고', '재고', '수량', '입고수량', '재고수량', 'stock', 'qty')) || 0;
             const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
@@ -4655,12 +4692,13 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
               code: code || uid("ITEM"),
               name: fullName || "미지정 품명",
               spec: spec || "",
-              category: "",
+              category: category || "",
               unit: unit,
               stock: stock,
               safety: safety,
               location: location,
               manufacturer: manufacturer,
+              memo: memo || "",
               image_url: imageUrl || "",
               deleted: false,
             };
@@ -4982,7 +5020,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
                 <th style={{ width: 42, textAlign: "center" }}>
                   <input type="checkbox" checked={displayedItems.length > 0 && displayedItems.every((i) => selectedQrCodes.includes(i.code))} onChange={toggleAllQrSelection} title="현재 목록 전체 선택" />
-                </th><th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                </th><th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>비고</th><th>QR</th><th>삭제</th>
               </tr>
               <tr style={{ background: "#0B1C2C" }}>
                 <th></th><th></th><th></th>
@@ -4998,8 +5036,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                 <th><select value={columnFilters.unit} onChange={(e) => updateColumnFilter("unit", e.target.value)} style={{ ...inputStyle, width: 70, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.unit.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
                 <th><select value={columnFilters.stock} onChange={(e) => updateColumnFilter("stock", e.target.value)} style={{ ...inputStyle, width: 82, padding: "4px 6px", fontSize: 10.5 }}><option value="all">재고전체</option><option value="low">부족/주의</option><option value="normal">정상</option></select></th>
                 <th></th>
-                <th><select value={columnFilters.location} onChange={(e) => updateColumnFilter("location", e.target.value)} style={{ ...inputStyle, width: 90, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.location.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
-                <th></th><th><button onClick={clearColumnFilters} style={{ border: "1px solid #274460", background: "#16324A", color: "#9FB4C7", borderRadius: 5, padding: "4px 7px", cursor: "pointer", fontSize: 10.5 }}>초기화</button></th>
+                <th></th>
+                <th><button onClick={clearColumnFilters} style={{ border: "1px solid #274460", background: "#16324A", color: "#9FB4C7", borderRadius: 5, padding: "4px 7px", cursor: "pointer", fontSize: 10.5 }}>초기화</button></th>
               </tr>
             </thead>
             <tbody>
@@ -5120,29 +5158,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                       </span>
                     )}
                   </td>
-                  <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>
-                    {editingLocationCode === i.code ? (
-                      <input
-                        type="text"
-                        autoFocus
-                        value={editingLocationValue}
-                        onChange={(e) => setEditingLocationValue(e.target.value)}
-                        onBlur={() => commitEditLocation(i.code)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitEditLocation(i.code);
-                          if (e.key === "Escape") setEditingLocationCode(null);
-                        }}
-                        style={{ ...inputStyle, width: 84, padding: "4px 8px", fontSize: 13 }}
-                      />
-                    ) : (
-                      <span
-                        onClick={() => startEditLocation(i)}
-                        title="클릭하여 위치 수정"
-                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
-                      >
-                        {i.location || "-"}
-                      </span>
-                    )}
+                  <td style={{ color: "#9FB4C7", fontSize: 12.5, maxWidth: 220, whiteSpace: "normal", wordBreak: "break-word" }} title={i.memo || ""}>
+                    {i.memo || "-"}
                   </td>
                   <td>
                     <button
@@ -5257,27 +5274,6 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   </div>
 
                   <div>
-                    <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>저장 위치</span>
-                    {editingLocationCode === i.code ? (
-                      <input
-                        type="text"
-                        autoFocus
-                        value={editingLocationValue}
-                        onChange={(e) => setEditingLocationValue(e.target.value)}
-                        onBlur={() => commitEditLocation(i.code)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitEditLocation(i.code);
-                          if (e.key === "Escape") setEditingLocationCode(null);
-                        }}
-                        style={{ ...inputStyle, width: "100%", padding: "2px 4px", fontSize: 12 }}
-                      />
-                    ) : (
-                      <span onClick={() => startEditLocation(i)} style={{ color: "#E7EEF5", borderBottom: "1px dashed #5E86A3" }}>
-                        {i.location || "미지정"}
-                      </span>
-                    )}
-                  </div>
-                  <div>
                     <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>카테고리</span>
                     {editingCategoryCode === i.code ? (
                       <input
@@ -5297,6 +5293,12 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                         {i.category || "미지정"}
                       </span>
                     )}
+                  </div>
+                  <div>
+                    <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>비고</span>
+                    <span style={{ color: "#E7EEF5", display: "block", whiteSpace: "pre-wrap", wordBreak: "break-word" }} title={i.memo || ""}>
+                      {i.memo || "-"}
+                    </span>
                   </div>
                 </div>
 

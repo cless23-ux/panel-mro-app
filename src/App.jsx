@@ -1289,6 +1289,67 @@ export default function App() {
   );
 }
 
+
+function PwaInstallModal({ open, onClose, installApp, canInstall }) {
+  const qrRef = useRef(null);
+  const [qrReady, setQrReady] = useState(false);
+  const [iosGuide, setIosGuide] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const buildQr = () => {
+      if (cancelled || !qrRef.current || typeof window === "undefined" || !window.QRCode) return;
+      qrRef.current.innerHTML = "";
+      try {
+        new window.QRCode(qrRef.current, {
+          text: window.location.href, width: 220, height: 220,
+          colorDark: "#07111C", colorLight: "#FFFFFF",
+          correctLevel: window.QRCode.CorrectLevel.M,
+        });
+        setQrReady(true);
+      } catch { setQrReady(false); }
+    };
+    if (window.QRCode) { buildQr(); return () => { cancelled = true; }; }
+    const existing = document.querySelector('script[data-pwa-qrcode="1"]');
+    const script = existing || document.createElement("script");
+    if (!existing) {
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
+      script.async = true; script.dataset.pwaQrcode = "1";
+      document.head.appendChild(script);
+    }
+    script.addEventListener("load", buildQr, { once: true });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  if (!open) return null;
+  const isIOS = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent);
+  return (
+    <div className="app-modal-overlay" onClick={onClose} style={{ zIndex: 100000 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "min(92vw, 430px)", background: "#0F2233", border: "1px solid #274460", borderRadius: 16, padding: 22, boxShadow: "0 20px 60px #0009", color: "#E7EEF5" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 800 }}>📱 웹앱 설치</div>
+          <button onClick={onClose} style={{ background: "none", border: 0, color: "#9FB4C7", cursor: "pointer" }}><X size={20} /></button>
+        </div>
+        <div style={{ fontSize: 12.5, color: "#7F97AC", lineHeight: 1.6, marginBottom: 14 }}>
+          아래 QR을 휴대폰으로 찍으면 현재 웹앱 주소가 열립니다. 휴대폰에서 설치 안내가 나오면 앱으로 설치할 수 있습니다.
+        </div>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}>
+          <div style={{ width: 236, height: 236, background: "#fff", borderRadius: 12, padding: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div ref={qrRef} />
+            {!qrReady && <span style={{ color: "#5E86A3", fontSize: 12 }}>QR 생성 중...</span>}
+          </div>
+        </div>
+        <div style={{ fontSize: 10.5, color: "#5E86A3", wordBreak: "break-all", background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "8px 10px", marginBottom: 12 }}>
+          {typeof window !== "undefined" ? window.location.href : "현재 웹앱 주소"}
+        </div>
+        {canInstall && <button onClick={installApp} style={{ width: "100%", padding: "11px 14px", borderRadius: 9, border: "1px solid #38BDF8", background: "#38BDF822", color: "#7DD3FC", fontWeight: 800, cursor: "pointer", marginBottom: 8 }}>📲 이 기기에 앱 설치</button>}
+        {isIOS && <div style={{ padding: 11, borderRadius: 8, background: "#0B1C2C", color: "#9FB4C7", fontSize: 12, lineHeight: 1.7 }}>iPhone은 Safari에서 <b style={{ color: "#E7EEF5" }}>공유 → 홈 화면에 추가</b>를 선택하면 앱 아이콘이 만들어집니다.</div>}
+      </div>
+    </div>
+  );
+}
+
 function AppInner() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
@@ -1358,6 +1419,32 @@ function AppInner() {
   const [presetItem, setPresetItem] = useState(null);
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [pwaInstallEvent, setPwaInstallEvent] = useState(null);
+  const [showPwaInstall, setShowPwaInstall] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      let manifest = document.querySelector('link[rel="manifest"]');
+      if (!manifest) { manifest = document.createElement("link"); manifest.rel = "manifest"; manifest.href = "/manifest.webmanifest"; document.head.appendChild(manifest); }
+      let theme = document.querySelector('meta[name="theme-color"]');
+      if (!theme) { theme = document.createElement("meta"); theme.name = "theme-color"; document.head.appendChild(theme); }
+      theme.content = "#0A1622";
+    } catch {}
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+    const onBeforeInstall = (e) => { e.preventDefault(); setPwaInstallEvent(e); };
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    return () => window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+  }, []);
+
+  const installPwa = useCallback(async () => {
+    if (!pwaInstallEvent) { setShowPwaInstall(true); return; }
+    try {
+      pwaInstallEvent.prompt();
+      const result = await pwaInstallEvent.userChoice;
+      if (result?.outcome === "accepted") setPwaInstallEvent(null);
+    } catch {}
+  }, [pwaInstallEvent]);
 
   /* 화면 크기가 모바일로 바뀌었는데 대시보드에 머물러 있으면 출고(스캔)로 이동 */
   useEffect(() => {
@@ -1746,6 +1833,7 @@ if (showSplash) {
         .mobile-bottom-nav { display: none; }
         .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; overflow-x: hidden; min-width: 0; touch-action: pan-y; }
         .toast-box { bottom: 26px; left: 50%; transform: translateX(-50%); }
+        .pwa-mobile-install { display: none; }
 
         .tab-panel {
           border: 1px solid var(--tab-neon-border, #274460);
@@ -1856,6 +1944,8 @@ if (showSplash) {
 
         @media (max-width: 768px) {
           .pc-only-block { display: none !important; }
+          .pwa-install-share { display: none !important; }
+          .pwa-mobile-install { display: flex; }
           .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
           .pc-sidebar { display: none; }
           .mobile-header {
@@ -1987,6 +2077,14 @@ if (showSplash) {
           <span style={{ fontSize: 11, color: refreshing ? "#F5A623" : "#7F97AC" }}>
             {refreshing ? "동기화..." : "↻ 새로고침"}
           </span>
+        </button>
+
+        <button
+          className="pwa-install-share"
+          onClick={() => setShowPwaInstall(true)}
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 14px", borderRadius: 8, border: "1px solid #38BDF855", background: "#0B1C2C", color: "#7DD3FC", cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}
+        >
+          <span>📱 앱 설치 / QR</span><span style={{ color: "#5E86A3", fontSize: 10 }}>공유</span>
         </button>
 
         <nav className="sidebar-nav" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -2188,6 +2286,10 @@ if (showSplash) {
         })}
       </nav>
 
+      {pwaInstallEvent && (
+        <button className="pwa-mobile-install" onClick={installPwa} style={{ position: "fixed", right: 12, bottom: 76, zIndex: 9990, alignItems: "center", gap: 6, padding: "9px 12px", borderRadius: 999, border: "1px solid #38BDF8", background: "#0F2233", color: "#7DD3FC", fontWeight: 800, fontSize: 12, boxShadow: "0 8px 24px #0008", cursor: "pointer" }}>📲 앱 설치</button>
+      )}
+      <PwaInstallModal open={showPwaInstall} onClose={() => setShowPwaInstall(false)} installApp={installPwa} canInstall={!!pwaInstallEvent} />
       <Toast toast={toast} />
     </div>
   );
@@ -3940,7 +4042,13 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                 {/* PC: 기존 배치 그대로 유지 */}
                 <div className="stock-card-pc-layout" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                   {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover", flexShrink: 0 }} />
+                    <img
+                      src={item.image_url}
+                      alt={item.name}
+                      onClick={(e) => { e.stopPropagation(); setZoomedImage(item.image_url); }}
+                      title="사진 확대 보기"
+                      style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover", flexShrink: 0, cursor: "zoom-in" }}
+                    />
                   ) : (
                     <div style={{ width: 50, height: 50, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       <ImageIcon size={20} color="#5E86A3" />

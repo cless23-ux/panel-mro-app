@@ -138,8 +138,31 @@ function useStorage(key, initial) {
               return merged;
             });
           } else {
-            setValue(data);
-            localStorage.setItem(key, JSON.stringify(data));
+            // 자재마스터는 수정/새로고침/동기화 시 기존 화면 순서를 유지합니다.
+            // 기존 목록에 없는 신규 자재만 마지막에 추가합니다.
+            const cached = (() => {
+              try {
+                const raw = localStorage.getItem(key);
+                return raw ? JSON.parse(raw) : [];
+              } catch { return []; }
+            })();
+            const previous = Array.isArray(cached) && cached.length ? cached : [];
+            const byCode = new Map((data || []).map(item => [String(item.code), item]));
+            const ordered = [];
+            const seen = new Set();
+            previous.forEach(item => {
+              const code = String(item?.code || "");
+              if (code && byCode.has(code)) {
+                ordered.push(byCode.get(code));
+                seen.add(code);
+              }
+            });
+            (data || []).forEach(item => {
+              const code = String(item?.code || "");
+              if (!seen.has(code)) ordered.push(item);
+            });
+            setValue(ordered);
+            localStorage.setItem(key, JSON.stringify(ordered));
           }
           if (!silent) setLoaded(true);
           return;
@@ -1716,7 +1739,7 @@ if (showSplash) {
         button:active { transform: scale(0.98); }
 
         .app-container { display: flex; min-height: 100vh; width: 100%; }
-        .pc-sidebar { width: 250px; flex-shrink: 0; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; }
+        .pc-sidebar { width: 250px; flex-shrink: 0; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; position: sticky; top: 0; height: 100vh; overflow: hidden; }
         .mobile-header { display: none; }
         .mobile-bottom-nav { display: none; }
         .main-content { flex: 1; padding: 30px 36px; overflow-y: auto; overflow-x: hidden; min-width: 0; touch-action: pan-y; }
@@ -1754,6 +1777,81 @@ if (showSplash) {
         }
         .outform-grid > * { min-width: 0; }
 
+        /* 출고(스캔) 불출정보 입력: 제품명/코드/규격 전체 표시 */
+        .out-found-summary {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          min-width: 0;
+        }
+        .out-found-product {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          flex: 1;
+          min-width: 0;
+        }
+        .out-found-image {
+          width: 48px;
+          height: 48px;
+          border-radius: 6px;
+          object-fit: cover;
+          flex: 0 0 48px;
+        }
+        .out-found-image-empty {
+          background: #122A3F;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .out-found-details {
+          flex: 1;
+          min-width: 0;
+        }
+        .out-found-name,
+        .out-found-code,
+        .out-found-spec,
+        .out-found-manufacturer {
+          overflow: visible;
+          text-overflow: clip;
+          white-space: normal;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+        }
+        .out-found-name {
+          font-weight: 700;
+          font-size: 15px;
+          color: #38BDF8;
+          line-height: 1.35;
+        }
+        .out-found-code {
+          font-size: 11.5px;
+          color: #7F97AC;
+          font-family: "IBM Plex Mono";
+          margin-top: 3px;
+          line-height: 1.4;
+        }
+        .out-found-spec {
+          font-size: 11.5px;
+          color: #9FB4C7;
+          margin-top: 3px;
+          line-height: 1.45;
+        }
+        .out-found-manufacturer {
+          font-size: 10.5px;
+          color: #5E86A3;
+          margin-top: 2px;
+          line-height: 1.4;
+        }
+        .out-found-stock {
+          text-align: right;
+          font-family: "IBM Plex Mono";
+          padding-left: 8px;
+          border-left: 1px solid #1F3B54;
+          flex-shrink: 0;
+        }
+
         @media (max-width: 768px) {
           .pc-only-block { display: none !important; }
           .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
@@ -1782,6 +1880,23 @@ if (showSplash) {
           .outform-grid {
             grid-template-columns: 1fr;
             gap: 14px;
+          }
+
+          .out-found-summary {
+            align-items: flex-start;
+            flex-direction: column;
+            gap: 10px;
+          }
+          .out-found-product {
+            width: 100%;
+          }
+          .out-found-stock {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px 0 0;
+            border-left: none;
+            border-top: 1px solid #1F3B54;
+            text-align: left;
           }
 
           /* 실시간 대화 모바일: 입력창이 화면 아래로 밀리지 않도록 채팅 영역 자체를 고정 */
@@ -1896,7 +2011,7 @@ if (showSplash) {
           })}
         </nav>
 
-        <div style={{ marginTop: "auto" }}>
+        <div style={{ marginTop: "auto", flexShrink: 0, position: "sticky", bottom: 0 }}>
           <Card style={{ padding: 16 }}>
             <SectionLabel>재고 요약</SectionLabel>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }}>
@@ -2304,7 +2419,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs }) {
               <table>
                 <thead>
                   <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                    <th>구분</th><th>자재</th><th>수량</th><th>호선</th><th>공정</th><th>담당자</th><th>일시</th>
+                    <th>구분</th><th>자재</th><th>수량</th><th>일시</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2322,9 +2437,6 @@ function Dashboard({ items, txs, loadCumulativeOutTxs }) {
                       </td>
                       <td style={{ fontWeight: 600 }}>{t.itemName}</td>
                       <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600 }}>{t.qty}{t.unit}</td>
-                      <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.shipNo || t.project || "-"}</td>
-                      <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.process || "-"}</td>
-                      <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>{t.worker || "-"}</td>
                       <td style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>{t.at}</td>
                     </tr>
                   ))}
@@ -2364,12 +2476,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs }) {
                     </span>
                   </div>
 
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#9FB4C7", paddingTop: 4, borderTop: "1px dashed #16293C" }}>
-                    <span>{t.shipNo || t.project || "미지정"} | {t.process || "미지정"}</span>
-                    <span>{t.worker || "담당자 미입력"}</span>
-                  </div>
-
-                  <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", textAlign: "right" }}>
+                  <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", textAlign: "right", paddingTop: 4, borderTop: "1px dashed #16293C" }}>
                     {t.at}
                   </div>
                 </div>
@@ -2836,27 +2943,29 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div className="out-found-summary">
+                <div className="out-found-product">
                   {found.image_url ? (
-                    <img src={found.image_url} alt={found.name} style={{ width: 48, height: 48, borderRadius: 6, objectFit: "cover", flexShrink: 0 }} />
+                    <img src={found.image_url} alt={found.name} className="out-found-image" />
                   ) : (
-                    <div style={{ flexShrink: 0 }}><Led status={statusOf(found)} size={12} /></div>
+                    <div className="out-found-image out-found-image-empty"><Led status={statusOf(found)} size={12} /></div>
                   )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {found.name}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      코드: {found.code} | {found.manufacturer || "업체 미지정"}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", paddingLeft: 8, borderLeft: "1px solid #1F3B54", flexShrink: 0 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: found.stock > 0 ? "#35D08C" : "#EF5350" }}>
-                      {found.stock} <span style={{ fontSize: 12 }}>{found.unit}</span>
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
+                  <div className="out-found-details">
+                    <div className="out-found-name">{found.name}</div>
+                    <div className="out-found-code">코드: {found.code}</div>
+                    <div className="out-found-spec">규격/사양: {found.spec || "-"}</div>
+                    {found.manufacturer && (
+                      <div className="out-found-manufacturer">제조사: {found.manufacturer}</div>
+                    )}
                   </div>
                 </div>
+                <div className="out-found-stock">
+                  <div style={{ fontSize: 16, fontWeight: 700, color: found.stock > 0 ? "#35D08C" : "#EF5350" }}>
+                    {found.stock} <span style={{ fontSize: 12 }}>{found.unit}</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
+                </div>
+              </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid #1F3B54", paddingTop: 10 }}>
                   <UrgentRequestButton item={found} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
                   <button
@@ -3652,6 +3761,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [memoDrafts, setMemoDrafts] = useState({});
   const [editingMemos, setEditingMemos] = useState({});
+  const [zoomedImage, setZoomedImage] = useState(null);
   const { isFavorite, toggleFavorite } = useFavoriteItems(notify);
 
   // 자재마스터에 실제 지정된 카테고리만 자동으로 필터 버튼으로 표시합니다.
@@ -3808,10 +3918,8 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                           fontSize: 14,
                           color: "#38BDF8",
                           lineHeight: 1.35,
-                          display: "-webkit-box",
-                          WebkitBoxOrient: "vertical",
-                          WebkitLineClamp: 3,
-                          overflow: "hidden",
+                          display: "block",
+                          overflow: "visible",
                           wordBreak: "break-word",
                           whiteSpace: "normal",
                         }}
@@ -3819,7 +3927,10 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                         {item.name}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>코드: {item.code}</div>
+                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-word", whiteSpace: "normal" }}>코드: {item.code}</div>
+                    <div style={{ fontSize: 11.5, color: "#9FB4C7", marginTop: 3, lineHeight: 1.4, wordBreak: "break-word", whiteSpace: "normal" }}>
+                      규격/사양: {item.spec || "-"}
+                    </div>
                     {item.manufacturer && (
                       <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>제조사: {item.manufacturer}</div>
                     )}
@@ -3872,7 +3983,6 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                     )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
-                    <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
@@ -3895,7 +4005,14 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                 <div className="stock-card-mobile-layout">
                   <div className="stock-mobile-top">
                     {item.image_url ? (
-                      <img src={item.image_url} alt={item.name} className="stock-mobile-image" />
+                      <img
+                        src={item.image_url}
+                        alt={item.name}
+                        className="stock-mobile-image"
+                        onClick={(e) => { e.stopPropagation(); setZoomedImage(item.image_url); }}
+                        title="사진 확대 보기"
+                        style={{ cursor: "zoom-in" }}
+                      />
                     ) : (
                       <div className="stock-mobile-image stock-mobile-image-empty">
                         <ImageIcon size={22} color="#5E86A3" />
@@ -4135,6 +4252,35 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
           }
         }
       `}</style>
+
+      {zoomedImage && (
+        <div
+          onClick={() => setZoomedImage(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,0.86)",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 20, cursor: "zoom-out"
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="확대 사진 닫기"
+          onKeyDown={(e) => { if (e.key === "Escape" || e.key === "Enter") setZoomedImage(null); }}
+        >
+          <img
+            src={zoomedImage}
+            alt="확대 사진"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "94vw", maxHeight: "90vh", objectFit: "contain", borderRadius: 10, boxShadow: "0 10px 40px rgba(0,0,0,0.65)", cursor: "default" }}
+          />
+          <button
+            type="button"
+            onClick={() => setZoomedImage(null)}
+            aria-label="확대 사진 닫기"
+            style={{ position: "fixed", top: 18, right: 18, width: 42, height: 42, borderRadius: 999, border: "1px solid #5E86A3", background: "#0F2233", color: "#E7EEF5", fontSize: 24, cursor: "pointer" }}
+          >
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -4171,7 +4317,7 @@ async function buildQrLabelWorkbook(items) {
   const ExcelJS = await loadExcelJS();
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("QR라벨");
-  sheet.columns = [{ width: 16 }, { width: 13 }, { width: 42 }];
+  sheet.columns = [{ width: 17 }, { width: 10 }, { width: 41 }];
 
   let row = 1;
   for (const item of items) {
@@ -4182,6 +4328,7 @@ async function buildQrLabelWorkbook(items) {
       ["규격/사양:", item.spec || ""],
     ];
     rows.forEach(([label, value]) => {
+      sheet.getRow(row).height = 35;
       sheet.getCell(`B${row}`).value = label;
       sheet.getCell(`C${row}`).value = value;
       sheet.getCell(`C${row}`).font = { bold: true };
@@ -4206,6 +4353,7 @@ async function buildQrLabelWorkbook(items) {
     }
 
     row = endRow + 2;
+    sheet.getRow(row).height = 35;
   }
 
   return workbook;
@@ -4218,13 +4366,44 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   const [formMaterialType, setFormMaterialType] = useState("raw"); // "raw"(원자재) | "sub"(부자재)
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
+  const [selectedQrCodes, setSelectedQrCodes] = useState([]);
+
+  const toggleQrSelection = (code) => {
+    setSelectedQrCodes((prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]);
+  };
+
+  const toggleAllQrSelection = () => {
+    const codes = displayedItems.map((i) => i.code);
+    setSelectedQrCodes((prev) => {
+      const allSelected = codes.length > 0 && codes.every((code) => prev.includes(code));
+      return allSelected ? prev.filter((code) => !codes.includes(code)) : Array.from(new Set([...prev, ...codes]));
+    });
+  };
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
+  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", manufacturer: "", category: "all", unit: "all", location: "all", stock: "all" });
+  const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
+  const clearColumnFilters = () => setColumnFilters({ code: "", name: "", manufacturer: "", category: "all", unit: "all", location: "all", stock: "all" });
+  const masterFilterOptions = useMemo(() => ({
+    category: Array.from(new Set(items.map((i) => String(i.category || "").trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, "ko")),
+    unit: Array.from(new Set(items.map((i) => String(i.unit || "").trim()).filter(Boolean))).sort(),
+    location: Array.from(new Set(items.map((i) => String(i.location || "").trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, "ko")),
+  }), [items]);
   const displayedItems = useMemo(() => {
-    if (materialFilter === "all") return items;
-    return items.filter((i) => getMaterialType(i.code) === materialFilter);
-  }, [items, materialFilter]);
+    const f = columnFilters;
+    const text = (value, q) => !q || String(value || "").toLowerCase().includes(q.toLowerCase());
+    return items.filter((i) => {
+      if (materialFilter !== "all" && getMaterialType(i.code) !== materialFilter) return false;
+      if (!text(i.code, f.code) || !text(i.name, f.name) || !text(i.manufacturer, f.manufacturer)) return false;
+      if (f.category !== "all" && String(i.category || "").trim() !== f.category) return false;
+      if (f.unit !== "all" && String(i.unit || "").trim() !== f.unit) return false;
+      if (f.location !== "all" && String(i.location || "").trim() !== f.location) return false;
+      if (f.stock === "low" && !(Number(i.stock) <= Number(i.safety))) return false;
+      if (f.stock === "normal" && !(Number(i.stock) > Number(i.safety))) return false;
+      return true;
+    });
+  }, [items, materialFilter, columnFilters]);
 
   /* 경고 및 정보창(모달), 장바구니 모달 상태 */
   const [selectedUrgent, setSelectedUrgent] = useState(null);
@@ -4416,10 +4595,12 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   const [qrExporting, setQrExporting] = useState(false);
   const exportQRLabelsExcel = async () => {
     if (items.length === 0) { notify("등록된 자재가 없습니다.", "err"); return; }
+    if (selectedQrCodes.length === 0) { notify("QR 라벨로 다운로드할 자재를 먼저 선택해주세요.", "err"); return; }
+    const selectedItems = items.filter((item) => selectedQrCodes.includes(item.code));
     setQrExporting(true);
-    notify("QR 라벨 엑셀을 생성 중입니다...", "info");
+    notify(`선택한 ${selectedItems.length}개 자재의 QR 라벨을 생성 중입니다...`, "info");
     try {
-      const workbook = await buildQrLabelWorkbook(items);
+      const workbook = await buildQrLabelWorkbook(selectedItems);
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
       const link = document.createElement("a");
@@ -4606,7 +4787,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
 
           <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업</Btn>
           <Btn onClick={exportQRLabelsExcel} variant="subtle" disabled={qrExporting}>
-            <QrCode size={15} />{qrExporting ? "생성 중..." : "QR 라벨"}
+            <QrCode size={15} />{qrExporting ? "생성 중..." : `QR 라벨${selectedQrCodes.length ? ` (${selectedQrCodes.length}개 선택)` : ""}`}
           </Btn>
           <label style={{ display: "inline-block" }}>
             <input type="file" accept=".xlsx, .xls, .csv" onChange={importExcelFile} style={{ display: "none" }} />
@@ -4799,7 +4980,26 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
               <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                <th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+                <th style={{ width: 42, textAlign: "center" }}>
+                  <input type="checkbox" checked={displayedItems.length > 0 && displayedItems.every((i) => selectedQrCodes.includes(i.code))} onChange={toggleAllQrSelection} title="현재 목록 전체 선택" />
+                </th><th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>위치</th><th>QR</th><th>삭제</th>
+              </tr>
+              <tr style={{ background: "#0B1C2C" }}>
+                <th></th><th></th><th></th>
+                <th>
+                  <select value={materialFilter} onChange={(e) => setMaterialFilter(e.target.value)} style={{ ...inputStyle, width: 78, padding: "4px 6px", fontSize: 10.5 }}>
+                    <option value="all">전체</option><option value="raw">원자재</option><option value="sub">부자재</option>
+                  </select>
+                </th>
+                <th><input value={columnFilters.code} onChange={(e) => updateColumnFilter("code", e.target.value)} placeholder="코드" style={{ ...inputStyle, width: 105, padding: "4px 6px", fontSize: 10.5 }} /></th>
+                <th><input value={columnFilters.name} onChange={(e) => updateColumnFilter("name", e.target.value)} placeholder="품명" style={{ ...inputStyle, width: 130, padding: "4px 6px", fontSize: 10.5 }} /></th>
+                <th><input value={columnFilters.manufacturer} onChange={(e) => updateColumnFilter("manufacturer", e.target.value)} placeholder="거래처" style={{ ...inputStyle, width: 100, padding: "4px 6px", fontSize: 10.5 }} /></th>
+                <th><select value={columnFilters.category} onChange={(e) => updateColumnFilter("category", e.target.value)} style={{ ...inputStyle, width: 95, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.category.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
+                <th><select value={columnFilters.unit} onChange={(e) => updateColumnFilter("unit", e.target.value)} style={{ ...inputStyle, width: 70, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.unit.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
+                <th><select value={columnFilters.stock} onChange={(e) => updateColumnFilter("stock", e.target.value)} style={{ ...inputStyle, width: 82, padding: "4px 6px", fontSize: 10.5 }}><option value="all">재고전체</option><option value="low">부족/주의</option><option value="normal">정상</option></select></th>
+                <th></th>
+                <th><select value={columnFilters.location} onChange={(e) => updateColumnFilter("location", e.target.value)} style={{ ...inputStyle, width: 90, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.location.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
+                <th></th><th><button onClick={clearColumnFilters} style={{ border: "1px solid #274460", background: "#16324A", color: "#9FB4C7", borderRadius: 5, padding: "4px 7px", cursor: "pointer", fontSize: 10.5 }}>초기화</button></th>
               </tr>
             </thead>
             <tbody>
@@ -4808,6 +5008,9 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                 const mType = getMaterialType(i.code);
                 return (
                 <tr key={i.code}>
+                  <td style={{ textAlign: "center" }}>
+                    <input type="checkbox" checked={selectedQrCodes.includes(i.code)} onChange={() => toggleQrSelection(i.code)} />
+                  </td>
                   <td>{index + 1}</td>
                   <td>
                     {i.image_url ? (
@@ -4974,7 +5177,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
             const mType = getMaterialType(i.code);
             return (
               <Card key={i.code} style={{ padding: 14 }}>
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 10 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10 }}>
+                  <input type="checkbox" checked={selectedQrCodes.includes(i.code)} onChange={() => toggleQrSelection(i.code)} title="QR 라벨 선택" style={{ marginTop: 8, flexShrink: 0 }} />
                   {i.image_url ? (
                     <img
                       src={i.image_url}
@@ -5347,6 +5551,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
   const [person, setPerson] = useState("");
 
   const [useCamera, setUseCamera] = useState(false);
+  const [useMaterialCamera, setUseMaterialCamera] = useState(false);
   const [invoiceQRInput, setInvoiceQRInput] = useState("");
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoicePerson, setInvoicePerson] = useState("");
@@ -5395,6 +5600,69 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
       .slice(0, 15);
   }, [txs]);
 
+  const TX_PAGE_SIZE = 5;
+  const [txPage, setTxPage] = useState(1);
+  const [selectedTxIds, setSelectedTxIds] = useState([]);
+
+  const totalTxPages = Math.max(1, Math.ceil(recentInTxs.length / TX_PAGE_SIZE));
+
+  useEffect(() => {
+    if (txPage > totalTxPages) setTxPage(totalTxPages);
+  }, [totalTxPages, txPage]);
+
+  const pagedInTxs = useMemo(
+    () => recentInTxs.slice((txPage - 1) * TX_PAGE_SIZE, txPage * TX_PAGE_SIZE),
+    [recentInTxs, txPage]
+  );
+
+  const isAllTxChecked = recentInTxs.length > 0 && selectedTxIds.length === recentInTxs.length;
+
+  const toggleTxCheck = (id) => {
+    setSelectedTxIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleAllTxCheck = (e) => {
+    setSelectedTxIds(e.target.checked ? recentInTxs.map((t) => t.id) : []);
+  };
+
+  const bulkDeleteSelectedTxs = async () => {
+    if (selectedTxIds.length === 0) return;
+    const targets = recentInTxs.filter((t) => selectedTxIds.includes(t.id));
+    if (targets.length === 0) return;
+
+    if (!window.confirm(`선택한 ${targets.length}건의 입고 내역을 삭제(재고 차감)하시겠습니까?`)) return;
+
+    const deltaByCode = {};
+    targets.forEach((t) => {
+      const key = String(t.itemCode).replace(/[\r\n]+/g, "").trim();
+      deltaByCode[key] = (deltaByCode[key] || 0) + Number(t.qty);
+    });
+
+    const nextItems = items.map((i) => {
+      const key = String(i.code).replace(/[\r\n]+/g, "").trim();
+      if (deltaByCode[key]) {
+        return { ...i, stock: Math.max(0, Number(i.stock) - deltaByCode[key]) };
+      }
+      return i;
+    });
+
+    const targetIds = targets.map((t) => t.id);
+    const nextTxs = (txs || []).filter((t) => !targetIds.includes(t.id));
+
+    if (supabase) {
+      const ops = targets.map((t) => ({ code: t.itemCode, delta: -Number(t.qty), txDeleteId: t.id }));
+      await applyStockTransactionsAtomic(ops);
+      await reloadItems();
+      await reloadTxs();
+    } else {
+      await saveItems(nextItems);
+      if (saveTxs) await saveTxs(nextTxs);
+    }
+
+    notify(`선택한 ${targets.length}건의 입고 내역이 삭제되었습니다.`, "info");
+    setSelectedTxIds([]);
+  };
+
   useEffect(() => {
     let html5QrCode = null;
     if (useCamera) {
@@ -5433,6 +5701,55 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
       }
     };
   }, [useCamera]);
+
+  useEffect(() => {
+    let html5QrCode = null;
+    if (useMaterialCamera) {
+      const startMaterialScanner = async () => {
+        try {
+          if (!window.Html5Qrcode) {
+            const script = document.createElement("script");
+            script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+            script.async = true;
+            document.body.appendChild(script);
+            await new Promise((resolve) => (script.onload = resolve));
+          }
+
+          html5QrCode = new window.Html5Qrcode("inbound-material-qr-reader");
+          await html5QrCode.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 220, height: 220 } },
+            (decodedText) => {
+              const rawCode = String(decodedText || "").trim();
+              const code = rawCode.replace(/^(?:KEY_CODE\s*[:=]\s*)/i, "").replace(/[^0-9A-Za-z_\-]/g, "").trim();
+              const hit = (items || []).find((i) => String(i.code).trim() === code);
+              if (hit) {
+                setSelectedCode(hit.code);
+                setItemSearchText(`[${hit.code}] ${hit.name}`);
+                setItemDropdownOpen(false);
+                notify(`[${hit.name}] 자재 QR 인식 완료`, "ok");
+              } else {
+                notify(`등록되지 않은 자재 QR입니다. (인식값: ${rawCode})`, "err");
+              }
+              setUseMaterialCamera(false);
+            },
+            () => {}
+          );
+        } catch (err) {
+          console.error("자재 QR 카메라 접근 에러:", err);
+          if (notify) notify("자재 QR 카메라를 켤 수 없습니다. 권한을 확인해주세요.", "err");
+          setUseMaterialCamera(false);
+        }
+      };
+      startMaterialScanner();
+    }
+
+    return () => {
+      if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
+      }
+    };
+  }, [useMaterialCamera, items]);
 
   const fetchInvoiceData = async (rawVal) => {
     if (!rawVal) return;
@@ -5754,6 +6071,9 @@ keyCode = String(keyCode)
 
     notify(`[${selectedItem.name}] ${inputQty}${selectedItem.unit} 입고 완료!`, "ok");
     setQty(1);
+    setSelectedCode("");
+    setItemSearchText("");
+    setPerson("");
   };
 
   const cancelInTx = async (targetTx) => {
@@ -5999,6 +6319,30 @@ keyCode = String(keyCode)
         <div className="inbound-grid-container">
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <Field label="자재 검색 및 선택">
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setUseMaterialCamera(true)}
+                  style={{ flex: "0 0 auto", padding: "10px 13px", border: "1px solid #35D08C", borderRadius: 8, background: "#0B2A22", color: "#35D08C", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <Camera size={17} /> 자재 QR 카메라
+                </button>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: "#7F97AC", display: "flex", alignItems: "center" }}>QR로 자재코드를 바로 선택할 수 있습니다.</div>
+              </div>
+
+              {useMaterialCamera && (
+                <div style={{ padding: 10, marginBottom: 8, background: "#0B1C2C", borderRadius: 10, border: "1px solid #35D08C", textAlign: "center" }}>
+                  <div id="inbound-material-qr-reader" style={{ width: "100%", maxWidth: 320, margin: "0 auto", background: "#000", borderRadius: 8, overflow: "hidden" }} />
+                  <button
+                    type="button"
+                    onClick={() => setUseMaterialCamera(false)}
+                    style={{ marginTop: 10, padding: "8px 16px", background: "#EF4444", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}
+                  >
+                    📷 자재 QR 카메라 끄기
+                  </button>
+                </div>
+              )}
+
               <div ref={itemInputWrapRef} style={{ position: "relative" }}>
                 <input
                   type="text"
@@ -6123,39 +6467,93 @@ keyCode = String(keyCode)
       </Card>
 
       <Card neon="#35D08C" style={{ padding: 16, marginTop: 20 }}>
-        <SectionLabel>최근 등록된 입고 이력 (잘못 등록 시 철회)</SectionLabel>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <SectionLabel>최근 등록된 입고 이력 (선택 삭제 시 재고 차감)</SectionLabel>
+          {recentInTxs.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7F97AC", cursor: "pointer" }}>
+                <input type="checkbox" checked={isAllTxChecked} onChange={toggleAllTxCheck} />
+                전체선택
+              </label>
+              <button
+                onClick={bulkDeleteSelectedTxs}
+                disabled={selectedTxIds.length === 0}
+                style={{
+                  background: selectedTxIds.length === 0 ? "#1a2632" : "#3A1C1C",
+                  border: `1px solid ${selectedTxIds.length === 0 ? "#274460" : "#EF5350"}`,
+                  color: selectedTxIds.length === 0 ? "#5E86A3" : "#EF5350",
+                  padding: "5px 12px", borderRadius: 6,
+                  cursor: selectedTxIds.length === 0 ? "not-allowed" : "pointer",
+                  fontSize: 12, fontWeight: 600,
+                }}
+              >
+                선택삭제 {selectedTxIds.length > 0 ? `(${selectedTxIds.length})` : ""}
+              </button>
+            </div>
+          )}
+        </div>
+
         {recentInTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 입고 내역이 없습니다." color="#5E86A3" />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10, maxHeight: 560, overflowY: "auto" }}>
-            {recentInTxs.map((t) => (
-              <div
-                key={t.id}
-                style={{
-                  background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
-                  padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: "#35D08C" }}>
-                    {t.itemName} ({t.qty} {t.unit})
-                  </div>
-                  <div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
-                    {t.at} | 담당자: {t.worker || "-"}
-                  </div>
-                </div>
-                <button
-                  onClick={() => cancelInTx(t)}
+          <>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+              {pagedInTxs.map((t) => (
+                <div
+                  key={t.id}
                   style={{
-                    background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
-                    padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600, flexShrink: 0
+                    background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+                    padding: "9px 12px", display: "flex", alignItems: "center", gap: 10,
                   }}
                 >
-                  입고 철회
+                  <input
+                    type="checkbox"
+                    checked={selectedTxIds.includes(t.id)}
+                    onChange={() => toggleTxCheck(t.id)}
+                    style={{ flexShrink: 0 }}
+                  />
+                  <div style={{
+                    flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8,
+                    fontSize: 12.5, color: "#E7EEF5", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                  }}>
+                    <span style={{ fontWeight: 700, color: "#35D08C" }}>{t.itemName}</span>
+                    <span>{t.qty} {t.unit}</span>
+                    <span style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11 }}>
+                      | {t.at} | 담당자: {t.worker || "-"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {totalTxPages > 1 && (
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginTop: 14 }}>
+                <button
+                  onClick={() => setTxPage((p) => Math.max(1, p - 1))}
+                  disabled={txPage <= 1}
+                  style={{
+                    background: "none", border: "1px solid #274460", color: txPage <= 1 ? "#3E5871" : "#E7EEF5",
+                    borderRadius: 6, padding: "4px 10px", cursor: txPage <= 1 ? "not-allowed" : "pointer", fontSize: 12,
+                  }}
+                >
+                  이전
+                </button>
+                <span style={{ fontSize: 12, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                  {txPage} / {totalTxPages}
+                </span>
+                <button
+                  onClick={() => setTxPage((p) => Math.min(totalTxPages, p + 1))}
+                  disabled={txPage >= totalTxPages}
+                  style={{
+                    background: "none", border: "1px solid #274460", color: txPage >= totalTxPages ? "#3E5871" : "#E7EEF5",
+                    borderRadius: 6, padding: "4px 10px", cursor: txPage >= totalTxPages ? "not-allowed" : "pointer", fontSize: 12,
+                  }}
+                >
+                  다음
                 </button>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </Card>
     </div>

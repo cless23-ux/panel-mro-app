@@ -1763,6 +1763,7 @@ function AppInner() {
 
   const [slideDir, setSlideDir] = useState(1);
   const [rawManagePresetShip, setRawManagePresetShip] = useState("");
+  const [rawManagePresetReturnItems, setRawManagePresetReturnItems] = useState([]);
   const goToTab = (next) => {
     if (next === tab) return;
     const curIdx = NAV_IDS.indexOf(tab);
@@ -2242,9 +2243,9 @@ if (showSplash) {
           >
             {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} materialType="sub" />}
-            {tab === "rawInbound" && <RawMaterialInboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} initialShip={rawManagePresetShip} onOpenReturn={(ship) => { setRawManagePresetShip(ship); goToTab("return"); }} />}
+            {tab === "rawInbound" && <RawMaterialInboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} initialShip={rawManagePresetShip} onOpenReturn={(payload) => { const list = Array.isArray(payload?.items) ? payload.items : []; setRawManagePresetShip(payload?.ship || list[0]?.shipNo || ""); setRawManagePresetReturnItems(list); goToTab("return"); }} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
-            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} onOpenRawInbound={() => goToTab("rawInbound")} />}
+            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
@@ -3266,21 +3267,28 @@ const RETURN_REASONS = ["미사용 잔량", "수량 착오", "자재 상이", "�
 
 
 /* ---------------- 호선별 원자재 관리 ---------------- */
-function RawMaterialShipManageView({ items, txs, notify, initialShip = "", onOpenReturn }) {
+function RawMaterialShipManageView({ items, saveItems, txs, saveTxs, notify, supabase, reloadItems, reloadTxs, initialShip = "", onOpenReturn }) {
   const [ship, setShip] = useState(initialShip || "");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState([]);
   const [tagInput, setTagInput] = useState("");
   const [activeTag, setActiveTag] = useState("");
   const [inventoryOpen, setInventoryOpen] = useState(false);
-  const [inventoryText, setInventoryText] = useState("");
-  const [inventoryMap, setInventoryMap] = useState({});
+  const [inventoryType, setInventoryType] = useState("차용");
+  const [inventoryNote, setInventoryNote] = useState("");
+  const [inventoryQty, setInventoryQty] = useState({});
+  const [inventoryBusy, setInventoryBusy] = useState(false);
+  const [inventoryHistoryOpen, setInventoryHistoryOpen] = useState(false);
+  const [inventoryReturnOpen, setInventoryReturnOpen] = useState(false);
+  const [inventoryReturnTarget, setInventoryReturnTarget] = useState(null);
+  const [inventoryReturnQty, setInventoryReturnQty] = useState("");
+  const [inventoryReturnNote, setInventoryReturnNote] = useState("");
+  const [inventoryReturnBusy, setInventoryReturnBusy] = useState(false);
   const [tagMap, setTagMap] = useState({});
   const [hiddenIds, setHiddenIds] = useState([]);
 
   useEffect(() => {
     try { setTagMap(JSON.parse(localStorage.getItem("raw_ship_tags_v1") || "{}")); } catch {}
-    try { setInventoryMap(JSON.parse(localStorage.getItem("raw_ship_inventory_v1") || "{}")); } catch {}
     try { setHiddenIds(JSON.parse(localStorage.getItem("raw_ship_hidden_v1") || "[]")); } catch {}
   }, []);
   useEffect(() => { if (initialShip) setShip(initialShip); }, [initialShip]);
@@ -3288,7 +3296,6 @@ function RawMaterialShipManageView({ items, txs, notify, initialShip = "", onOpe
   const rawInbound = useMemo(() => (txs || []).filter(t =>
     t.type === "in" && isRawMaterial(t.itemCode) && String(t.shipNo || "").trim() && !hiddenIds.includes(t.id)
   ), [txs, hiddenIds]);
-
   const ships = useMemo(() => Array.from(new Set(rawInbound.map(t => String(t.shipNo).trim()))).sort(), [rawInbound]);
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -3297,98 +3304,104 @@ function RawMaterialShipManageView({ items, txs, notify, initialShip = "", onOpe
         const tags = tagMap[t.id] || [];
         const hay = [t.itemName, t.itemCode, t.worker, ...tags].join(" ").toLowerCase();
         return (!q || hay.includes(q)) && (!activeTag || tags.includes(activeTag));
-      })
-      .sort((a,b) => String(b.at||"").localeCompare(String(a.at||"")));
+      }).sort((a,b) => String(b.at||"").localeCompare(String(a.at||"")));
   }, [rawInbound, ship, query, tagMap, activeTag]);
-
-  const allTags = useMemo(() => Array.from(new Set(rows.flatMap(t => tagMap[t.id] || []))).sort(), [rows, tagMap]);
-  // 호선을 아직 직접 선택하지 않아도 체크한 행의 호선을 자동으로 사용합니다.
   const selectedRows = useMemo(() => rows.filter(t => selected.includes(t.id)), [rows, selected]);
   const actionShip = ship || (selectedRows.length ? String(selectedRows[0].shipNo || "").trim() : "");
+  const allTags = useMemo(() => Array.from(new Set(rows.flatMap(t => tagMap[t.id] || []))).sort(), [rows, tagMap]);
+
+  // Supabase transactions 테이블의 기존 reason 컬럼에 인벤토리 전용 부가정보를 보존한다.
+  // reload 후에도 유형/메모/원본 인벤토리 ID가 사라지지 않도록 사용.
+  const readInventoryMeta = (t) => {
+    const raw = String(t?.reason || "");
+    const m = raw.match(/MRO_INVENTORY_META:([^\s|]+)/);
+    if (!m) return {};
+    try { return JSON.parse(decodeURIComponent(m[1])); } catch { return {}; }
+  };
+  const inventoryReturns = useMemo(() => (txs || [])
+    .filter(t => t.type === "inventory_return")
+    .map(t => ({ ...t, ...readInventoryMeta(t) })), [txs]);
+  const inventoryHistory = useMemo(() => (txs || [])
+    .filter(t => t.type === "inventory_out" && isRawMaterial(t.itemCode) && (!actionShip || String(t.shipNo||"").trim() === actionShip))
+    .map(base => {
+      const t = { ...base, ...readInventoryMeta(base) };
+      const returnedQty = inventoryReturns
+        .filter(r => String(r.sourceInventoryTxId || "") === String(t.id || ""))
+        .reduce((sum, r) => sum + (Number(r.qty) || 0), 0);
+      return {...t, returnedQty, remainingQty: Math.max(0, (Number(t.qty) || 0) - returnedQty)};
+    })
+    .sort((a,b)=>String(b.at||"").localeCompare(String(a.at||""))), [txs, actionShip, inventoryReturns]);
   const toggleAll = () => setSelected(selected.length === rows.length ? [] : rows.map(t => t.id));
   const saveTags = (next) => { setTagMap(next); localStorage.setItem("raw_ship_tags_v1", JSON.stringify(next)); };
-  const addTag = () => {
-    const tag = tagInput.trim().replace(/^#/, "");
-    if (!tag || !selected.length) return notify?.("선택 후 태그를 입력해 주세요.", "info");
-    const next = {...tagMap};
-    selected.forEach(id => next[id] = Array.from(new Set([...(next[id]||[]), "#"+tag])));
-    saveTags(next); setTagInput("");
+  const addTag = () => { const tag=tagInput.trim().replace(/^#/,""); if(!tag||!selected.length)return notify?.("선택 후 태그를 입력해 주세요.","info"); const next={...tagMap}; selected.forEach(id=>next[id]=Array.from(new Set([...(next[id]||[]),"#"+tag]))); saveTags(next); setTagInput(""); };
+  const removeSelectedFromManage = () => { if(!selected.length)return; if(!window.confirm("선택 항목을 호선별 관리 화면에서만 삭제할까요?\n실제 재고와 입고 거래기록은 변경되지 않습니다."))return; const next=Array.from(new Set([...hiddenIds,...selected])); setHiddenIds(next); localStorage.setItem("raw_ship_hidden_v1",JSON.stringify(next)); setSelected([]); };
+  const downloadExcel = () => { const header=["호선","자재코드","품명","수량","단위","입고일","수령자","태그"]; const csv=[header,...rows.map(t=>[t.shipNo,t.itemCode,t.itemName,t.qty,t.unit,t.at,t.worker,(tagMap[t.id]||[]).join(" ")])].map(r=>r.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n"); const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8;"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`원자재_${ship||"전체"}_관리.csv`; a.click(); URL.revokeObjectURL(a.href); };
+  const openInventory = () => { if(!selectedRows.length)return notify?.("인벤토리로 이동할 자재를 선택해 주세요.","info"); const q={}; selectedRows.forEach(t=>q[t.id]=Number(t.qty)||0); setInventoryQty(q); setInventoryType("차용"); setInventoryNote(""); setInventoryOpen(true); };
+  const moveToInventory = async () => {
+    if(!selectedRows.length)return; const ops=[]; const localOps=[];
+    const requestedByCode = {};
+    for(const t of selectedRows){ const q=Number(inventoryQty[t.id]); if(!q||q<=0)return notify?.(`${t.itemName} 수량을 확인해 주세요.`,"err"); requestedByCode[t.itemCode]=(requestedByCode[t.itemCode]||0)+q; const item=(items||[]).find(i=>String(i.code).trim()===String(t.itemCode).trim()); if(!item)return notify?.(`${t.itemName} 마스터 정보를 찾을 수 없습니다.`,"err"); const invMeta={inventoryType,inventoryNote:inventoryNote.trim(),sourceInboundTxId:t.id}; const tx={id:uid("INV"),type:"inventory_out",itemCode:t.itemCode,itemName:t.itemName,unit:t.unit||item.unit||"EA",qty:q,shipNo:String(t.shipNo||actionShip||"").trim(),project:t.project||"",worker:t.worker||"",inventoryType,inventoryNote:inventoryNote.trim(),sourceInboundTxId:t.id,reason:`MRO_INVENTORY_META:${encodeURIComponent(JSON.stringify(invMeta))}`,at:nowStr(),deleted:false}; ops.push({code:t.itemCode,delta:-q,tx}); localOps.push(tx); }
+    for(const [code,total] of Object.entries(requestedByCode)){ const item=(items||[]).find(i=>String(i.code).trim()===String(code).trim()); if((Number(item?.stock)||0)<total)return notify?.(`${item?.name||code} 현재고(${item?.stock||0}${item?.unit||""})보다 많이 인벤토리로 이동할 수 없습니다.`,"err"); }
+    if(!window.confirm(`선택 자재 ${selectedRows.length}건을 인벤토리로 이동합니다.\n실제 재고가 즉시 차감됩니다.`))return;
+    setInventoryBusy(true); try { if(supabase){ await applyStockTransactionsAtomic(ops); if (reloadItems) await reloadItems(); if (reloadTxs) await reloadTxs(); } else { const delta={}; localOps.forEach(x=>delta[x.itemCode]=(delta[x.itemCode]||0)+Number(x.qty)); await saveItems((items||[]).map(i=>delta[i.code]?{...i,stock:Math.max(0,(Number(i.stock)||0)-delta[i.code])}:i)); await saveTxs([...(txs||[]),...localOps]); } setInventoryOpen(false); setSelected([]); notify?.(`인벤토리 이동 완료 · 실제 재고가 ${localOps.reduce((n,x)=>n+Number(x.qty),0)}개 차감되었습니다.`,"ok"); } catch(e){ notify?.(`인벤토리 이동 실패: ${e?.message||e}`,"err"); } finally { setInventoryBusy(false); }
   };
-  const removeSelectedFromManage = () => {
-    if (!selected.length) return;
-    if (!window.confirm("선택 항목을 호선별 관리 화면에서만 삭제할까요?\n실제 재고와 입고 거래기록은 변경되지 않습니다.")) return;
-    const next = Array.from(new Set([...hiddenIds, ...selected]));
-    setHiddenIds(next); localStorage.setItem("raw_ship_hidden_v1", JSON.stringify(next)); setSelected([]);
+
+  const openInventoryReturn = (t) => {
+    if ((Number(t.remainingQty) || 0) <= 0) return notify?.("이미 전량 원복된 인벤토리 기록입니다.", "info");
+    setInventoryReturnTarget(t);
+    setInventoryReturnQty(String(t.remainingQty));
+    setInventoryReturnNote("");
+    setInventoryReturnOpen(true);
   };
-  const downloadExcel = () => {
-    const header = ["호선","자재코드","품명","수량","단위","입고일","담당자","태그"];
-    const csv = [header, ...rows.map(t => [t.shipNo,t.itemCode,t.itemName,t.qty,t.unit,t.at,t.worker,(tagMap[t.id]||[]).join(" ")])]
-      .map(r => r.map(v => `"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n");
-    const blob = new Blob(["\ufeff"+csv], {type:"text/csv;charset=utf-8;"});
-    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`원자재_${ship||"전체"}_관리.csv`; a.click(); URL.revokeObjectURL(a.href);
-  };
-  const saveInventory = () => {
-    if (!ship) return notify?.("먼저 호선을 선택해 주세요.", "err");
-    const next={...inventoryMap,[ship]:inventoryText}; setInventoryMap(next);
-    localStorage.setItem("raw_ship_inventory_v1",JSON.stringify(next)); setInventoryOpen(false); notify?.("인벤토리 기록을 저장했습니다.","ok");
+  const returnFromInventory = async () => {
+    const t = inventoryReturnTarget;
+    if (!t) return;
+    const q = Number(inventoryReturnQty);
+    const remain = Number(t.remainingQty) || 0;
+    if (!q || q <= 0 || q > remain) return notify?.(`원복 수량은 1 이상 ${remain}${t.unit || ""} 이하로 입력해 주세요.`, "err");
+    if (!window.confirm(`${t.itemName} ${q}${t.unit || ""}를 인벤토리에서 실제 재고로 원복할까요?\n실제 재고가 즉시 증가합니다.`)) return;
+    const tx = {
+      id: uid("INVRET"), type: "inventory_return",
+      itemCode: t.itemCode, itemName: t.itemName, unit: t.unit || "EA", qty: q,
+      shipNo: String(t.shipNo || "").trim(), project: t.project || "",
+      worker: t.worker || "", inventoryType: t.inventoryType || "",
+      inventoryNote: inventoryReturnNote.trim(),
+      sourceInventoryTxId: t.id,
+      reason: `MRO_INVENTORY_META:${encodeURIComponent(JSON.stringify({ sourceInventoryTxId: t.id, inventoryType: t.inventoryType || "", inventoryNote: inventoryReturnNote.trim() }))}`,
+      at: nowStr(), deleted: false
+    };
+    const op = { code: t.itemCode, delta: q, tx };
+    setInventoryReturnBusy(true);
+    try {
+      if (supabase) {
+        await applyStockTransactionsAtomic([op]);
+        if (reloadItems) await reloadItems();
+        if (reloadTxs) await reloadTxs();
+      } else {
+        await saveItems((items || []).map(i => String(i.code).trim() === String(t.itemCode).trim()
+          ? {...i, stock: (Number(i.stock) || 0) + q} : i));
+        await saveTxs([...(txs || []), tx]);
+      }
+      setInventoryReturnOpen(false);
+      setInventoryReturnTarget(null);
+      notify?.(`${t.itemName} ${q}${t.unit || ""} 재고 원복 완료`, "ok");
+    } catch (e) {
+      notify?.(`인벤토리 원복 실패: ${e?.message || e}`, "err");
+    } finally { setInventoryReturnBusy(false); }
   };
 
   return <div style={{display:"flex",flexDirection:"column",gap:16,minWidth:0}}>
-    <Header title="호선별 원자재 관리" subtitle="호선을 선택하면 해당 호선으로 입고된 원자재를 관리합니다." />
-    <Card style={{padding:16}}>
-      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:10}} className="raw-manage-top-grid">
-        <select value={ship} onChange={e=>{setShip(e.target.value);setSelected([])}} style={inputStyle}>
-          <option value="">호선 선택 (전체)</option>{ships.map(x=><option key={x} value={x}>{x}</option>)}
-        </select>
-        <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="품명 · 코드 · 태그 검색" style={inputStyle} />
-      </div>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
-        <Btn onClick={toggleAll}>{selected.length===rows.length && rows.length ? "전체 해제":"전체 선택"}</Btn>
-        <input value={tagInput} onChange={e=>setTagInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTag()} placeholder="#태그 입력" style={{...inputStyle,flex:"1 1 120px",minWidth:120}} />
-        <Btn onClick={addTag}>태그 부여</Btn>
-        <Btn onClick={()=>{
-          if (!selected.length || !actionShip) return notify?.("반납할 원자재를 선택해 주세요.", "info");
-          onOpenReturn?.(actionShip);
-        }} disabled={!selected.length || !actionShip}>반납창 이동</Btn>
-        <Btn onClick={()=>{
-          if (!actionShip) return notify?.("호선 또는 해당 호선의 원자재를 선택해 주세요.", "info");
-          setInventoryText(inventoryMap[actionShip]||"");
-          if (!ship) setShip(actionShip);
-          setInventoryOpen(true);
-        }} disabled={!actionShip}>인벤토리</Btn>
-        <Btn onClick={downloadExcel}>엑셀 다운로드</Btn>
-        <Btn onClick={removeSelectedFromManage} style={{color:"#ff8a8a"}} disabled={!selected.length}>관리목록 삭제</Btn>
-      </div>
-      {allTags.length>0 && <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
-        <button onClick={()=>setActiveTag("")} style={{fontSize:12}}>전체 태그</button>
-        {allTags.map(tag=><button key={tag} onClick={()=>setActiveTag(activeTag===tag?"":tag)} style={{fontSize:12}}>{tag}</button>)}
-      </div>}
-    </Card>
-    <Card style={{padding:0,overflow:"hidden"}}>
-      <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
-        <table style={{width:"100%",minWidth:760,borderCollapse:"collapse",fontSize:13}}>
-          <thead><tr>{["","호선","자재코드","품명","수량","입고일","담당자","태그"].map(x=><th key={x} style={{padding:10,textAlign:"left",borderBottom:"1px solid #274460"}}>{x}</th>)}</tr></thead>
-          <tbody>{rows.map(t=><tr key={t.id}>
-            <td style={{padding:10}}><input type="checkbox" checked={selected.includes(t.id)} onChange={()=>setSelected(p=>p.includes(t.id)?p.filter(x=>x!==t.id):[...p,t.id])}/></td>
-            <td style={{padding:10}}>{t.shipNo}</td><td style={{padding:10}}>{t.itemCode}</td><td style={{padding:10}}>{t.itemName}</td>
-            <td style={{padding:10}}>{t.qty} {t.unit}</td><td style={{padding:10}}>{t.at}</td><td style={{padding:10}}>{t.worker||"-"}</td>
-            <td style={{padding:10}}>{(tagMap[t.id]||[]).join(" ")||"-"}</td>
-          </tr>)}</tbody>
-        </table>
-      </div>
-      {!rows.length && <div style={{padding:30,textAlign:"center",color:"#7F97AC"}}>선택한 호선의 원자재 입고 자료가 없습니다.</div>}
-    </Card>
-    {inventoryOpen && <div className="app-modal-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:2000}}>
-      <Card style={{width:"min(620px,100%)",padding:18}}><h3 style={{marginTop:0}}>{ship} 인벤토리 기록</h3>
-        <p style={{color:"#7F97AC",fontSize:12}}>차용, 파손, 교체요청 등 호선별 관리 메모를 기록합니다.</p>
-        <textarea value={inventoryText} onChange={e=>setInventoryText(e.target.value)} rows={10} style={{...inputStyle,width:"100%",resize:"vertical"}} placeholder="예: 1-CG-001 · 2EA · 3528호선에 차용 / 2026-08-12"/>
-        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:12}}><Btn onClick={()=>setInventoryOpen(false)}>취소</Btn><Btn onClick={saveInventory}>저장</Btn></div>
-      </Card>
-    </div>}
+    <Header title="호선별 원자재 관리" subtitle="선택 자재를 반납하거나 실제 재고에서 인벤토리로 이동해 차용·파손·교체요청 이력을 관리합니다." />
+    <Card style={{padding:16}}><div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:10}} className="raw-manage-top-grid"><select value={ship} onChange={e=>{setShip(e.target.value);setSelected([])}} style={inputStyle}><option value="">호선 선택 (전체)</option>{ships.map(x=><option key={x} value={x}>{x}</option>)}</select><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="품명 · 코드 · 태그 검색" style={inputStyle}/></div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}><Btn onClick={toggleAll}>{selected.length===rows.length&&rows.length?"전체 해제":"전체 선택"}</Btn><input value={tagInput} onChange={e=>setTagInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTag()} placeholder="#태그 입력" style={{...inputStyle,flex:"1 1 120px",minWidth:120}}/><Btn onClick={addTag}>태그 부여</Btn><Btn onClick={()=>{if(!selectedRows.length)return notify?.("반납할 원자재를 선택해 주세요.","info"); const shipsIn=new Set(selectedRows.map(t=>String(t.shipNo||"").trim()).filter(Boolean)); if(shipsIn.size>1)return notify?.("반납창으로 이동할 때는 같은 호선의 자재만 선택해 주세요.","info"); onOpenReturn?.({ship:actionShip,items:selectedRows.map(t=>({id:t.id,itemCode:t.itemCode,itemName:t.itemName,unit:t.unit,qty:Number(t.qty)||0,shipNo:t.shipNo||actionShip,project:t.project||""}))});}}>반납창 이동</Btn><Btn onClick={openInventory} disabled={!selectedRows.length}>인벤토리 이동</Btn><Btn onClick={()=>setInventoryHistoryOpen(true)} disabled={!actionShip}>인벤토리 이력</Btn><Btn onClick={downloadExcel}>엑셀 다운로드</Btn><Btn onClick={removeSelectedFromManage} style={{color:"#ff8a8a"}} disabled={!selected.length}>관리목록 삭제</Btn></div>
+      {allTags.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}><button onClick={()=>setActiveTag("")} style={{fontSize:12}}>전체 태그</button>{allTags.map(tag=><button key={tag} onClick={()=>setActiveTag(activeTag===tag?"":tag)} style={{fontSize:12}}>{tag}</button>)}</div>}</Card>
+    <Card style={{padding:0,overflow:"hidden"}}><div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}><table style={{width:"100%",minWidth:760,borderCollapse:"collapse",fontSize:13}}><thead><tr>{["","호선","자재코드","품명","수량","입고일","수령자","태그"].map(x=><th key={x} style={{padding:10,textAlign:"left",borderBottom:"1px solid #274460"}}>{x}</th>)}</tr></thead><tbody>{rows.map(t=><tr key={t.id}><td style={{padding:10}}><input type="checkbox" checked={selected.includes(t.id)} onChange={()=>setSelected(p=>p.includes(t.id)?p.filter(x=>x!==t.id):[...p,t.id])}/></td><td style={{padding:10}}>{t.shipNo}</td><td style={{padding:10}}>{t.itemCode}</td><td style={{padding:10}}>{t.itemName}</td><td style={{padding:10}}>{t.qty} {t.unit}</td><td style={{padding:10}}>{t.at}</td><td style={{padding:10}}>{t.worker||"-"}</td><td style={{padding:10}}>{(tagMap[t.id]||[]).join(" ")||"-"}</td></tr>)}</tbody></table></div>{!rows.length&&<div style={{padding:30,textAlign:"center",color:"#7F97AC"}}>선택한 호선의 원자재 입고 자료가 없습니다.</div>}</Card>
+    {inventoryOpen&&<div className="app-modal-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:2000}}><Card style={{width:"min(760px,100%)",padding:18,maxHeight:"90dvh",overflowY:"auto"}}><h3 style={{marginTop:0}}>선택 자재 인벤토리 이동</h3><p style={{color:"#7F97AC",fontSize:12}}>저장하면 입력 수량만큼 실제 재고가 차감되고 인벤토리 이력에 기록됩니다.</p><div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{["차용","파손","교체요청","기타"].map(x=><Btn key={x} onClick={()=>setInventoryType(x)} variant={inventoryType===x?"primary":"ghost"}>{x}</Btn>)}</div>{selectedRows.map(t=><div key={t.id} style={{display:"grid",gridTemplateColumns:"1fr minmax(90px,140px)",gap:10,alignItems:"center",marginBottom:8}}><div><b>{t.itemName}</b><div style={{fontSize:11,color:"#7F97AC"}}>{t.itemCode} · {t.shipNo} · 현재고 {(items||[]).find(i=>String(i.code).trim()===String(t.itemCode).trim())?.stock ?? 0} {t.unit}</div></div><input type="number" min="0" step="any" value={inventoryQty[t.id]??""} onChange={e=>setInventoryQty(q=>({...q,[t.id]:e.target.value}))} style={inputStyle}/></div>)}<textarea value={inventoryNote} onChange={e=>setInventoryNote(e.target.value)} rows={4} style={{...inputStyle,width:"100%",resize:"vertical"}} placeholder="메모 입력 (차용 대상, 파손 사유, 교체요청 내용 등)"/><div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:12}}><Btn onClick={()=>setInventoryOpen(false)} disabled={inventoryBusy}>취소</Btn><Btn onClick={moveToInventory} disabled={inventoryBusy}>{inventoryBusy?"처리중...":"실제 재고 차감 후 이동"}</Btn></div></Card></div>}
+    {inventoryHistoryOpen&&<div className="app-modal-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:2000}}><Card style={{width:"min(980px,100%)",padding:18,maxHeight:"90dvh",overflowY:"auto"}}><div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}><div><h3 style={{margin:0}}>{actionShip||"전체"} 인벤토리 이력</h3><div style={{fontSize:12,color:"#7F97AC",marginTop:4}}>남은 수량만큼 부분 원복 또는 전량 원복할 수 있습니다.</div></div><Btn onClick={()=>setInventoryHistoryOpen(false)}>닫기</Btn></div>{inventoryHistory.length?<div style={{overflowX:"auto",marginTop:12}}><table style={{width:"100%",minWidth:820,borderCollapse:"collapse",fontSize:12}}><thead><tr>{["일시","자재","이동수량","원복수량","잔여수량","유형","메모","처리"].map(x=><th key={x} style={{padding:8,textAlign:"left",borderBottom:"1px solid #274460"}}>{x}</th>)}</tr></thead><tbody>{inventoryHistory.map(t=><tr key={t.id}><td style={{padding:8}}>{t.at}</td><td style={{padding:8}}>{t.itemCode}<br/>{t.itemName}</td><td style={{padding:8}}>{t.qty} {t.unit}</td><td style={{padding:8}}>{t.returnedQty||0} {t.unit}</td><td style={{padding:8,fontWeight:700}}>{t.remainingQty} {t.unit}</td><td style={{padding:8}}>{t.inventoryType||"-"}</td><td style={{padding:8,whiteSpace:"pre-wrap"}}>{t.inventoryNote||"-"}</td><td style={{padding:8}}><Btn onClick={()=>openInventoryReturn(t)} disabled={(Number(t.remainingQty)||0)<=0}>{(Number(t.remainingQty)||0)>0?"재고로 원복":"원복완료"}</Btn></td></tr>)}</tbody></table></div>:<div style={{padding:30,textAlign:"center",color:"#7F97AC"}}>인벤토리 이력이 없습니다.</div>}</Card></div>}
+    {inventoryReturnOpen&&inventoryReturnTarget&&<div className="app-modal-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:2100}}><Card style={{width:"min(560px,100%)",padding:18}}><h3 style={{marginTop:0}}>인벤토리 → 실제 재고 원복</h3><div style={{marginBottom:10}}><b>{inventoryReturnTarget.itemName}</b><div style={{fontSize:12,color:"#7F97AC",marginTop:4}}>{inventoryReturnTarget.itemCode} · {inventoryReturnTarget.shipNo || "-"} · 현재 인벤토리 잔여 {inventoryReturnTarget.remainingQty} {inventoryReturnTarget.unit}</div></div><label style={{display:"block",fontSize:12,marginBottom:6}}>원복 수량</label><input type="number" min="0" max={inventoryReturnTarget.remainingQty} step="any" value={inventoryReturnQty} onChange={e=>setInventoryReturnQty(e.target.value)} style={inputStyle}/><textarea value={inventoryReturnNote} onChange={e=>setInventoryReturnNote(e.target.value)} rows={4} style={{...inputStyle,width:"100%",resize:"vertical",marginTop:10}} placeholder="회수/원복 메모 입력 (예: 3528호선 차용분 회수)"/><div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:12}}><Btn onClick={()=>setInventoryReturnOpen(false)} disabled={inventoryReturnBusy}>취소</Btn><Btn onClick={returnFromInventory} disabled={inventoryReturnBusy}>{inventoryReturnBusy?"처리중...":"실제 재고로 원복"}</Btn></div></Card></div>}
   </div>;
 }
-
-function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, onOpenRawInbound, initialShip = "" }) {
+function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, onOpenRawInbound, initialShip = "", initialReturnItems = [] }) {
   const [mode, setMode] = useState("history"); // "history" | "manual"
 
   // 공통 입력값
@@ -3409,9 +3422,24 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, o
   const [manualProject, setManualProject] = useState("");
   const [returnComplete, setReturnComplete] = useState(null);
   const [returnShipFilter, setReturnShipFilter] = useState("전체");
+  const [presetReturnQueue, setPresetReturnQueue] = useState([]);
 
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
+  useEffect(() => {
+    if (!Array.isArray(initialReturnItems) || !initialReturnItems.length) return;
+    const normalized = initialReturnItems.map(x => ({ ...x, qty: Number(x.qty) || 0 }));
+    setPresetReturnQueue(normalized);
+    const first = normalized[0];
+    setMode("manual");
+    setManualCode(first.itemCode || "");
+    setManualName(first.itemName || "");
+    setManualUnit(first.unit || "EA");
+    setManualShip(first.shipNo || initialShip || "");
+    setManualProject(first.project || "");
+    setQty(first.qty || "");
+  }, [initialReturnItems]);
+
   useEffect(() => {
     if (initialShip) {
       setReturnShipFilter(initialShip);
@@ -3634,7 +3662,16 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, o
       `${targetItem.name} ${qtyNum}${targetItem.unit} 반납 완료 · ${matchedManualItem ? "기존 자재 재고 반영" : mode === "manual" ? "신규 자재도 마스터에 등록" : "재고 반영"}`,
       "ok"
     );
-    resetForm();
+    const remainingPreset = presetReturnQueue.length ? presetReturnQueue.slice(1) : [];
+    if (remainingPreset.length) {
+      const next = remainingPreset[0];
+      setPresetReturnQueue(remainingPreset);
+      setMode("manual"); setManualCode(next.itemCode || ""); setManualName(next.itemName || "");
+      setManualUnit(next.unit || "EA"); setManualShip(next.shipNo || initialShip || "");
+      setManualProject(next.project || ""); setQty(next.qty || "");
+    } else {
+      setPresetReturnQueue([]); resetForm();
+    }
     setReturnComplete(completion);
   };
 
@@ -5812,7 +5849,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
 }
 
 /* ---------------- 원자재 거래명세서 입고 ---------------- */
-function RawMaterialInboundView({ items, saveItems, txs, saveTxs, notify, supabase, initialShip = "", onOpenReturn }) {
+function RawMaterialInboundView({ items, saveItems, txs, saveTxs, notify, supabase, reloadItems, reloadTxs, initialShip = "", onOpenReturn }) {
   const [rawTab, setRawTab] = useState("invoice");
   return (
     <div>
@@ -5822,7 +5859,7 @@ function RawMaterialInboundView({ items, saveItems, txs, saveTxs, notify, supaba
         <Btn onClick={() => setRawTab("manage")} variant={rawTab === "manage" ? "primary" : "ghost"}>🏗️ 호선별 관리</Btn>
       </div>
       {rawTab === "manage" ? (
-        <RawMaterialShipManageView items={items} txs={txs} notify={notify} initialShip={initialShip} onOpenReturn={onOpenReturn} />
+        <RawMaterialShipManageView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={supabase} reloadItems={reloadItems} reloadTxs={reloadTxs} initialShip={initialShip} onOpenReturn={onOpenReturn} />
       ) : (
         <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={supabase} materialType="raw" rawMode={rawTab} />
       )}

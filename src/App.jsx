@@ -1550,10 +1550,10 @@ function AppInner() {
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
 
-  /* 모바일 좌우 스와이프로 하단 탭(출고/재고/입고/반납) 전환 - 손가락을 따라오는 드래그 연출 */
+  /* 모바일 좌우 스와이프로 하단 탭 순서대로 전환 - 손가락을 따라오는 드래그 연출 */
   const mainPanelRef = useRef(null);
   const dragStateRef = useRef({ startX: 0, startY: 0, dragging: null, deltaX: 0 });
-  const MOBILE_SWIPE_TABS = ["out", "stock", "in", "return"];
+  const MOBILE_SWIPE_TABS = ["in", "stock", "out", "rawInbound", "return"];
   const SWIPE_THRESHOLD = 60;
 
   /* 모달(긴급요청/이력/QR 등)이 열려 있는 동안에는 스와이프를 완전히 무시한다.
@@ -1867,6 +1867,30 @@ if (showSplash) {
         }
         .inbound-grid-container > * { min-width: 0; }
         .raw-manage-top-grid > * { min-width: 0; }
+
+        /* 호선별 원자재 관리: 모바일 전용 정리 */
+        .raw-manage-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+        .raw-manage-actions > * { min-width: 0; }
+        .raw-manage-table { display:block; }
+        .raw-manage-cards { display:none; }
+        @media (max-width: 768px) {
+          .raw-manage-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+          .raw-manage-actions > * { width:100%; min-height:42px; }
+          .raw-manage-actions .raw-manage-tag-input { grid-column:1 / -1; }
+          .raw-manage-table { display:none; }
+          .raw-manage-cards { display:flex; flex-direction:column; gap:10px; padding:10px; }
+          .raw-manage-item-card { border:1px solid #274460; border-radius:12px; padding:12px; background:#10283a; }
+          .raw-manage-item-card.is-selected { box-shadow:0 0 0 1px rgba(255,176,40,.75); }
+          .raw-manage-card-head { display:flex; gap:10px; align-items:flex-start; }
+          .raw-manage-card-check { padding-top:3px; }
+          .raw-manage-card-main { flex:1; min-width:0; }
+          .raw-manage-card-title { font-weight:800; font-size:15px; overflow-wrap:anywhere; }
+          .raw-manage-card-code { margin-top:3px; font-size:11px; color:#8ca8bd; overflow-wrap:anywhere; }
+          .raw-manage-card-meta { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; font-size:12px; }
+          .raw-manage-card-meta span { color:#8ca8bd; }
+          .raw-manage-card-meta b { display:block; color:#dbe8f3; margin-top:2px; font-weight:700; overflow-wrap:anywhere; }
+          .raw-manage-card-tags { margin-top:9px; font-size:12px; color:#ffcf70; overflow-wrap:anywhere; }
+        }
         @media (max-width: 768px) {
           .raw-manage-top-grid { grid-template-columns: minmax(0,1fr) !important; }
         }
@@ -1965,8 +1989,9 @@ if (showSplash) {
             display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10;
           }
           .mobile-bottom-nav {
-            height: 64px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
-            grid-template-columns: repeat(4, 1fr); flex-shrink: 0; z-index: 10;
+            height: 68px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
+            grid-template-columns: 1fr 1fr 1.28fr 1fr 1fr; flex-shrink: 0; z-index: 10;
+            align-items: stretch; gap: 0;
           }
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
           .tab-panel { padding: 14px 12px; border-radius: 14px; }
@@ -2257,42 +2282,49 @@ if (showSplash) {
 
       {/* 모바일 하단 탭 */}
       <nav className="mobile-bottom-nav">
-        {["out", "stock", "in", "return"].map((id) => {
+        {["in", "stock", "out", "rawInbound", "return"].map((id) => {
           const n = NAV.find((item) => item.id === id);
           if (!n) return null;
           const active = tab === n.id;
           const Icon = n.icon;
           const neon = TAB_NEON[n.id] || "#7F97AC";
           const isOut = n.id === "out";
+          const mobileLabel = n.id === "rawInbound" ? "원자재입고" : n.label;
 
           return (
             <button
               key={n.id}
               onClick={() => goToTab(n.id)}
               style={{
-                background: isOut ? (active ? `${neon}22` : `${neon}10`) : "transparent",
-                border: isOut ? `1px solid ${neon}${active ? "88" : "44"}` : "none",
-                borderRadius: isOut ? 10 : 0,
+                background: isOut ? (active ? `${neon}28` : `${neon}14`) : "transparent",
+                border: isOut ? `1px solid ${neon}${active ? "AA" : "55"}` : "none",
+                borderRadius: isOut ? 12 : 0,
                 color: active ? neon : "#7F97AC",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: isOut ? 2 : 4,
+                gap: isOut ? 3 : 3,
                 cursor: "pointer",
-                padding: isOut ? "3px 4px" : 0,
-                margin: isOut ? "4px 2px" : 0,
-                transform: isOut ? "translateY(-4px)" : "none",
-                boxShadow: isOut && active ? `0 0 18px -8px ${neon}` : "none",
+                minWidth: 0,
+                padding: isOut ? "4px 3px" : "2px 1px",
+                margin: isOut ? "4px 2px 7px" : 0,
+                transform: isOut ? "translateY(-7px)" : "none",
+                boxShadow: isOut ? (active ? `0 0 22px -7px ${neon}` : `0 0 14px -10px ${neon}`) : "none",
               }}
             >
-              <Icon size={isOut ? 23 : 19} color={active ? neon : "#7F97AC"} />
+              <Icon size={isOut ? 26 : 17} color={active ? neon : "#7F97AC"} />
               <span style={{
-                fontSize: isOut ? 10.5 : 10,
+                fontSize: isOut ? 11.5 : 9.5,
+                lineHeight: 1.1,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                maxWidth: "100%",
                 fontFamily: "Inter, sans-serif",
-                fontWeight: active || isOut ? 700 : 500,
+                fontWeight: active || isOut ? 800 : 500,
               }}>
-                {n.label}
+                {mobileLabel}
               </span>
             </button>
           );
@@ -3393,9 +3425,9 @@ function RawMaterialShipManageView({ items, saveItems, txs, saveTxs, notify, sup
   return <div style={{display:"flex",flexDirection:"column",gap:16,minWidth:0}}>
     <Header title="호선별 원자재 관리" subtitle="선택 자재를 반납하거나 실제 재고에서 인벤토리로 이동해 차용·파손·교체요청 이력을 관리합니다." />
     <Card style={{padding:16}}><div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:10}} className="raw-manage-top-grid"><select value={ship} onChange={e=>{setShip(e.target.value);setSelected([])}} style={inputStyle}><option value="">호선 선택 (전체)</option>{ships.map(x=><option key={x} value={x}>{x}</option>)}</select><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="품명 · 코드 · 태그 검색" style={inputStyle}/></div>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}><Btn onClick={toggleAll}>{selected.length===rows.length&&rows.length?"전체 해제":"전체 선택"}</Btn><input value={tagInput} onChange={e=>setTagInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTag()} placeholder="#태그 입력" style={{...inputStyle,flex:"1 1 120px",minWidth:120}}/><Btn onClick={addTag}>태그 부여</Btn><Btn onClick={()=>{if(!selectedRows.length)return notify?.("반납할 원자재를 선택해 주세요.","info"); const shipsIn=new Set(selectedRows.map(t=>String(t.shipNo||"").trim()).filter(Boolean)); if(shipsIn.size>1)return notify?.("반납창으로 이동할 때는 같은 호선의 자재만 선택해 주세요.","info"); onOpenReturn?.({ship:actionShip,items:selectedRows.map(t=>({id:t.id,itemCode:t.itemCode,itemName:t.itemName,unit:t.unit,qty:Number(t.qty)||0,shipNo:t.shipNo||actionShip,project:t.project||""}))});}}>반납창 이동</Btn><Btn onClick={openInventory} disabled={!selectedRows.length}>인벤토리 이동</Btn><Btn onClick={()=>setInventoryHistoryOpen(true)} disabled={!actionShip}>인벤토리 이력</Btn><Btn onClick={downloadExcel}>엑셀 다운로드</Btn><Btn onClick={removeSelectedFromManage} style={{color:"#ff8a8a"}} disabled={!selected.length}>관리목록 삭제</Btn></div>
+      <div className="raw-manage-actions"><Btn onClick={toggleAll}>{selected.length===rows.length&&rows.length?"전체 해제":"전체 선택"}</Btn><input value={tagInput} onChange={e=>setTagInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTag()} placeholder="#태그 입력" className="raw-manage-tag-input" style={{...inputStyle,flex:"1 1 120px",minWidth:120}}/><Btn onClick={addTag}>태그 부여</Btn><Btn onClick={()=>{if(!selectedRows.length)return notify?.("반납할 원자재를 선택해 주세요.","info"); const shipsIn=new Set(selectedRows.map(t=>String(t.shipNo||"").trim()).filter(Boolean)); if(shipsIn.size>1)return notify?.("반납창으로 이동할 때는 같은 호선의 자재만 선택해 주세요.","info"); onOpenReturn?.({ship:actionShip,items:selectedRows.map(t=>({id:t.id,itemCode:t.itemCode,itemName:t.itemName,unit:t.unit,qty:Number(t.qty)||0,shipNo:t.shipNo||actionShip,project:t.project||""}))});}}>반납창 이동</Btn><Btn onClick={openInventory} disabled={!selectedRows.length}>인벤토리 이동</Btn><Btn onClick={()=>setInventoryHistoryOpen(true)} disabled={!actionShip}>인벤토리 이력</Btn><Btn onClick={downloadExcel}>엑셀 다운로드</Btn><Btn onClick={removeSelectedFromManage} style={{color:"#ff8a8a"}} disabled={!selected.length}>관리목록 삭제</Btn></div>
       {allTags.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}><button onClick={()=>setActiveTag("")} style={{fontSize:12}}>전체 태그</button>{allTags.map(tag=><button key={tag} onClick={()=>setActiveTag(activeTag===tag?"":tag)} style={{fontSize:12}}>{tag}</button>)}</div>}</Card>
-    <Card style={{padding:0,overflow:"hidden"}}><div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}><table style={{width:"100%",minWidth:760,borderCollapse:"collapse",fontSize:13}}><thead><tr>{["","호선","자재코드","품명","수량","입고일","수령자","태그"].map(x=><th key={x} style={{padding:10,textAlign:"left",borderBottom:"1px solid #274460"}}>{x}</th>)}</tr></thead><tbody>{rows.map(t=><tr key={t.id}><td style={{padding:10}}><input type="checkbox" checked={selected.includes(t.id)} onChange={()=>setSelected(p=>p.includes(t.id)?p.filter(x=>x!==t.id):[...p,t.id])}/></td><td style={{padding:10}}>{t.shipNo}</td><td style={{padding:10}}>{t.itemCode}</td><td style={{padding:10}}>{t.itemName}</td><td style={{padding:10}}>{t.qty} {t.unit}</td><td style={{padding:10}}>{t.at}</td><td style={{padding:10}}>{t.worker||"-"}</td><td style={{padding:10}}>{(tagMap[t.id]||[]).join(" ")||"-"}</td></tr>)}</tbody></table></div>{!rows.length&&<div style={{padding:30,textAlign:"center",color:"#7F97AC"}}>선택한 호선의 원자재 입고 자료가 없습니다.</div>}</Card>
+    <Card style={{padding:0,overflow:"hidden"}}><div className="raw-manage-table" style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}><table style={{width:"100%",minWidth:760,borderCollapse:"collapse",fontSize:13}}><thead><tr>{["","호선","자재코드","품명","수량","입고일","수령자","태그"].map(x=><th key={x} style={{padding:10,textAlign:"left",borderBottom:"1px solid #274460"}}>{x}</th>)}</tr></thead><tbody>{rows.map(t=><tr key={t.id}><td style={{padding:10}}><input type="checkbox" checked={selected.includes(t.id)} onChange={()=>setSelected(p=>p.includes(t.id)?p.filter(x=>x!==t.id):[...p,t.id])}/></td><td style={{padding:10}}>{t.shipNo}</td><td style={{padding:10}}>{t.itemCode}</td><td style={{padding:10}}>{t.itemName}</td><td style={{padding:10}}>{t.qty} {t.unit}</td><td style={{padding:10}}>{t.at}</td><td style={{padding:10}}>{t.worker||"-"}</td><td style={{padding:10}}>{(tagMap[t.id]||[]).join(" ")||"-"}</td></tr>)}</tbody></table></div><div className="raw-manage-cards">{rows.map(t=>{const checked=selected.includes(t.id); return <div key={t.id} className={`raw-manage-item-card${checked?" is-selected":""}`}><div className="raw-manage-card-head"><div className="raw-manage-card-check"><input aria-label={`${t.itemName} 선택`} type="checkbox" checked={checked} onChange={()=>setSelected(p=>p.includes(t.id)?p.filter(x=>x!==t.id):[...p,t.id])}/></div><div className="raw-manage-card-main"><div className="raw-manage-card-title">{t.itemName}</div><div className="raw-manage-card-code">{t.itemCode}</div><div className="raw-manage-card-meta"><div><span>호선</span><b>{t.shipNo||"-"}</b></div><div><span>수량</span><b>{t.qty} {t.unit}</b></div><div><span>입고일</span><b>{String(t.at||"-").replace("T"," ").replace("+00:00","")}</b></div><div><span>수령자</span><b>{t.worker||"-"}</b></div></div>{(tagMap[t.id]||[]).length>0&&<div className="raw-manage-card-tags">{(tagMap[t.id]||[]).join(" ")}</div>}</div></div></div>})}</div>{!rows.length&&<div style={{padding:30,textAlign:"center",color:"#7F97AC"}}>선택한 호선의 원자재 입고 자료가 없습니다.</div>}</Card>
     {inventoryOpen&&<div className="app-modal-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:2000}}><Card style={{width:"min(760px,100%)",padding:18,maxHeight:"90dvh",overflowY:"auto"}}><h3 style={{marginTop:0}}>선택 자재 인벤토리 이동</h3><p style={{color:"#7F97AC",fontSize:12}}>저장하면 입력 수량만큼 실제 재고가 차감되고 인벤토리 이력에 기록됩니다.</p><div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>{["차용","파손","교체요청","기타"].map(x=><Btn key={x} onClick={()=>setInventoryType(x)} variant={inventoryType===x?"primary":"ghost"}>{x}</Btn>)}</div>{selectedRows.map(t=><div key={t.id} style={{display:"grid",gridTemplateColumns:"1fr minmax(90px,140px)",gap:10,alignItems:"center",marginBottom:8}}><div><b>{t.itemName}</b><div style={{fontSize:11,color:"#7F97AC"}}>{t.itemCode} · {t.shipNo} · 현재고 {(items||[]).find(i=>String(i.code).trim()===String(t.itemCode).trim())?.stock ?? 0} {t.unit}</div></div><input type="number" min="0" step="any" value={inventoryQty[t.id]??""} onChange={e=>setInventoryQty(q=>({...q,[t.id]:e.target.value}))} style={inputStyle}/></div>)}<textarea value={inventoryNote} onChange={e=>setInventoryNote(e.target.value)} rows={4} style={{...inputStyle,width:"100%",resize:"vertical"}} placeholder="메모 입력 (차용 대상, 파손 사유, 교체요청 내용 등)"/><div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:12}}><Btn onClick={()=>setInventoryOpen(false)} disabled={inventoryBusy}>취소</Btn><Btn onClick={moveToInventory} disabled={inventoryBusy}>{inventoryBusy?"처리중...":"실제 재고 차감 후 이동"}</Btn></div></Card></div>}
     {inventoryHistoryOpen&&<div className="app-modal-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:2000}}><Card style={{width:"min(980px,100%)",padding:18,maxHeight:"90dvh",overflowY:"auto"}}><div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"center"}}><div><h3 style={{margin:0}}>{actionShip||"전체"} 인벤토리 이력</h3><div style={{fontSize:12,color:"#7F97AC",marginTop:4}}>남은 수량만큼 부분 원복 또는 전량 원복할 수 있습니다.</div></div><Btn onClick={()=>setInventoryHistoryOpen(false)}>닫기</Btn></div>{inventoryHistory.length?<div style={{overflowX:"auto",marginTop:12}}><table style={{width:"100%",minWidth:820,borderCollapse:"collapse",fontSize:12}}><thead><tr>{["일시","자재","이동수량","원복수량","잔여수량","유형","메모","처리"].map(x=><th key={x} style={{padding:8,textAlign:"left",borderBottom:"1px solid #274460"}}>{x}</th>)}</tr></thead><tbody>{inventoryHistory.map(t=><tr key={t.id}><td style={{padding:8}}>{t.at}</td><td style={{padding:8}}>{t.itemCode}<br/>{t.itemName}</td><td style={{padding:8}}>{t.qty} {t.unit}</td><td style={{padding:8}}>{t.returnedQty||0} {t.unit}</td><td style={{padding:8,fontWeight:700}}>{t.remainingQty} {t.unit}</td><td style={{padding:8}}>{t.inventoryType||"-"}</td><td style={{padding:8,whiteSpace:"pre-wrap"}}>{t.inventoryNote||"-"}</td><td style={{padding:8}}><Btn onClick={()=>openInventoryReturn(t)} disabled={(Number(t.remainingQty)||0)<=0}>{(Number(t.remainingQty)||0)>0?"재고로 원복":"원복완료"}</Btn></td></tr>)}</tbody></table></div>:<div style={{padding:30,textAlign:"center",color:"#7F97AC"}}>인벤토리 이력이 없습니다.</div>}</Card></div>}
     {inventoryReturnOpen&&inventoryReturnTarget&&<div className="app-modal-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:2100}}><Card style={{width:"min(560px,100%)",padding:18}}><h3 style={{marginTop:0}}>인벤토리 → 실제 재고 원복</h3><div style={{marginBottom:10}}><b>{inventoryReturnTarget.itemName}</b><div style={{fontSize:12,color:"#7F97AC",marginTop:4}}>{inventoryReturnTarget.itemCode} · {inventoryReturnTarget.shipNo || "-"} · 현재 인벤토리 잔여 {inventoryReturnTarget.remainingQty} {inventoryReturnTarget.unit}</div></div><label style={{display:"block",fontSize:12,marginBottom:6}}>원복 수량</label><input type="number" min="0" max={inventoryReturnTarget.remainingQty} step="any" value={inventoryReturnQty} onChange={e=>setInventoryReturnQty(e.target.value)} style={inputStyle}/><textarea value={inventoryReturnNote} onChange={e=>setInventoryReturnNote(e.target.value)} rows={4} style={{...inputStyle,width:"100%",resize:"vertical",marginTop:10}} placeholder="회수/원복 메모 입력 (예: 3528호선 차용분 회수)"/><div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:12}}><Btn onClick={()=>setInventoryReturnOpen(false)} disabled={inventoryReturnBusy}>취소</Btn><Btn onClick={returnFromInventory} disabled={inventoryReturnBusy}>{inventoryReturnBusy?"처리중...":"실제 재고로 원복"}</Btn></div></Card></div>}

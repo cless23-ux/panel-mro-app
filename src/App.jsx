@@ -1738,6 +1738,7 @@ function AppInner() {
     { id: "in", label: "입고등록", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "return", label: "원자재반납", icon: RotateCcw },
+    { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
@@ -1752,6 +1753,7 @@ function AppInner() {
     in: "#35D08C",
     out: "#F5A623",
     return: "#22D3EE",
+    rawInbound: "#38BDF8",
     stock: "#A78BFA",
     master: "#F472B6",
     settings: "#2DD4BF",
@@ -1760,6 +1762,7 @@ function AppInner() {
   };
 
   const [slideDir, setSlideDir] = useState(1);
+  const [rawManagePresetShip, setRawManagePresetShip] = useState("");
   const goToTab = (next) => {
     if (next === tab) return;
     const curIdx = NAV_IDS.indexOf(tab);
@@ -1810,7 +1813,11 @@ if (showSplash) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=${FONT_LINK}&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        html, body, #root { width: 100%; max-width: none; margin: 0; padding: 0; }
+        html, body, #root { width: 100%; max-width: none; margin: 0; padding: 0; overflow-x: hidden; }
+        html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+        img, video, canvas { max-width: 100%; }
+        input, select, textarea, button { max-width: 100%; }
+        .mobile-safe-wrap { min-width: 0; max-width: 100%; }
         ::selection { background: #F5A62355; }
         table { border-collapse: collapse; width: 100%; }
         th, td { text-align: left; padding: 10px 12px; font-size: 13.5px; }
@@ -1858,6 +1865,10 @@ if (showSplash) {
           align-items: start;
         }
         .inbound-grid-container > * { min-width: 0; }
+        .raw-manage-top-grid > * { min-width: 0; }
+        @media (max-width: 768px) {
+          .raw-manage-top-grid { grid-template-columns: minmax(0,1fr) !important; }
+        }
 
         .outform-grid {
           display: grid;
@@ -1946,7 +1957,7 @@ if (showSplash) {
           .pc-only-block { display: none !important; }
           .pwa-install-share { display: none !important; }
           .pwa-mobile-install { display: flex; }
-          .app-container { flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
+          .app-container { flex-direction: column; height: 100dvh; min-height: 100vh; width: 100%; overflow: hidden; }
           .pc-sidebar { display: none; }
           .mobile-header {
             height: 52px; padding: 0 16px; border-bottom: 1px solid #16293C; background: #0F2233;
@@ -2230,9 +2241,10 @@ if (showSplash) {
             }}
           >
             {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} />}
-            {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} />}
+            {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} materialType="sub" />}
+            {tab === "rawInbound" && <RawMaterialInboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} initialShip={rawManagePresetShip} onOpenReturn={(ship) => { setRawManagePresetShip(ship); goToTab("return"); }} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
-            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} />}
+            {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} onOpenRawInbound={() => goToTab("rawInbound")} />}
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
@@ -3252,7 +3264,131 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 /* ---------------- 자재 반납 ---------------- */
 const RETURN_REASONS = ["미사용 잔량", "수량 착오", "자재 상이", "프로젝트 취소/변경", "기타"];
 
-function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings }) {
+
+/* ---------------- 호선별 원자재 관리 ---------------- */
+function RawMaterialShipManageView({ items, txs, notify, initialShip = "", onOpenReturn }) {
+  const [ship, setShip] = useState(initialShip || "");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState([]);
+  const [tagInput, setTagInput] = useState("");
+  const [activeTag, setActiveTag] = useState("");
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [inventoryText, setInventoryText] = useState("");
+  const [inventoryMap, setInventoryMap] = useState({});
+  const [tagMap, setTagMap] = useState({});
+  const [hiddenIds, setHiddenIds] = useState([]);
+
+  useEffect(() => {
+    try { setTagMap(JSON.parse(localStorage.getItem("raw_ship_tags_v1") || "{}")); } catch {}
+    try { setInventoryMap(JSON.parse(localStorage.getItem("raw_ship_inventory_v1") || "{}")); } catch {}
+    try { setHiddenIds(JSON.parse(localStorage.getItem("raw_ship_hidden_v1") || "[]")); } catch {}
+  }, []);
+  useEffect(() => { if (initialShip) setShip(initialShip); }, [initialShip]);
+
+  const rawInbound = useMemo(() => (txs || []).filter(t =>
+    t.type === "in" && isRawMaterial(t.itemCode) && String(t.shipNo || "").trim() && !hiddenIds.includes(t.id)
+  ), [txs, hiddenIds]);
+
+  const ships = useMemo(() => Array.from(new Set(rawInbound.map(t => String(t.shipNo).trim()))).sort(), [rawInbound]);
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rawInbound.filter(t => !ship || String(t.shipNo).trim() === ship)
+      .filter(t => {
+        const tags = tagMap[t.id] || [];
+        const hay = [t.itemName, t.itemCode, t.worker, ...tags].join(" ").toLowerCase();
+        return (!q || hay.includes(q)) && (!activeTag || tags.includes(activeTag));
+      })
+      .sort((a,b) => String(b.at||"").localeCompare(String(a.at||"")));
+  }, [rawInbound, ship, query, tagMap, activeTag]);
+
+  const allTags = useMemo(() => Array.from(new Set(rows.flatMap(t => tagMap[t.id] || []))).sort(), [rows, tagMap]);
+  // 호선을 아직 직접 선택하지 않아도 체크한 행의 호선을 자동으로 사용합니다.
+  const selectedRows = useMemo(() => rows.filter(t => selected.includes(t.id)), [rows, selected]);
+  const actionShip = ship || (selectedRows.length ? String(selectedRows[0].shipNo || "").trim() : "");
+  const toggleAll = () => setSelected(selected.length === rows.length ? [] : rows.map(t => t.id));
+  const saveTags = (next) => { setTagMap(next); localStorage.setItem("raw_ship_tags_v1", JSON.stringify(next)); };
+  const addTag = () => {
+    const tag = tagInput.trim().replace(/^#/, "");
+    if (!tag || !selected.length) return notify?.("선택 후 태그를 입력해 주세요.", "info");
+    const next = {...tagMap};
+    selected.forEach(id => next[id] = Array.from(new Set([...(next[id]||[]), "#"+tag])));
+    saveTags(next); setTagInput("");
+  };
+  const removeSelectedFromManage = () => {
+    if (!selected.length) return;
+    if (!window.confirm("선택 항목을 호선별 관리 화면에서만 삭제할까요?\n실제 재고와 입고 거래기록은 변경되지 않습니다.")) return;
+    const next = Array.from(new Set([...hiddenIds, ...selected]));
+    setHiddenIds(next); localStorage.setItem("raw_ship_hidden_v1", JSON.stringify(next)); setSelected([]);
+  };
+  const downloadExcel = () => {
+    const header = ["호선","자재코드","품명","수량","단위","입고일","담당자","태그"];
+    const csv = [header, ...rows.map(t => [t.shipNo,t.itemCode,t.itemName,t.qty,t.unit,t.at,t.worker,(tagMap[t.id]||[]).join(" ")])]
+      .map(r => r.map(v => `"${String(v??"").replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\ufeff"+csv], {type:"text/csv;charset=utf-8;"});
+    const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`원자재_${ship||"전체"}_관리.csv`; a.click(); URL.revokeObjectURL(a.href);
+  };
+  const saveInventory = () => {
+    if (!ship) return notify?.("먼저 호선을 선택해 주세요.", "err");
+    const next={...inventoryMap,[ship]:inventoryText}; setInventoryMap(next);
+    localStorage.setItem("raw_ship_inventory_v1",JSON.stringify(next)); setInventoryOpen(false); notify?.("인벤토리 기록을 저장했습니다.","ok");
+  };
+
+  return <div style={{display:"flex",flexDirection:"column",gap:16,minWidth:0}}>
+    <Header title="호선별 원자재 관리" subtitle="호선을 선택하면 해당 호선으로 입고된 원자재를 관리합니다." />
+    <Card style={{padding:16}}>
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1fr)",gap:10}} className="raw-manage-top-grid">
+        <select value={ship} onChange={e=>{setShip(e.target.value);setSelected([])}} style={inputStyle}>
+          <option value="">호선 선택 (전체)</option>{ships.map(x=><option key={x} value={x}>{x}</option>)}
+        </select>
+        <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="품명 · 코드 · 태그 검색" style={inputStyle} />
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:10}}>
+        <Btn onClick={toggleAll}>{selected.length===rows.length && rows.length ? "전체 해제":"전체 선택"}</Btn>
+        <input value={tagInput} onChange={e=>setTagInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTag()} placeholder="#태그 입력" style={{...inputStyle,flex:"1 1 120px",minWidth:120}} />
+        <Btn onClick={addTag}>태그 부여</Btn>
+        <Btn onClick={()=>{
+          if (!selected.length || !actionShip) return notify?.("반납할 원자재를 선택해 주세요.", "info");
+          onOpenReturn?.(actionShip);
+        }} disabled={!selected.length || !actionShip}>반납창 이동</Btn>
+        <Btn onClick={()=>{
+          if (!actionShip) return notify?.("호선 또는 해당 호선의 원자재를 선택해 주세요.", "info");
+          setInventoryText(inventoryMap[actionShip]||"");
+          if (!ship) setShip(actionShip);
+          setInventoryOpen(true);
+        }} disabled={!actionShip}>인벤토리</Btn>
+        <Btn onClick={downloadExcel}>엑셀 다운로드</Btn>
+        <Btn onClick={removeSelectedFromManage} style={{color:"#ff8a8a"}} disabled={!selected.length}>관리목록 삭제</Btn>
+      </div>
+      {allTags.length>0 && <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:10}}>
+        <button onClick={()=>setActiveTag("")} style={{fontSize:12}}>전체 태그</button>
+        {allTags.map(tag=><button key={tag} onClick={()=>setActiveTag(activeTag===tag?"":tag)} style={{fontSize:12}}>{tag}</button>)}
+      </div>}
+    </Card>
+    <Card style={{padding:0,overflow:"hidden"}}>
+      <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+        <table style={{width:"100%",minWidth:760,borderCollapse:"collapse",fontSize:13}}>
+          <thead><tr>{["","호선","자재코드","품명","수량","입고일","담당자","태그"].map(x=><th key={x} style={{padding:10,textAlign:"left",borderBottom:"1px solid #274460"}}>{x}</th>)}</tr></thead>
+          <tbody>{rows.map(t=><tr key={t.id}>
+            <td style={{padding:10}}><input type="checkbox" checked={selected.includes(t.id)} onChange={()=>setSelected(p=>p.includes(t.id)?p.filter(x=>x!==t.id):[...p,t.id])}/></td>
+            <td style={{padding:10}}>{t.shipNo}</td><td style={{padding:10}}>{t.itemCode}</td><td style={{padding:10}}>{t.itemName}</td>
+            <td style={{padding:10}}>{t.qty} {t.unit}</td><td style={{padding:10}}>{t.at}</td><td style={{padding:10}}>{t.worker||"-"}</td>
+            <td style={{padding:10}}>{(tagMap[t.id]||[]).join(" ")||"-"}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+      {!rows.length && <div style={{padding:30,textAlign:"center",color:"#7F97AC"}}>선택한 호선의 원자재 입고 자료가 없습니다.</div>}
+    </Card>
+    {inventoryOpen && <div className="app-modal-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16,zIndex:2000}}>
+      <Card style={{width:"min(620px,100%)",padding:18}}><h3 style={{marginTop:0}}>{ship} 인벤토리 기록</h3>
+        <p style={{color:"#7F97AC",fontSize:12}}>차용, 파손, 교체요청 등 호선별 관리 메모를 기록합니다.</p>
+        <textarea value={inventoryText} onChange={e=>setInventoryText(e.target.value)} rows={10} style={{...inputStyle,width:"100%",resize:"vertical"}} placeholder="예: 1-CG-001 · 2EA · 3528호선에 차용 / 2026-08-12"/>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:12}}><Btn onClick={()=>setInventoryOpen(false)}>취소</Btn><Btn onClick={saveInventory}>저장</Btn></div>
+      </Card>
+    </div>}
+  </div>;
+}
+
+function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, onOpenRawInbound, initialShip = "" }) {
   const [mode, setMode] = useState("history"); // "history" | "manual"
 
   // 공통 입력값
@@ -3276,6 +3412,14 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
 
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
+  useEffect(() => {
+    if (initialShip) {
+      setReturnShipFilter(initialShip);
+      // 호선별 원자재 관리에서 이동한 경우 직접입력 반납으로 전환하고 호선을 자동 입력합니다.
+      setMode("manual");
+      setManualShip(initialShip);
+    }
+  }, [initialShip]);
 
   /* 직접 입력한 코드가 기존 자재인지 자동 확인.
      기존 자재면 기존 재고에 반납하고, 없으면 반납 확정 시 자재마스터에도 신규 등록합니다. */
@@ -3527,6 +3671,17 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings })
   return (
     <div>
       <Header title="원자재 반납" subtitle="출고된 원자재(코드 1-)의 미사용분·오출고분을 반납합니다 · 미등록 자재도 직접 입력하여 등록할 수 있습니다" />
+      {onOpenRawInbound && (
+        <Card neon="#38BDF8" style={{ padding: 14, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontWeight: 800, color: "#7DD3FC", fontSize: 14 }}>원자재 관리</div>
+              <div style={{ color: "#7F97AC", fontSize: 11.5, marginTop: 3 }}>코드 1- 원자재 전용 거래명세서 입고를 별도로 처리합니다.</div>
+            </div>
+            <Btn onClick={onOpenRawInbound} style={{ whiteSpace: "nowrap" }}>📄 원자재 거래명세서 입고</Btn>
+          </div>
+        </Card>
+      )}
       <div className="outform-grid">
         <Card neon="#22D3EE" style={{ padding: 22 }}>
           <SectionLabel>1. 반납 대상 선택</SectionLabel>
@@ -5656,20 +5811,47 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   );
 }
 
+/* ---------------- 원자재 거래명세서 입고 ---------------- */
+function RawMaterialInboundView({ items, saveItems, txs, saveTxs, notify, supabase, initialShip = "", onOpenReturn }) {
+  const [rawTab, setRawTab] = useState("invoice");
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+        <Btn onClick={() => setRawTab("invoice")} variant={rawTab === "invoice" ? "primary" : "ghost"}>📄 거래명세서 입고</Btn>
+        <Btn onClick={() => setRawTab("manual")} variant={rawTab === "manual" ? "primary" : "ghost"}>✍️ 수동입고</Btn>
+        <Btn onClick={() => setRawTab("manage")} variant={rawTab === "manage" ? "primary" : "ghost"}>🏗️ 호선별 관리</Btn>
+      </div>
+      {rawTab === "manage" ? (
+        <RawMaterialShipManageView items={items} txs={txs} notify={notify} initialShip={initialShip} onOpenReturn={onOpenReturn} />
+      ) : (
+        <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={supabase} materialType="raw" rawMode={rawTab} />
+      )}
+    </div>
+  );
+}
+
 /* ---------------- 입고 등록 ---------------- */
-function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
+function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materialType = "sub", rawMode = "all" }) {
   const [selectedCode, setSelectedCode] = useState("");
   const [qty, setQty] = useState(1);
   const [person, setPerson] = useState("");
+  const [manualShip, setManualShip] = useState("");
 
   const [useCamera, setUseCamera] = useState(false);
-  const [useMaterialCamera, setUseMaterialCamera] = useState(false);
+  // 부자재 수동입고 전용 자재 QR 카메라 (원자재에는 표시/실행하지 않음)
+  const [manualItemCamera, setManualItemCamera] = useState(false);
   const [invoiceQRInput, setInvoiceQRInput] = useState("");
   const [invoiceData, setInvoiceData] = useState(null);
   const [invoicePerson, setInvoicePerson] = useState("");
+  const [invoiceShip, setInvoiceShip] = useState("");
   const [loading, setLoading] = useState(false);
 
   const [quickRegItem, setQuickRegItem] = useState(null);
+  const [manualNewOpen, setManualNewOpen] = useState(false);
+  const [manualNewCode, setManualNewCode] = useState("1-");
+  const [manualNewName, setManualNewName] = useState("");
+  const [manualNewSpec, setManualNewSpec] = useState("");
+  const [manualNewUnit, setManualNewUnit] = useState("EA");
   const [quickName, setQuickName] = useState("");
   const [quickSpec, setQuickSpec] = useState("");
   const [quickUnit, setQuickUnit] = useState("EA");
@@ -5678,8 +5860,12 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
   const [itemDropdownOpen, setItemDropdownOpen] = useState(false);
   const itemInputWrapRef = useRef(null);
 
+  const materialLabel = materialType === "raw" ? "원자재" : "부자재";
+  const materialPrefix = materialType === "raw" ? "1-" : "2-";
+  const materialItems = useMemo(() => (items || []).filter((i) => getMaterialType(i.code) === materialType), [items, materialType]);
+
   const filteredItemsForInbound = useMemo(() => {
-    const list = items || [];
+    const list = materialItems;
     if (!itemSearchText.trim()) return list.slice(0, 30);
     const q = itemSearchText.toLowerCase().trim();
     return list.filter((i) => 
@@ -5687,7 +5873,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
       String(i.code).toLowerCase().includes(q) ||
       String(i.spec || "").toLowerCase().includes(q)
     ).slice(0, 30);
-  }, [items, itemSearchText]);
+  }, [materialItems, itemSearchText]);
 
   useEffect(() => {
     const handleOutsideClick = (e) => {
@@ -5699,7 +5885,50 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
-  const selectedItem = items.find((i) => i.code === selectedCode);
+  // 부자재 수동입고에서만 자재 QR/바코드 카메라 사용
+  useEffect(() => {
+    let scanner = null;
+    if (materialType !== "sub" || !manualItemCamera) return undefined;
+    const start = async () => {
+      try {
+        if (!window.Html5Qrcode) {
+          const script = document.createElement("script");
+          script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+          script.async = true;
+          document.body.appendChild(script);
+          await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; });
+        }
+        scanner = new window.Html5Qrcode("inbound-item-reader");
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 220, height: 220 } },
+          async (decodedText) => {
+            const code = String(decodedText || "").trim();
+            const hit = materialItems.find((i) => String(i.code).trim() === code);
+            if (hit) {
+              setSelectedCode(hit.code);
+              setItemSearchText(hit.name || hit.code);
+              setItemDropdownOpen(false);
+              notify(`자재 선택됨: ${hit.name}`, "ok");
+              try { await scanner?.stop(); } catch {}
+              setManualItemCamera(false);
+            } else {
+              notify(`등록되지 않은 부자재 코드입니다: ${code}`, "err");
+            }
+          },
+          () => {}
+        );
+      } catch (err) {
+        console.error("자재 카메라 오류:", err);
+        notify("자재 카메라를 실행할 수 없습니다. 권한을 확인해주세요.", "err");
+        setManualItemCamera(false);
+      }
+    };
+    start();
+    return () => { if (scanner) scanner.stop().then(() => scanner.clear()).catch(() => {}); };
+  }, [manualItemCamera, materialType, materialItems]);
+
+  const selectedItem = materialItems.find((i) => i.code === selectedCode);
 
   const recentInTxs = useMemo(() => {
     const parseAt = (t) => {
@@ -5707,7 +5936,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return (txs || [])
-      .filter((t) => t.type === "in")
+      .filter((t) => t.type === "in" && getMaterialType(t.itemCode) === materialType)
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -5812,56 +6041,8 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase }) {
         html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
       }
     };
-  }, [useCamera]);
+  }, [useCamera, materialType]);
 
-  useEffect(() => {
-    let html5QrCode = null;
-    if (useMaterialCamera) {
-      const startMaterialScanner = async () => {
-        try {
-          if (!window.Html5Qrcode) {
-            const script = document.createElement("script");
-            script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
-            script.async = true;
-            document.body.appendChild(script);
-            await new Promise((resolve) => (script.onload = resolve));
-          }
-
-          html5QrCode = new window.Html5Qrcode("inbound-material-qr-reader");
-          await html5QrCode.start(
-            { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 220, height: 220 } },
-            (decodedText) => {
-              const rawCode = String(decodedText || "").trim();
-              const code = rawCode.replace(/^(?:KEY_CODE\s*[:=]\s*)/i, "").replace(/[^0-9A-Za-z_\-]/g, "").trim();
-              const hit = (items || []).find((i) => String(i.code).trim() === code);
-              if (hit) {
-                setSelectedCode(hit.code);
-                setItemSearchText(`[${hit.code}] ${hit.name}`);
-                setItemDropdownOpen(false);
-                notify(`[${hit.name}] 자재 QR 인식 완료`, "ok");
-              } else {
-                notify(`등록되지 않은 자재 QR입니다. (인식값: ${rawCode})`, "err");
-              }
-              setUseMaterialCamera(false);
-            },
-            () => {}
-          );
-        } catch (err) {
-          console.error("자재 QR 카메라 접근 에러:", err);
-          if (notify) notify("자재 QR 카메라를 켤 수 없습니다. 권한을 확인해주세요.", "err");
-          setUseMaterialCamera(false);
-        }
-      };
-      startMaterialScanner();
-    }
-
-    return () => {
-      if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
-      }
-    };
-  }, [useMaterialCamera, items]);
 
   const fetchInvoiceData = async (rawVal) => {
     if (!rawVal) return;
@@ -5906,8 +6087,10 @@ keyCode = String(keyCode)
         notify(`[KEY_CODE: ${keyCode}]에 해당하는 거래명세서를 찾을 수 없습니다.`, "err");
         setInvoiceData(null);
       } else {
-        const parsedList = (data.items || []).map((invItem) => {
-          const masterItem = items.find((i) => i.code === invItem.code);
+        const parsedList = (data.items || [])
+          .filter((invItem) => getMaterialType(invItem.code) === materialType)
+          .map((invItem) => {
+          const masterItem = materialItems.find((i) => i.code === invItem.code);
           const defaultQty = Number(invItem.qty) || 0;
           return {
             code: invItem.code,
@@ -5918,12 +6101,18 @@ keyCode = String(keyCode)
           };
         });
 
+        if (parsedList.length === 0) {
+          setInvoiceData(null);
+          notify(`명세서 [${keyCode}]에 ${materialLabel}(코드 ${materialPrefix}) 항목이 없습니다.`, "info");
+          return;
+        }
+
         setInvoiceData({
           key_code: data.key_code,
           supplier: data.supplier || "미지정 거래처",
           list: parsedList,
         });
-        notify(`명세서 [${keyCode}] 불러오기 완료 (${parsedList.length}건)`, "ok");
+        notify(`${materialLabel} 명세서 [${keyCode}] 불러오기 완료 (${parsedList.length}건)`, "ok");
       }
     } catch (err) {
       console.error(err);
@@ -5975,6 +6164,11 @@ keyCode = String(keyCode)
       return;
     }
 
+    if (getMaterialType(quickRegItem) !== materialType) {
+      notify(`${materialLabel} 전용 화면에는 코드 ${materialPrefix} 자재만 등록할 수 있습니다.`, "err");
+      return;
+    }
+
     const newItem = {
       code: quickRegItem,
       name: quickName.trim(),
@@ -6016,7 +6210,11 @@ keyCode = String(keyCode)
     }
 
     if (!invoicePerson.trim()) {
-      notify("담당자 이름을 입력해 주세요.", "err");
+      notify("수령자 이름을 입력해 주세요.", "err");
+      return;
+    }
+    if (materialType === "raw" && !invoiceShip.trim()) {
+      notify("원자재 입고 호선을 입력해 주세요.", "err");
       return;
     }
 
@@ -6042,6 +6240,7 @@ keyCode = String(keyCode)
             unit: masterItem.unit,
             qty: inputQty,
             worker: invoicePerson,
+            shipNo: materialType === "raw" ? (invoiceShip.trim() || "미지정") : undefined,
             at: nowStr(),
             deleted: false,
           });
@@ -6073,6 +6272,7 @@ keyCode = String(keyCode)
     notify(`선택한 ${updateCount}개 품목 입고 처리 완료!`, "ok");
     setInvoiceData(null);
     setInvoicePerson("");
+    setInvoiceShip("");
   };
 
   const handleBatchInbound = async () => {
@@ -6082,7 +6282,11 @@ keyCode = String(keyCode)
     }
 
     if (!invoicePerson.trim()) {
-      notify("담당자 이름을 입력해 주세요.", "err");
+      notify("수령자 이름을 입력해 주세요.", "err");
+      return;
+    }
+    if (materialType === "raw" && !invoiceShip.trim()) {
+      notify("원자재 입고 호선을 입력해 주세요.", "err");
       return;
     }
 
@@ -6108,6 +6312,7 @@ keyCode = String(keyCode)
             unit: masterItem.unit,
             qty: docQty,
             worker: invoicePerson,
+            shipNo: materialType === "raw" ? (invoiceShip.trim() || "미지정") : undefined,
             at: nowStr(),
             deleted: false,
           });
@@ -6139,6 +6344,23 @@ keyCode = String(keyCode)
     notify(`명세서 [${invoiceData.key_code}] 전체 ${updateCount}건 일괄 입고 완료!`, "ok");
     setInvoiceData(null);
     setInvoicePerson("");
+    setInvoiceShip("");
+  };
+
+  const handleSaveManualNewItem = async () => {
+    const code = String(manualNewCode || "").trim();
+    const name = String(manualNewName || "").trim();
+    if (materialType !== "raw") return;
+    if (!code || !name) { notify("자재코드와 품명을 입력하세요.", "err"); return; }
+    if (getMaterialType(code) !== "raw") { notify("원자재 신규등록은 1-로 시작하는 코드만 가능합니다.", "err"); return; }
+    if ((items || []).some((i) => String(i.code).trim() === code)) { notify("이미 등록된 자재코드입니다.", "err"); return; }
+    const newItem = { code, name, spec: String(manualNewSpec || "").trim(), unit: manualNewUnit || "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "원자재", image_url: "", deleted: false };
+    await saveItems([...(items || []), newItem]);
+    setSelectedCode(code);
+    setItemSearchText(`[${code}] ${name}`);
+    setManualNewOpen(false);
+    setManualNewCode("1-"); setManualNewName(""); setManualNewSpec(""); setManualNewUnit("EA");
+    notify(`[${name}] 원자재 신규등록 완료. 수량과 호선을 입력해 바로 입고하세요.`, "ok");
   };
 
   const handleSingleInbound = async () => {
@@ -6152,7 +6374,11 @@ keyCode = String(keyCode)
       return;
     }
     if (!person.trim()) {
-      notify("담당자 이름을 입력하세요.", "err");
+      notify("수령자 이름을 입력하세요.", "err");
+      return;
+    }
+    if (materialType === "raw" && !manualShip.trim()) {
+      notify("호선을 선택하거나 입력하세요.", "err");
       return;
     }
 
@@ -6168,6 +6394,7 @@ keyCode = String(keyCode)
       unit: selectedItem.unit,
       qty: inputQty,
       worker: person,
+      shipNo: materialType === "raw" ? manualShip.trim() : undefined,
       at: nowStr(),
       deleted: false,
     };
@@ -6186,6 +6413,7 @@ keyCode = String(keyCode)
     setSelectedCode("");
     setItemSearchText("");
     setPerson("");
+    setManualShip("");
   };
 
   const cancelInTx = async (targetTx) => {
@@ -6217,15 +6445,16 @@ keyCode = String(keyCode)
 
   return (
     <div>
-      <Header title="입고 등록" subtitle="거래명세서 QR 스캔 (선택/일괄 입고) 및 개별 자재 입고 처리" />
+      <Header title={`${materialLabel} 입고 등록`} subtitle={`코드 ${materialPrefix} ${materialLabel} 전용 · 거래명세서 QR 스캔 (선택/일괄 입고) 및 개별 자재 입고 처리`} />
 
+      {rawMode !== "manual" && (
       <Card neon="#38bdf8" style={{ padding: 16, marginBottom: 20, border: "2px solid #38bdf8", background: "#0b172a" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "1.05rem", fontWeight: 600, color: "#38bdf8", marginBottom: 12 }}>
           <QrCode size={22} />
-          <span>거래명세서 QR 스캔</span>
+          <span>{materialLabel} 거래명세서 QR 스캔</span>
         </div>
 
-        {!useCamera ? (
+        {(!useCamera ? (
           <button
             onClick={() => setUseCamera(true)}
             style={{
@@ -6246,7 +6475,7 @@ keyCode = String(keyCode)
               📷 카메라 끄기
             </button>
           </div>
-        )}
+) )}
 
         <input
           type="text"
@@ -6370,11 +6599,20 @@ keyCode = String(keyCode)
             </div>
 
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between", borderTop: "1px solid #1e293b", paddingTop: 12 }}>
+              {materialType === "raw" && (
+                <input
+                  type="text"
+                  value={invoiceShip}
+                  onChange={(e) => setInvoiceShip(e.target.value)}
+                  placeholder="호선 입력 * 예: 3527"
+                  style={{ ...inputStyle, width: "100%", maxWidth: 160, padding: "8px 12px" }}
+                />
+              )}
               <input
                 type="text"
                 value={invoicePerson}
                 onChange={(e) => setInvoicePerson(e.target.value)}
-                placeholder="담당자 이름 입력 *"
+                placeholder="수령자 이름 입력 *"
                 style={{ ...inputStyle, width: "100%", maxWidth: 160, padding: "8px 12px" }}
               />
 
@@ -6390,8 +6628,24 @@ keyCode = String(keyCode)
           </div>
         )}
       </Card>
+      )}
 
-      {quickRegItem && (
+      {rawMode !== "invoice" && manualNewOpen && materialType === "raw" && (
+        <div className="app-modal-overlay" style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1100, padding:16 }}>
+          <div style={{ background:"#0F2233", border:"1px solid #38bdf8", borderRadius:12, padding:20, maxWidth:420, width:"100%" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}><h3 style={{ margin:0, fontSize:16, color:"#38bdf8" }}>신규 원자재 등록 후 입고</h3><X size={18} color="#7F97AC" style={{ cursor:"pointer" }} onClick={() => setManualNewOpen(false)} /></div>
+            <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+              <Field label="자재코드 * (1- 시작)"><input style={inputStyle} value={manualNewCode} onChange={(e)=>setManualNewCode(e.target.value)} placeholder="예: 1-CG-M20" /></Field>
+              <Field label="품명 *"><input style={inputStyle} value={manualNewName} onChange={(e)=>setManualNewName(e.target.value)} placeholder="품명 입력" /></Field>
+              <Field label="규격/사양"><input style={inputStyle} value={manualNewSpec} onChange={(e)=>setManualNewSpec(e.target.value)} placeholder="규격 입력" /></Field>
+              <Field label="단위"><Select value={manualNewUnit} onChange={(e)=>setManualNewUnit(e.target.value)} options={["EA","m","kg","roll","set"]} /></Field>
+              <div style={{ display:"flex", gap:8, marginTop:8 }}><Btn variant="ghost" onClick={()=>setManualNewOpen(false)} style={{ flex:1 }}>취소</Btn><Btn onClick={handleSaveManualNewItem} style={{ flex:1 }}>신규등록 후 선택</Btn></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rawMode !== "invoice" && quickRegItem && (
         <div className="app-modal-overlay" style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)",
           display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16,
@@ -6425,35 +6679,31 @@ keyCode = String(keyCode)
         </div>
       )}
 
+      {rawMode !== "invoice" && (
+        <>
       <Card neon="#35D08C" style={{ maxWidth: 760, margin: "0 auto", padding: 22 }}>
-        <h3 style={{ margin: "0 0 16px 0", color: "#94a3b8", fontSize: 14 }}>개별 자재 수동 입고</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+          <h3 style={{ margin: 0, color: "#94a3b8", fontSize: 14 }}>{materialLabel} 개별 자재 수동 입고</h3>
+          {materialType === "raw" && <Btn onClick={() => setManualNewOpen(true)} style={{ whiteSpace: "nowrap" }}><Plus size={16} /> 신규 원자재 등록</Btn>}
+        </div>
         
         <div className="inbound-grid-container">
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Field label="자재 검색 및 선택">
-              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => setUseMaterialCamera(true)}
-                  style={{ flex: "0 0 auto", padding: "10px 13px", border: "1px solid #35D08C", borderRadius: 8, background: "#0B2A22", color: "#35D08C", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
-                >
-                  <Camera size={17} /> 자재 QR 카메라
-                </button>
-                <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: "#7F97AC", display: "flex", alignItems: "center" }}>QR로 자재코드를 바로 선택할 수 있습니다.</div>
+            {materialType === "sub" && (
+              <div style={{ marginBottom: 10 }}>
+                {!manualItemCamera ? (
+                  <Btn type="button" onClick={() => setManualItemCamera(true)} style={{ width: "100%", justifyContent: "center" }}>
+                    <Camera size={18} /> 자재 카메라 QR 인식
+                  </Btn>
+                ) : (
+                  <div style={{ background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10, padding: 10, textAlign: "center" }}>
+                    <div id="inbound-item-reader" style={{ width: "100%", maxWidth: 320, margin: "0 auto", background: "#000", borderRadius: 8, overflow: "hidden" }} />
+                    <Btn type="button" onClick={() => setManualItemCamera(false)} variant="ghost" style={{ width: "100%", marginTop: 10, justifyContent: "center" }}>카메라 끄기</Btn>
+                  </div>
+                )}
               </div>
-
-              {useMaterialCamera && (
-                <div style={{ padding: 10, marginBottom: 8, background: "#0B1C2C", borderRadius: 10, border: "1px solid #35D08C", textAlign: "center" }}>
-                  <div id="inbound-material-qr-reader" style={{ width: "100%", maxWidth: 320, margin: "0 auto", background: "#000", borderRadius: 8, overflow: "hidden" }} />
-                  <button
-                    type="button"
-                    onClick={() => setUseMaterialCamera(false)}
-                    style={{ marginTop: 10, padding: "8px 16px", background: "#EF4444", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: "bold" }}
-                  >
-                    📷 자재 QR 카메라 끄기
-                  </button>
-                </div>
-              )}
+            )}
+            <Field label="자재 검색 및 선택">
 
               <div ref={itemInputWrapRef} style={{ position: "relative" }}>
                 <input
@@ -6524,6 +6774,18 @@ keyCode = String(keyCode)
               </div>
             )}
 
+            {materialType === "raw" && (
+              <Field label="호선 *">
+                <input
+                  type="text"
+                  value={manualShip}
+                  onChange={(e) => setManualShip(e.target.value)}
+                  placeholder="예: 3527"
+                  style={inputStyle}
+                />
+              </Field>
+            )}
+
             <Field label="입고 수량">
               <input
                 type="number"
@@ -6534,7 +6796,7 @@ keyCode = String(keyCode)
               />
             </Field>
 
-            <Field label="담당자">
+            <Field label="수령자">
               <input
                 type="text"
                 value={person}
@@ -6668,6 +6930,8 @@ keyCode = String(keyCode)
           </>
         )}
       </Card>
+        </>
+      )}
     </div>
   );
 }

@@ -5982,6 +5982,11 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   const [manualItemCamera, setManualItemCamera] = useState(false);
   const [invoiceQRInput, setInvoiceQRInput] = useState("");
   const [invoiceData, setInvoiceData] = useState(null);
+  // 거래명세서 사진 OCR 상태: 기존 QR 스캔과 별도로 동작
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrText, setOcrText] = useState("");
+  const [ocrPreview, setOcrPreview] = useState("");
+  const ocrFileRef = useRef(null);
   const [invoicePerson, setInvoicePerson] = useState("");
   const [invoiceShip, setInvoiceShip] = useState("");
   const [loading, setLoading] = useState(false);
@@ -6183,6 +6188,80 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     };
   }, [useCamera, materialType]);
 
+
+  // 거래명세서 사진 OCR → 자재코드/수량을 현재 자재마스터와 매칭
+  const loadTesseract = async () => {
+    if (window.Tesseract) return window.Tesseract;
+    const existing = document.querySelector('script[data-mro-tesseract="1"]');
+    if (existing) {
+      await new Promise((resolve, reject) => {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", reject, { once: true });
+        if (window.Tesseract) resolve();
+      });
+      return window.Tesseract;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+    script.async = true;
+    script.dataset.mroTesseract = "1";
+    document.body.appendChild(script);
+    await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; });
+    return window.Tesseract;
+  };
+
+  const runInvoiceOcr = async (file) => {
+    if (!file) return;
+    const previewUrl = URL.createObjectURL(file);
+    setOcrPreview(previewUrl);
+    setOcrLoading(true);
+    setOcrText("");
+    try {
+      const Tesseract = await loadTesseract();
+      // 자재코드/영문/숫자 위주 문서이므로 eng 우선 인식
+      const result = await Tesseract.recognize(file, "eng", { logger: () => {} });
+      const text = String(result?.data?.text || "");
+      setOcrText(text);
+
+      const normalized = text.replace(/\r/g, "");
+      const lines = normalized.split(/\n+/).map(v => v.trim()).filter(Boolean);
+      const matched = [];
+      const used = new Set();
+
+      materialItems.forEach((item) => {
+        const code = String(item.code || "").trim();
+        if (!code) return;
+        const codeIndex = normalized.toUpperCase().indexOf(code.toUpperCase());
+        if (codeIndex < 0 || used.has(code)) return;
+        used.add(code);
+        const after = normalized.slice(codeIndex, codeIndex + 300);
+        const before = normalized.slice(Math.max(0, codeIndex - 80), codeIndex);
+        const qtyCandidates = [...(after + " " + before).matchAll(/\b(\d{1,6})\b/g)].map(m => Number(m[1])).filter(n => n > 0);
+        // 코드 자체의 숫자 조각은 제거하고, 가장 가까운 숫자를 수량 후보로 사용
+        const codeNums = new Set((code.match(/\d+/g) || []).map(Number));
+        const qty = qtyCandidates.find(n => !codeNums.has(n)) || 1;
+        matched.push({ code, masterItem: item, docQty: qty, inputQty: qty, checked: true });
+      });
+
+      if (matched.length === 0) {
+        notify("OCR은 완료됐지만 자재코드를 자동 매칭하지 못했습니다. 사진을 더 정면에서 촬영하거나 QR 스캔을 이용해주세요.", "err");
+        return;
+      }
+
+      setInvoiceData({
+        key_code: `OCR-${new Date().toISOString().slice(0,10)}`,
+        supplier: "OCR 사진 인식",
+        list: matched,
+        ocr: true,
+      });
+      notify(`거래명세서 OCR 완료: ${matched.length}개 자재를 자재마스터와 매칭했습니다. 수량은 확인 후 입고해주세요.`, "ok");
+    } catch (err) {
+      console.error("거래명세서 OCR 오류:", err);
+      notify("거래명세서 OCR을 실행할 수 없습니다. 인터넷 연결과 사진 상태를 확인해주세요.", "err");
+    } finally {
+      setOcrLoading(false);
+    }
+  };
 
   const fetchInvoiceData = async (rawVal) => {
     if (!rawVal) return;
@@ -6616,6 +6695,35 @@ keyCode = String(keyCode)
             </button>
           </div>
 ) )}
+
+        <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => ocrFileRef.current?.click()}
+            disabled={ocrLoading || loading}
+            style={{ flex: 1, minWidth: 180, padding: "12px", background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, fontWeight: "bold", cursor: ocrLoading ? "wait" : "pointer" }}
+          >
+            📄 {ocrLoading ? "사진 OCR 인식 중..." : "거래명세서 사진 OCR"}
+          </button>
+          <input
+            ref={ocrFileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{ display: "none" }}
+            onChange={(e) => { const file = e.target.files?.[0]; if (file) runInvoiceOcr(file); e.target.value = ""; }}
+          />
+        </div>
+        <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 12 }}>
+          QR이 없는 거래명세서도 사진으로 촬영하면 OCR로 자재코드와 수량을 읽어 자재마스터와 자동 매칭합니다. 인식 결과는 반드시 확인·수정 후 입고하세요.
+        </div>
+        {ocrPreview && (
+          <details style={{ marginBottom: 12, fontSize: 11.5, color: "#94a3b8" }}>
+            <summary style={{ cursor: "pointer" }}>OCR 촬영 이미지 / 인식 결과 보기</summary>
+            <img src={ocrPreview} alt="거래명세서 OCR" style={{ width: "100%", maxHeight: 260, objectFit: "contain", marginTop: 8, borderRadius: 8, background: "#fff" }} />
+            {ocrText && <pre style={{ whiteSpace: "pre-wrap", maxHeight: 160, overflow: "auto", marginTop: 8, padding: 8, background: "#020617", borderRadius: 6 }}>{ocrText}</pre>}
+          </details>
+        )}
 
         <input
           type="text"

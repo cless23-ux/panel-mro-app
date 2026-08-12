@@ -1351,6 +1351,18 @@ function PwaInstallModal({ open, onClose, installApp, canInstall }) {
 }
 
 function AppInner() {
+  // 화면 테마: 기존 다크 모드는 그대로 유지하고, 사용자 선택 시 밝은 테마로 전환
+  const [lightMode, setLightMode] = useState(() => {
+    try { return localStorage.getItem("panel:theme") === "light"; } catch { return false; }
+  });
+  const toggleTheme = useCallback(() => {
+    setLightMode((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("panel:theme", next ? "light" : "dark"); } catch {}
+      return next;
+    });
+  }, []);
+
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
 
@@ -1808,7 +1820,7 @@ if (showSplash) {
   );
 }
   return (
-    <div className="app-container" style={{
+    <div className={`app-container${lightMode ? " light-mode" : ""}`} style={{
       background: "#0A1622", color: "#E7EEF5", fontFamily: "Inter, sans-serif",
     }}>
       <style>{`
@@ -1834,6 +1846,10 @@ if (showSplash) {
         button:active { transform: scale(0.98); }
 
         .app-container { display: flex; min-height: 100vh; width: 100%; }
+        /* 밝은 테마는 기존 기능/인라인 스타일을 변경하지 않고 화면 표현만 전환 */
+        .app-container.light-mode { filter: invert(1) hue-rotate(180deg); }
+        .app-container.light-mode img, .app-container.light-mode video, .app-container.light-mode canvas { filter: invert(1) hue-rotate(180deg); }
+        .theme-toggle { border: 1px solid #274460; background: #0F2233; color: #E7EEF5; border-radius: 8px; cursor: pointer; font-family: "IBM Plex Mono", monospace; font-weight: 700; }
         .pc-sidebar { width: 250px; flex-shrink: 0; box-sizing: border-box; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; position: sticky; top: 0; height: 100vh; overflow: hidden; }
         .pc-sidebar .sidebar-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 3px; padding-bottom: 4px; scrollbar-width: thin; }
         .pc-sidebar .sidebar-stock-summary { flex: 0 0 auto; position: relative !important; left: auto !important; right: auto !important; bottom: auto !important; z-index: 1; }
@@ -2124,6 +2140,16 @@ if (showSplash) {
           <span>📱 앱 설치 / QR</span><span style={{ color: "#5E86A3", fontSize: 10 }}>공유</span>
         </button>
 
+        <button
+          className="theme-toggle"
+          onClick={toggleTheme}
+          title="화면 테마 전환"
+          style={{ padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+        >
+          <span>{lightMode ? "☀️ 밝은 화면" : "🌙 어두운 화면"}</span>
+          <span style={{ fontSize: 10, opacity: 0.7 }}>전환</span>
+        </button>
+
         <nav className="sidebar-nav" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {NAV.filter((n) => !n.mobileTopOnly).map((n) => {
             const active = tab === n.id;
@@ -2193,6 +2219,14 @@ if (showSplash) {
             }}
           >
             <Package size={17} color="#F5A623" />
+          </button>
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title="밝은색 / 어두운색 전환"
+            style={{ padding: "5px 7px", fontSize: 14, marginLeft: 2, lineHeight: 1 }}
+          >
+            {lightMode ? "☀️" : "🌙"}
           </button>
         </div>
         <button

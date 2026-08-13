@@ -6143,7 +6143,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
       // 거래명세서 전용 전처리:
       // 전체 문서를 그대로 OCR하지 않고 중앙~하단의 자재 목록 영역을 우선 사용한다.
-      // 모바일 부하를 줄이기 위해 최종 OCR 캔버스는 최대 1100px로 제한한다.
+      // 인식률 향상을 위해 최종 OCR 캔버스는 최대 1700px까지 허용한다(기존 1100px).
       const srcW = image.naturalWidth || image.width;
       const srcH = image.naturalHeight || image.height;
 
@@ -6154,8 +6154,9 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       const cropW = Math.round(srcW * 0.94);
       const cropH = Math.round(srcH * 0.74);
 
-      const maxSide = 1100;
-      const scale = Math.min(1, maxSide / Math.max(cropW, cropH));
+      const maxSide = 1700;
+      // 원본이 목표 해상도보다 작으면 오히려 확대(업스케일)해서 작은 글씨를 키운다.
+      const scale = maxSide / Math.max(cropW, cropH);
       const outW = Math.max(1, Math.round(cropW * scale));
       const outH = Math.max(1, Math.round(cropH * scale));
 
@@ -6163,23 +6164,61 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       canvas.width = outW;
       canvas.height = outH;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
 
       ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
 
-      // OCR 대비 향상: 회색조 + 간단한 자동 대비.
+      // OCR 대비/선명도 향상: 그레이스케일 → 언샤프 마스크(선명화) → Otsu 자동 이진화.
       try {
         const imgData = ctx.getImageData(0, 0, outW, outH);
         const d = imgData.data;
-        let min = 255, max = 0;
-        for (let i = 0; i < d.length; i += 4) {
-          const g = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-          min = Math.min(min, g);
-          max = Math.max(max, g);
+        const n = outW * outH;
+        const gray = new Uint8ClampedArray(n);
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          gray[p] = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
         }
-        const range = Math.max(30, max - min);
-        for (let i = 0; i < d.length; i += 4) {
-          const g = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-          const v = Math.max(0, Math.min(255, Math.round(((g - min) * 255) / range)));
+
+        // 3x3 언샤프 마스크: 흐릿한 촬영본의 글자 경계를 또렷하게 만든다.
+        const sharpened = new Uint8ClampedArray(n);
+        const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+        for (let y = 0; y < outH; y++) {
+          for (let x = 0; x < outW; x++) {
+            const p = y * outW + x;
+            if (x === 0 || y === 0 || x === outW - 1 || y === outH - 1) {
+              sharpened[p] = gray[p];
+              continue;
+            }
+            let sum = 0, k = 0;
+            for (let ky = -1; ky <= 1; ky++) {
+              for (let kx = -1; kx <= 1; kx++) {
+                sum += gray[p + ky * outW + kx] * kernel[k++];
+              }
+            }
+            sharpened[p] = sum;
+          }
+        }
+
+        // Otsu's method로 최적 이진화 임계값을 자동 계산.
+        const hist = new Array(256).fill(0);
+        for (let p = 0; p < n; p++) hist[sharpened[p]]++;
+        let sumAll = 0;
+        for (let t = 0; t < 256; t++) sumAll += t * hist[t];
+        let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
+        for (let t = 0; t < 256; t++) {
+          wB += hist[t];
+          if (wB === 0) continue;
+          const wF = n - wB;
+          if (wF === 0) break;
+          sumB += t * hist[t];
+          const mB = sumB / wB;
+          const mF = (sumAll - sumB) / wF;
+          const between = wB * wF * (mB - mF) * (mB - mF);
+          if (between > maxVar) { maxVar = between; threshold = t; }
+        }
+
+        for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+          const v = sharpened[p] >= threshold ? 255 : 0;
           d[i] = d[i + 1] = d[i + 2] = v;
         }
         ctx.putImageData(imgData, 0, 0);
@@ -6188,22 +6227,40 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       // 화면이 먼저 갱신된 뒤 OCR 시작
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      const result = await Tesseract.recognize(
-        canvas,
-        "eng",
-        {
-          logger: () => {},
-          tessedit_pageseg_mode: "6",
-          preserve_interword_spaces: "1",
-        }
-      );
+      // 자재코드는 영문/숫자/일부 기호만 사용하므로 화이트리스트로 오인식을 줄인다.
+      const ocrOptions = {
+        logger: () => {},
+        preserve_interword_spaces: "1",
+        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,-/() ",
+      };
+
+      // 2-pass 인식: PSM 6(균일 블록)과 PSM 11(희소 텍스트)을 함께 돌려
+      // 표 구조가 깨진 사진에서도 누락되는 줄을 줄인다.
+      const [resultBlock, resultSparse] = await Promise.all([
+        Tesseract.recognize(canvas, "eng", { ...ocrOptions, tessedit_pageseg_mode: "6" }),
+        Tesseract.recognize(canvas, "eng", { ...ocrOptions, tessedit_pageseg_mode: "11" }),
+      ]);
+
+      const confBlock = resultBlock?.data?.confidence ?? 0;
+      const confSparse = resultSparse?.data?.confidence ?? 0;
+      const result = confSparse > confBlock + 5 ? resultSparse : resultBlock;
 
       const rawText = String(result?.data?.text || "");
-      const lines = rawText
+      const rawTextBlock = String(resultBlock?.data?.text || "");
+      const rawTextSparse = String(resultSparse?.data?.text || "");
+
+      const toLines = (text) => text
         .replace(/\r/g, "")
         .split(/\n+/)
         .map(v => v.trim())
         .filter(Boolean);
+
+      // 두 pass의 줄을 모두 매칭 후보로 사용해 어느 한쪽이 놓친 줄을 보완한다.
+      const linesBlock = toLines(rawTextBlock);
+      const linesSparse = toLines(rawTextSparse);
+      const lines = linesBlock.length >= linesSparse.length
+        ? Array.from(new Set([...linesBlock, ...linesSparse]))
+        : Array.from(new Set([...linesSparse, ...linesBlock]));
 
       setOcrText(rawText);
 

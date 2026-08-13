@@ -1565,7 +1565,7 @@ function AppInner() {
   /* 모바일 좌우 스와이프로 하단 탭 순서대로 전환 - 손가락을 따라오는 드래그 연출 */
   const mainPanelRef = useRef(null);
   const dragStateRef = useRef({ startX: 0, startY: 0, dragging: null, deltaX: 0 });
-  const MOBILE_SWIPE_TABS = ["in", "stock", "out", "rawInbound", "return"];
+  const MOBILE_SWIPE_TABS = ["stock", "in", "out", "rawInbound", "return"];
   const SWIPE_THRESHOLD = 60;
 
   /* 모달(긴급요청/이력/QR 등)이 열려 있는 동안에는 스와이프를 완전히 무시한다.
@@ -1747,7 +1747,7 @@ function AppInner() {
 
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
-    { id: "in", label: "입고등록", icon: ArrowDownToLine },
+    { id: "in", label: "부자재입고", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode },
@@ -6293,19 +6293,24 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
             .filter(Boolean)
         );
 
+        // 줄 단위 + 인접 줄 조합 + 전체 텍스트를 후보로 만든다.
+        // OCR이 코드 중간에서 줄을 나눠도 다시 붙여 비교한다.
         const contexts = [];
         ocrLines.forEach((line, index) => {
           contexts.push({ index, text: line });
-          if (ocrLines[index + 1]) contexts.push({ index, text: `${line} ${ocrLines[index + 1]}` });
+          for (let size = 2; size <= 3; size++) {
+            const joined = ocrLines.slice(index, index + size).join(" ");
+            if (joined) contexts.push({ index, text: joined });
+          }
         });
         contexts.push({ index: -1, text: ocrLines.join(" ") });
 
         const findQtyNear = (ctx, code) => {
           const nearby = ctx.index >= 0
-            ? ocrLines.slice(Math.max(0, ctx.index - 1), Math.min(ocrLines.length, ctx.index + 3)).join(" ")
+            ? ocrLines.slice(Math.max(0, ctx.index - 1), Math.min(ocrLines.length, ctx.index + 4)).join(" ")
             : ctx.text;
           const codeNums = new Set((String(code).match(/\d+/g) || []).map(Number));
-          const nums = [...nearby.matchAll(/\b(\d{1,6})\b/g)]
+          const nums = [...nearby.matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)]
             .map(m => Number(m[1]))
             .filter(n => n > 0 && n <= 100000 && !codeNums.has(n));
           return nums.length ? nums[nums.length - 1] : 1;
@@ -6317,7 +6322,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
           const target = compact(code);
           if (!target) return;
 
-          const tolerance = Math.max(1, Math.min(3, Math.ceil(target.length * 0.12)));
+          const tolerance = Math.max(2, Math.min(5, Math.ceil(target.length * 0.20)));
           let best = null;
 
           contexts.forEach((ctx) => {
@@ -6325,22 +6330,36 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
             if (!candidate) return;
 
             if (candidate.includes(target)) {
-              best = { score: 0, ctx };
+              if (!best || best.score > 0) best = { score: 0, ctx };
               return;
             }
 
-            // 빠른 비교: 전체 OCR 문자열/각 줄을 한 번씩만 비교한다.
-            const dist = ocrDistance(target, candidate);
-            if (!best || dist < best.score) best = { score: dist, ctx };
+            // 전체 줄이 너무 길 경우 코드 길이 주변의 구간만 비교한다.
+            const minLen = Math.max(4, target.length - tolerance);
+            const maxLen = Math.min(candidate.length, target.length + tolerance);
+
+            for (let len = minLen; len <= maxLen; len++) {
+              // 후보가 매우 길어도 전체 슬라이딩을 반복하지 않도록
+              // 시작점을 제한해 모바일 부하를 낮춘다.
+              const maxStart = Math.max(0, candidate.length - len);
+              const step = maxStart > 80 ? 2 : 1;
+              for (let i = 0; i <= maxStart; i += step) {
+                const piece = candidate.slice(i, i + len);
+                const dist = ocrDistance(target, piece);
+                if (!best || dist < best.score) best = { score: dist, ctx };
+                if (best.score === 0) return;
+              }
+            }
           });
 
           if (!best || best.score > tolerance) return;
 
+          const qty = findQtyNear(best.ctx, code);
           matched.push({
             code,
             masterItem: item,
-            docQty: findQtyNear(best.ctx, code),
-            inputQty: findQtyNear(best.ctx, code),
+            docQty: qty,
+            inputQty: qty,
             checked: true,
             ocrScore: best.score,
           });
@@ -6348,7 +6367,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
         return matched;
       };
-
       const runPass = async (rotation) => {
         // 렌더링을 한 번 양보해서 "인식중" 화면이 먼저 표시되도록 한다.
         await new Promise(resolve => setTimeout(resolve, 0));

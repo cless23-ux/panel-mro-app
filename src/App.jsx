@@ -6211,7 +6211,8 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   };
 
   const runInvoiceOcr = async (file) => {
-    if (!file) return;
+    if (!file || ocrLoading) return;
+
     const previewUrl = URL.createObjectURL(file);
     setOcrPreview(previewUrl);
     setOcrLoading(true);
@@ -6220,8 +6221,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     try {
       const Tesseract = await loadTesseract();
 
-      // 모바일 멈춤 방지: OCR용 이미지를 최대 1400px로 축소한다.
-      // 기존 4방향 전체 OCR은 제거하고, 기본 방향 → 매칭 부족 시 90/270도만 추가 시도한다.
       const image = await new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => resolve(img);
@@ -6229,29 +6228,71 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         img.src = previewUrl;
       });
 
+      // 거래명세서 전용 전처리:
+      // 전체 문서를 그대로 OCR하지 않고 중앙~하단의 자재 목록 영역을 우선 사용한다.
+      // 모바일 부하를 줄이기 위해 최종 OCR 캔버스는 최대 1100px로 제한한다.
       const srcW = image.naturalWidth || image.width;
       const srcH = image.naturalHeight || image.height;
-      const maxSide = 700;
-      const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
-      const baseW = Math.max(1, Math.round(srcW * scale));
-      const baseH = Math.max(1, Math.round(srcH * scale));
 
-      const makeOcrImage = (rotation = 0) => {
-        const swap = rotation === 90 || rotation === 270;
-        const canvas = document.createElement("canvas");
-        canvas.width = swap ? baseH : baseW;
-        canvas.height = swap ? baseW : baseH;
-        const ctx = canvas.getContext("2d");
-        if (rotation === 90) {
-          ctx.translate(canvas.width, 0);
-          ctx.rotate(Math.PI / 2);
-        } else if (rotation === 270) {
-          ctx.translate(0, canvas.height);
-          ctx.rotate(-Math.PI / 2);
+      // 가로로 긴 문서는 그대로, 세로 문서는 중앙~하단 70%를 사용.
+      // 상단 회사/주소/담당자 영역을 제외해 코드 인식에 집중한다.
+      const cropX = Math.round(srcW * 0.03);
+      const cropY = Math.round(srcH * 0.22);
+      const cropW = Math.round(srcW * 0.94);
+      const cropH = Math.round(srcH * 0.74);
+
+      const maxSide = 1100;
+      const scale = Math.min(1, maxSide / Math.max(cropW, cropH));
+      const outW = Math.max(1, Math.round(cropW * scale));
+      const outH = Math.max(1, Math.round(cropH * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+      ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
+
+      // OCR 대비 향상: 회색조 + 간단한 자동 대비.
+      try {
+        const imgData = ctx.getImageData(0, 0, outW, outH);
+        const d = imgData.data;
+        let min = 255, max = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const g = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+          min = Math.min(min, g);
+          max = Math.max(max, g);
         }
-        ctx.drawImage(image, 0, 0, baseW, baseH);
-        return canvas;
-      };
+        const range = Math.max(30, max - min);
+        for (let i = 0; i < d.length; i += 4) {
+          const g = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+          const v = Math.max(0, Math.min(255, Math.round(((g - min) * 255) / range)));
+          d[i] = d[i + 1] = d[i + 2] = v;
+        }
+        ctx.putImageData(imgData, 0, 0);
+      } catch (_) {}
+
+      // 화면이 먼저 갱신된 뒤 OCR 시작
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const result = await Tesseract.recognize(
+        canvas,
+        "eng",
+        {
+          logger: () => {},
+          tessedit_pageseg_mode: "6",
+          preserve_interword_spaces: "1",
+        }
+      );
+
+      const rawText = String(result?.data?.text || "");
+      const lines = rawText
+        .replace(/\r/g, "")
+        .split(/\n+/)
+        .map(v => v.trim())
+        .filter(Boolean);
+
+      setOcrText(rawText);
 
       const compact = (value) => String(value || "")
         .toUpperCase()
@@ -6267,159 +6308,119 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         return pairs.has(`${a}${b}`);
       };
 
-      const ocrDistance = (a, b) => {
+      const distance = (a, b) => {
         const aa = compact(a), bb = compact(b);
-        if (!aa || !bb) return Math.max(aa.length, bb.length);
         const prev = Array.from({ length: bb.length + 1 }, (_, j) => j);
         for (let i = 1; i <= aa.length; i++) {
-          let diagonal = prev[0];
+          let diag = prev[0];
           prev[0] = i;
           for (let j = 1; j <= bb.length; j++) {
             const up = prev[j];
-            const sub = similarChar(aa[i - 1], bb[j - 1]) ? 0 : 1;
-            prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diagonal + sub);
-            diagonal = up;
+            const cost = similarChar(aa[i - 1], bb[j - 1]) ? 0 : 1;
+            prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + cost);
+            diag = up;
           }
         }
         return prev[bb.length];
       };
 
-      const matchFromPasses = (passes) => {
-        const ocrLines = passes.flatMap((pass) =>
-          String(pass.text || "")
-            .replace(/\r/g, "")
-            .split(/\n+/)
-            .map(v => v.trim())
-            .filter(Boolean)
-        );
+      // 한 줄 + 인접 줄을 묶어 코드가 잘린 경우도 처리
+      const contexts = [];
+      lines.forEach((line, index) => {
+        contexts.push({ index, text: line });
+        if (lines[index + 1]) contexts.push({ index, text: `${line} ${lines[index + 1]}` });
+        if (lines[index + 2]) contexts.push({ index, text: `${line} ${lines[index + 1]} ${lines[index + 2]}` });
+      });
+      contexts.push({ index: -1, text: lines.join(" ") });
 
-        // 줄 단위 + 인접 줄 조합 + 전체 텍스트를 후보로 만든다.
-        // OCR이 코드 중간에서 줄을 나눠도 다시 붙여 비교한다.
-        const contexts = [];
-        ocrLines.forEach((line, index) => {
-          contexts.push({ index, text: line });
-          for (let size = 2; size <= 3; size++) {
-            const joined = ocrLines.slice(index, index + size).join(" ");
-            if (joined) contexts.push({ index, text: joined });
-          }
-        });
-        contexts.push({ index: -1, text: ocrLines.join(" ") });
+      const findQtyNear = (context, code) => {
+        const source = context.index >= 0
+          ? lines.slice(Math.max(0, context.index - 1), Math.min(lines.length, context.index + 4)).join(" ")
+          : context.text;
 
-        const findQtyNear = (ctx, code) => {
-          const nearby = ctx.index >= 0
-            ? ocrLines.slice(Math.max(0, ctx.index - 1), Math.min(ocrLines.length, ctx.index + 4)).join(" ")
-            : ctx.text;
-          const codeNums = new Set((String(code).match(/\d+/g) || []).map(Number));
-          const nums = [...nearby.matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)]
-            .map(m => Number(m[1]))
-            .filter(n => n > 0 && n <= 100000 && !codeNums.has(n));
-          return nums.length ? nums[nums.length - 1] : 1;
-        };
+        const codeNums = new Set((String(code).match(/\d+/g) || []).map(Number));
+        const nums = [...source.matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)]
+          .map(m => Number(m[1]))
+          .filter(n => n > 0 && n <= 100000 && !codeNums.has(n));
 
-        const matched = [];
-        materialItems.forEach((item) => {
-          const code = String(item.code || "").trim();
-          const target = compact(code);
-          if (!target) return;
-
-          const tolerance = Math.max(2, Math.min(5, Math.ceil(target.length * 0.20)));
-          let best = null;
-
-          contexts.forEach((ctx) => {
-            const candidate = compact(ctx.text);
-            if (!candidate) return;
-
-            if (candidate.includes(target)) {
-              if (!best || best.score > 0) best = { score: 0, ctx };
-              return;
-            }
-
-            // 전체 줄이 너무 길 경우 코드 길이 주변의 구간만 비교한다.
-            const minLen = Math.max(4, target.length - tolerance);
-            const maxLen = Math.min(candidate.length, target.length + tolerance);
-
-            for (let len = minLen; len <= maxLen; len++) {
-              // 후보가 매우 길어도 전체 슬라이딩을 반복하지 않도록
-              // 시작점을 제한해 모바일 부하를 낮춘다.
-              const maxStart = Math.max(0, candidate.length - len);
-              const step = maxStart > 80 ? 2 : 1;
-              for (let i = 0; i <= maxStart; i += step) {
-                const piece = candidate.slice(i, i + len);
-                const dist = ocrDistance(target, piece);
-                if (!best || dist < best.score) best = { score: dist, ctx };
-                if (best.score === 0) return;
-              }
-            }
-          });
-
-          if (!best || best.score > tolerance) return;
-
-          const qty = findQtyNear(best.ctx, code);
-          matched.push({
-            code,
-            masterItem: item,
-            docQty: qty,
-            inputQty: qty,
-            checked: true,
-            ocrScore: best.score,
-          });
-        });
-
-        return matched;
-      };
-      const runPass = async (rotation) => {
-        // 렌더링을 한 번 양보해서 "인식중" 화면이 먼저 표시되도록 한다.
-        await new Promise(resolve => setTimeout(resolve, 0));
-        const result = await Tesseract.recognize(
-          makeOcrImage(rotation),
-          "eng",
-          {
-            logger: () => {},
-            tessedit_pageseg_mode: "11",
-            preserve_interword_spaces: "0",
-            tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789- ",
-          }
-        );
-        return {
-          rotation,
-          text: String(result?.data?.text || ""),
-          words: Array.isArray(result?.data?.words) ? result.data.words : [],
-        };
+        return nums.length ? nums[nums.length - 1] : 1;
       };
 
-      // 모바일 안정화 우선: OCR은 원본 방향에서 1회만 실행한다.
-      // 회전 재시도는 제거해 장시간 대기와 앱 멈춤을 방지한다.
-      const passes = [await runPass(0)];
-      const matched = matchFromPasses(passes);
+      const matched = [];
 
-      const text = passes
-        .map(pass => `\n[회전 ${pass.rotation}도]\n${pass.text}`)
-        .join("\n");
-      setOcrText(text);
+      // 현재 입고 화면의 자재 목록만 대상으로 후보를 생성한다.
+      materialItems.forEach((item) => {
+        const code = String(item.code || "").trim();
+        const target = compact(code);
+        if (!target || target.length < 4) return;
 
-      if (matched.length === 0) {
-        notify("OCR은 실행됐지만 자재코드를 매칭하지 못했습니다. 사진을 정면에서 촬영하거나 QR 스캔을 이용해주세요.", "err");
-        return;
-      }
+        const tolerance = Math.max(2, Math.min(4, Math.ceil(target.length * 0.16)));
+        let best = null;
+
+        contexts.forEach((context) => {
+          const candidate = compact(context.text);
+          if (!candidate) return;
+
+          if (candidate.includes(target)) {
+            if (!best || best.score > 0) best = { score: 0, context };
+            return;
+          }
+
+          // 코드와 비슷한 길이의 구간만 비교
+          const minLen = Math.max(4, target.length - tolerance);
+          const maxLen = Math.min(candidate.length, target.length + tolerance);
+
+          for (let len = minLen; len <= maxLen; len++) {
+            const maxStart = candidate.length - len;
+            for (let i = 0; i <= maxStart; i++) {
+              const piece = candidate.slice(i, i + len);
+              const score = distance(target, piece);
+              if (!best || score < best.score) best = { score, context };
+              if (score === 0) break;
+            }
+            if (best?.score === 0) break;
+          }
+        });
+
+        if (!best || best.score > tolerance) return;
+
+        const qty = findQtyNear(best.context, code);
+        matched.push({
+          code,
+          masterItem: item,
+          docQty: qty,
+          inputQty: qty,
+          checked: true,
+          ocrScore: best.score,
+        });
+      });
 
       const uniqueMatched = matched.filter((entry, index, arr) =>
         arr.findIndex(other => other.code === entry.code) === index
       );
 
+      if (!uniqueMatched.length) {
+        notify(
+          "자재코드를 자동 매칭하지 못했습니다. OCR 결과에서 코드를 확인하거나 사진을 표가 정면으로 보이게 촬영해주세요.",
+          "err"
+        );
+        return;
+      }
+
       setInvoiceData({
         key_code: `OCR-${new Date().toISOString().slice(0, 10)}`,
-        supplier: "OCR 사진 인식",
+        supplier: "OCR 거래명세서",
         list: uniqueMatched,
         ocr: true,
       });
 
       notify(
-        `거래명세서 OCR 완료: ${uniqueMatched.length}개 자재를 매칭했습니다. 인식된 수량은 확인 후 입고해주세요.`,
+        `거래명세서 인식 완료: ${uniqueMatched.length}개 자재를 찾았습니다. 수량을 확인 후 입고하세요.`,
         "ok"
       );
     } catch (err) {
       console.error("거래명세서 OCR 오류:", err);
-      notify(`거래명세서 OCR을 실행할 수 없습니다: ${err?.message || err}`, "err");
+      notify(`거래명세서 OCR 오류: ${err?.message || err}`, "err");
     } finally {
       setOcrLoading(false);
     }

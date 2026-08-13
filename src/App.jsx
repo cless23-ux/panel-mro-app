@@ -1747,7 +1747,7 @@ function AppInner() {
 
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
-    { id: "in", label: "부자재입고", icon: ArrowDownToLine },
+    { id: "in", label: "입고등록", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode },
@@ -6231,7 +6231,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
       const srcW = image.naturalWidth || image.width;
       const srcH = image.naturalHeight || image.height;
-      const maxSide = 900;
+      const maxSide = 700;
       const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
       const baseW = Math.max(1, Math.round(srcW * scale));
       const baseH = Math.max(1, Math.round(srcH * scale));
@@ -6285,31 +6285,30 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       };
 
       const matchFromPasses = (passes) => {
+        const ocrLines = passes.flatMap((pass) =>
+          String(pass.text || "")
+            .replace(/\r/g, "")
+            .split(/\n+/)
+            .map(v => v.trim())
+            .filter(Boolean)
+        );
+
         const contexts = [];
-        passes.forEach((pass, passIndex) => {
-          const normalized = String(pass.text || "").replace(/\r/g, "");
-          const lines = normalized.split(/\n+/).map(v => v.trim()).filter(Boolean);
-          lines.forEach((line, index) => {
-            contexts.push({ passIndex, index, text: line, lines });
-            for (let size = 2; size <= 4; size++) {
-              const group = lines.slice(index, index + size).join(" ");
-              if (group) contexts.push({ passIndex, index, text: group, lines });
-            }
-          });
-          contexts.push({ passIndex, index: -1, text: normalized, lines });
-          contexts.push({ passIndex, index: -1, text: normalized.replace(/\s+/g, ""), lines });
+        ocrLines.forEach((line, index) => {
+          contexts.push({ index, text: line });
+          if (ocrLines[index + 1]) contexts.push({ index, text: `${line} ${ocrLines[index + 1]}` });
         });
+        contexts.push({ index: -1, text: ocrLines.join(" ") });
 
         const findQtyNear = (ctx, code) => {
-          const lines = ctx.lines || [];
           const nearby = ctx.index >= 0
-            ? lines.slice(Math.max(0, ctx.index - 1), Math.min(lines.length, ctx.index + 4)).join(" ")
+            ? ocrLines.slice(Math.max(0, ctx.index - 1), Math.min(ocrLines.length, ctx.index + 3)).join(" ")
             : ctx.text;
           const codeNums = new Set((String(code).match(/\d+/g) || []).map(Number));
-          const candidates = [...nearby.matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)]
+          const nums = [...nearby.matchAll(/\b(\d{1,6})\b/g)]
             .map(m => Number(m[1]))
             .filter(n => n > 0 && n <= 100000 && !codeNums.has(n));
-          return candidates.length ? candidates[candidates.length - 1] : 1;
+          return nums.length ? nums[nums.length - 1] : 1;
         };
 
         const matched = [];
@@ -6318,7 +6317,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
           const target = compact(code);
           if (!target) return;
 
-          const tolerance = Math.max(1, Math.min(4, Math.ceil(target.length * 0.16)));
+          const tolerance = Math.max(1, Math.min(3, Math.ceil(target.length * 0.12)));
           let best = null;
 
           contexts.forEach((ctx) => {
@@ -6326,28 +6325,22 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
             if (!candidate) return;
 
             if (candidate.includes(target)) {
-              if (!best || 0 < best.score) best = { score: 0, ctx };
+              best = { score: 0, ctx };
               return;
             }
 
-            const minLen = Math.max(4, target.length - tolerance);
-            const maxLen = Math.min(candidate.length, target.length + tolerance);
-            for (let len = minLen; len <= maxLen; len++) {
-              for (let i = 0; i <= candidate.length - len; i++) {
-                const piece = candidate.slice(i, i + len);
-                const dist = ocrDistance(target, piece);
-                if (!best || dist < best.score) best = { score: dist, ctx };
-              }
-            }
+            // 빠른 비교: 전체 OCR 문자열/각 줄을 한 번씩만 비교한다.
+            const dist = ocrDistance(target, candidate);
+            if (!best || dist < best.score) best = { score: dist, ctx };
           });
 
           if (!best || best.score > tolerance) return;
-          const qty = findQtyNear(best.ctx, code);
+
           matched.push({
             code,
             masterItem: item,
-            docQty: qty,
-            inputQty: qty,
+            docQty: findQtyNear(best.ctx, code),
+            inputQty: findQtyNear(best.ctx, code),
             checked: true,
             ocrScore: best.score,
           });
@@ -6364,8 +6357,9 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
           "eng",
           {
             logger: () => {},
-            tessedit_pageseg_mode: "6",
-            preserve_interword_spaces: "1",
+            tessedit_pageseg_mode: "11",
+            preserve_interword_spaces: "0",
+            tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789- ",
           }
         );
         return {

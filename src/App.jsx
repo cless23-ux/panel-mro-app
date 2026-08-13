@@ -1562,89 +1562,6 @@ function AppInner() {
   const backPressedRef = useRef(false);
   const backTimerRef = useRef(null);
 
-  /* 모바일 좌우 스와이프로 하단 탭 순서대로 전환 - 손가락을 따라오는 드래그 연출 */
-  const mainPanelRef = useRef(null);
-  const dragStateRef = useRef({ startX: 0, startY: 0, dragging: null, deltaX: 0 });
-  const MOBILE_SWIPE_TABS = ["stock", "in", "out", "rawInbound", "return"];
-  const SWIPE_THRESHOLD = 60;
-
-  /* 모달(긴급요청/이력/QR 등)이 열려 있는 동안에는 스와이프를 완전히 무시한다.
-     tab-panel에 transform이 걸리면 그 안에 렌더된 position:fixed 모달이
-     뷰포트 기준이 아니라 tab-panel 기준으로 갇혀버려서 화면 밖으로 밀려나 보이는
-     버그가 있었음 (재고조회 > 긴급요청 모달 후 스와이프 시 모달이 아래로 내려가던 문제) */
-  const isInsideModal = (target) => !!(target && target.closest && target.closest(".app-modal-overlay"));
-
-  const handleMainTouchStart = (e) => {
-    if (isInsideModal(e.target)) {
-      dragStateRef.current = { startX: 0, startY: 0, dragging: false, deltaX: 0 };
-      return;
-    }
-    const t = e.touches[0];
-    dragStateRef.current = { startX: t.clientX, startY: t.clientY, dragging: null, deltaX: 0 };
-  };
-
-  const handleMainTouchMove = (e) => {
-    if (typeof window === "undefined" || window.innerWidth > 768) return;
-    if (isInsideModal(e.target)) return;
-    const ds = dragStateRef.current;
-    const t = e.touches[0];
-    const deltaX = t.clientX - ds.startX;
-    const deltaY = t.clientY - ds.startY;
-
-    if (ds.dragging === null) {
-      if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) return; // 의도 파악 전
-      const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
-      ds.dragging = curIdx !== -1 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2;
-    }
-    if (!ds.dragging) return;
-
-    const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
-    const atFirst = curIdx <= 0;
-    const atLast = curIdx >= MOBILE_SWIPE_TABS.length - 1;
-    /* 더 넘어갈 탭이 없는 방향으로는 고무줄처럼 저항감 부여 */
-    const resisted = (deltaX > 0 && atFirst) || (deltaX < 0 && atLast) ? deltaX * 0.35 : deltaX;
-    ds.deltaX = resisted;
-
-    const el = mainPanelRef.current;
-    if (el) {
-      el.style.transition = "none";
-      el.style.transform = `translateX(${resisted}px)`;
-      el.style.opacity = String(Math.max(0.7, 1 - Math.abs(resisted) / 600));
-    }
-  };
-
-  const handleMainTouchEnd = () => {
-    const ds = dragStateRef.current;
-    const el = mainPanelRef.current;
-
-    if (!ds.dragging) {
-      dragStateRef.current = { startX: 0, startY: 0, dragging: null, deltaX: 0 };
-      return;
-    }
-
-    const curIdx = MOBILE_SWIPE_TABS.indexOf(tab);
-    const goNext = ds.deltaX <= -SWIPE_THRESHOLD && curIdx < MOBILE_SWIPE_TABS.length - 1;
-    const goPrev = ds.deltaX >= SWIPE_THRESHOLD && curIdx > 0;
-
-    if (goNext || goPrev) {
-      /* 임계값을 넘겼으면 즉시 다음 탭으로 - 새 창이 슬라이드 애니메이션으로 이어받음 */
-      if (el) { el.style.transition = ""; el.style.transform = ""; el.style.opacity = ""; }
-      goToTab(MOBILE_SWIPE_TABS[curIdx + (goNext ? 1 : -1)]);
-    } else if (el) {
-      /* 임계값 미달 - 손을 뗀 원위치로 고무줄처럼 되돌아옴 */
-      el.style.transition = "transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.28s ease";
-      el.style.transform = "translateX(0px)";
-      el.style.opacity = "1";
-      const cleanup = () => {
-        if (mainPanelRef.current === el) el.style.transition = "";
-        el.removeEventListener("transitionend", cleanup);
-      };
-      el.addEventListener("transitionend", cleanup);
-    }
-
-    dragStateRef.current = { startX: 0, startY: 0, dragging: null, deltaX: 0 };
-  };
-
   const notify = useCallback((msg, type = "ok") => {
     setToast({ text: msg, type });
     setTimeout(() => { setToast(null); }, 2500);
@@ -1747,7 +1664,7 @@ function AppInner() {
 
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
-    { id: "in", label: "부자재입고", icon: ArrowDownToLine },
+    { id: "in", label: "입고등록", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode },
@@ -2284,16 +2201,12 @@ if (showSplash) {
       {/* 메인 영역 */}
       <main
         className="main-content"
-        onTouchStart={handleMainTouchStart}
-        onTouchMove={handleMainTouchMove}
-        onTouchEnd={handleMainTouchEnd}
       >
         {!ready ? (
           <div style={{ color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", textAlign: "center", padding: 40 }}>Supabase 불러오는 중...</div>
         ) : (
           <div
             key={tab}
-            ref={mainPanelRef}
             className={`tab-panel${slideDir < 0 ? " dir-back" : ""}`}
             style={{
               "--tab-neon-border": `${TAB_NEON[tab] || "#274460"}55`,

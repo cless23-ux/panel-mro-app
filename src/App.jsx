@@ -6231,7 +6231,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
       const srcW = image.naturalWidth || image.width;
       const srcH = image.naturalHeight || image.height;
-      const maxSide = 1400;
+      const maxSide = 900;
       const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
       const baseW = Math.max(1, Math.round(srcW * scale));
       const baseH = Math.max(1, Math.round(srcH * scale));
@@ -6375,20 +6375,10 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         };
       };
 
-      // 1차: 원본 방향만 OCR
+      // 모바일 안정화 우선: OCR은 원본 방향에서 1회만 실행한다.
+      // 회전 재시도는 제거해 장시간 대기와 앱 멈춤을 방지한다.
       const passes = [await runPass(0)];
-      let matched = matchFromPasses(passes);
-
-      // 자재가 충분히 잡히지 않을 때만 회전 OCR을 추가한다.
-      // 4회 고정 실행을 하지 않아 모바일 멈춤 현상을 크게 줄인다.
-      if (matched.length < 2) {
-        passes.push(await runPass(90));
-        matched = matchFromPasses(passes);
-      }
-      if (matched.length < 2) {
-        passes.push(await runPass(270));
-        matched = matchFromPasses(passes);
-      }
+      const matched = matchFromPasses(passes);
 
       const text = passes
         .map(pass => `\n[회전 ${pass.rotation}도]\n${pass.text}`)
@@ -6875,10 +6865,13 @@ keyCode = String(keyCode)
           />
         </div>
         <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 12 }}>
-          QR이 없는 거래명세서도 사진으로 촬영하면 OCR로 자재코드와 수량을 읽어 자재마스터와 자동 매칭합니다. 인식 결과는 반드시 확인·수정 후 입고하세요.
+          OCR은 모바일 안정성을 위해 사진을 축소한 뒤 1회 빠르게 인식합니다. 인식 중에는 결과 창을 조작할 수 없으며, 완료 후 자재·수량을 확인·수정하세요.
         </div>
         {ocrPreview && (
-          <details style={{ marginBottom: 12, fontSize: 11.5, color: "#94a3b8" }}>
+          <details
+            open={ocrLoading ? false : undefined}
+            style={{ marginBottom: 12, fontSize: 11.5, color: "#94a3b8", pointerEvents: ocrLoading ? "none" : "auto", opacity: ocrLoading ? 0.65 : 1 }}
+          >
             <summary style={{ cursor: "pointer" }}>OCR 촬영 이미지 / 인식 결과 보기</summary>
             <img src={ocrPreview} alt="거래명세서 OCR" style={{ width: "100%", maxHeight: 260, objectFit: "contain", marginTop: 8, borderRadius: 8, background: "#fff" }} />
             {ocrText && <pre style={{ whiteSpace: "pre-wrap", maxHeight: 160, overflow: "auto", marginTop: 8, padding: 8, background: "#020617", borderRadius: 6 }}>{ocrText}</pre>}

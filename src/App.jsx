@@ -1747,7 +1747,7 @@ function AppInner() {
 
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
-    { id: "in", label: "입고등록", icon: ArrowDownToLine },
+    { id: "in", label: "부자재입고", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode },
@@ -6220,8 +6220,8 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     try {
       const Tesseract = await loadTesseract();
 
-      // 사진이 옆으로 찍힌 경우를 대비해 0/90/180/270도 결과를 모두 확보한다.
-      // 원본 사진을 화면에 표시하는 것과 OCR용 전처리는 분리해서 기존 UI에는 영향이 없다.
+      // 모바일 멈춤 방지: OCR용 이미지를 최대 1400px로 축소한다.
+      // 기존 4방향 전체 OCR은 제거하고, 기본 방향 → 매칭 부족 시 90/270도만 추가 시도한다.
       const image = await new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => resolve(img);
@@ -6229,59 +6229,29 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         img.src = previewUrl;
       });
 
-      const makeOcrImage = (rotation) => {
-        const maxSide = 2200;
-        const srcW = image.naturalWidth || image.width;
-        const srcH = image.naturalHeight || image.height;
-        const scale = Math.min(2, maxSide / Math.max(srcW, srcH));
-        const w = Math.max(1, Math.round(srcW * scale));
-        const h = Math.max(1, Math.round(srcH * scale));
+      const srcW = image.naturalWidth || image.width;
+      const srcH = image.naturalHeight || image.height;
+      const maxSide = 1400;
+      const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
+      const baseW = Math.max(1, Math.round(srcW * scale));
+      const baseH = Math.max(1, Math.round(srcH * scale));
+
+      const makeOcrImage = (rotation = 0) => {
         const swap = rotation === 90 || rotation === 270;
         const canvas = document.createElement("canvas");
-        canvas.width = swap ? h : w;
-        canvas.height = swap ? w : h;
-        const ctx = canvas.getContext("2d", { willReadFrequently: false });
-        ctx.save();
+        canvas.width = swap ? baseH : baseW;
+        canvas.height = swap ? baseW : baseH;
+        const ctx = canvas.getContext("2d");
         if (rotation === 90) {
           ctx.translate(canvas.width, 0);
           ctx.rotate(Math.PI / 2);
-        } else if (rotation === 180) {
-          ctx.translate(canvas.width, canvas.height);
-          ctx.rotate(Math.PI);
         } else if (rotation === 270) {
           ctx.translate(0, canvas.height);
           ctx.rotate(-Math.PI / 2);
         }
-        ctx.drawImage(image, 0, 0, w, h);
-        ctx.restore();
+        ctx.drawImage(image, 0, 0, baseW, baseH);
         return canvas;
       };
-
-      const rotations = [0, 90, 180, 270];
-      const passes = [];
-      for (const rotation of rotations) {
-        const ocrImage = makeOcrImage(rotation);
-        const result = await Tesseract.recognize(
-          ocrImage,
-          "eng",
-          {
-            logger: () => {},
-            tessedit_pageseg_mode: "6",
-            preserve_interword_spaces: "1",
-          }
-        );
-        const passText = String(result?.data?.text || "");
-        passes.push({
-          rotation,
-          text: passText,
-          words: Array.isArray(result?.data?.words) ? result.data.words : [],
-        });
-      }
-
-      const text = passes
-        .map((pass) => `\n[회전 ${pass.rotation}도]\n${pass.text}`)
-        .join("\n");
-      setOcrText(text);
 
       const compact = (value) => String(value || "")
         .toUpperCase()
@@ -6314,92 +6284,124 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         return prev[bb.length];
       };
 
-      // OCR 결과에서 줄/인접줄/공백제거 전체문자열을 모두 후보로 사용한다.
-      const contexts = [];
-      passes.forEach((pass, passIndex) => {
-        const normalized = pass.text.replace(/\r/g, "");
-        const lines = normalized.split(/\n+/).map((v) => v.trim()).filter(Boolean);
-        lines.forEach((line, index) => {
-          contexts.push({ passIndex, index, text: line, lines });
-          for (let size = 2; size <= 4; size++) {
-            const group = lines.slice(index, index + size).join(" ");
-            if (group) contexts.push({ passIndex, index, text: group, lines });
-          }
+      const matchFromPasses = (passes) => {
+        const contexts = [];
+        passes.forEach((pass, passIndex) => {
+          const normalized = String(pass.text || "").replace(/\r/g, "");
+          const lines = normalized.split(/\n+/).map(v => v.trim()).filter(Boolean);
+          lines.forEach((line, index) => {
+            contexts.push({ passIndex, index, text: line, lines });
+            for (let size = 2; size <= 4; size++) {
+              const group = lines.slice(index, index + size).join(" ");
+              if (group) contexts.push({ passIndex, index, text: group, lines });
+            }
+          });
+          contexts.push({ passIndex, index: -1, text: normalized, lines });
+          contexts.push({ passIndex, index: -1, text: normalized.replace(/\s+/g, ""), lines });
         });
-        contexts.push({ passIndex, index: -1, text: normalized, lines });
-        contexts.push({ passIndex, index: -1, text: normalized.replace(/\s+/g, ""), lines });
-      });
 
-      // 코드 후보 주변에서 숫자를 찾되 코드 내부 숫자, 날짜/프로젝트 번호처럼 지나치게 긴 숫자는 제외한다.
-      const findQtyNear = (ctx, code) => {
-        const lines = ctx.lines || [];
-        const nearby = ctx.index >= 0
-          ? lines.slice(Math.max(0, ctx.index - 1), Math.min(lines.length, ctx.index + 4)).join(" ")
-          : ctx.text;
-        const codeNums = new Set((String(code).match(/\d+/g) || []).map(Number));
-        const candidates = [...nearby.matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)]
-          .map((m) => Number(m[1]))
-          .filter((n) => n > 0 && n <= 100000 && !codeNums.has(n));
-        // 표의 마지막 열 수량을 우선하기 위해 마지막의 짧은 숫자를 사용한다.
-        return candidates.length ? candidates[candidates.length - 1] : 1;
+        const findQtyNear = (ctx, code) => {
+          const lines = ctx.lines || [];
+          const nearby = ctx.index >= 0
+            ? lines.slice(Math.max(0, ctx.index - 1), Math.min(lines.length, ctx.index + 4)).join(" ")
+            : ctx.text;
+          const codeNums = new Set((String(code).match(/\d+/g) || []).map(Number));
+          const candidates = [...nearby.matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)]
+            .map(m => Number(m[1]))
+            .filter(n => n > 0 && n <= 100000 && !codeNums.has(n));
+          return candidates.length ? candidates[candidates.length - 1] : 1;
+        };
+
+        const matched = [];
+        materialItems.forEach((item) => {
+          const code = String(item.code || "").trim();
+          const target = compact(code);
+          if (!target) return;
+
+          const tolerance = Math.max(1, Math.min(4, Math.ceil(target.length * 0.16)));
+          let best = null;
+
+          contexts.forEach((ctx) => {
+            const candidate = compact(ctx.text);
+            if (!candidate) return;
+
+            if (candidate.includes(target)) {
+              if (!best || 0 < best.score) best = { score: 0, ctx };
+              return;
+            }
+
+            const minLen = Math.max(4, target.length - tolerance);
+            const maxLen = Math.min(candidate.length, target.length + tolerance);
+            for (let len = minLen; len <= maxLen; len++) {
+              for (let i = 0; i <= candidate.length - len; i++) {
+                const piece = candidate.slice(i, i + len);
+                const dist = ocrDistance(target, piece);
+                if (!best || dist < best.score) best = { score: dist, ctx };
+              }
+            }
+          });
+
+          if (!best || best.score > tolerance) return;
+          const qty = findQtyNear(best.ctx, code);
+          matched.push({
+            code,
+            masterItem: item,
+            docQty: qty,
+            inputQty: qty,
+            checked: true,
+            ocrScore: best.score,
+          });
+        });
+
+        return matched;
       };
 
-      const matched = [];
-      const used = new Set();
-
-      materialItems.forEach((item) => {
-        const code = String(item.code || "").trim();
-        const target = compact(code);
-        if (!target || used.has(code)) return;
-
-        const tolerance = Math.max(1, Math.min(5, Math.ceil(target.length * 0.18)));
-        let best = null;
-
-        contexts.forEach((ctx) => {
-          const candidate = compact(ctx.text);
-          if (!candidate) return;
-
-          // 완전 포함은 최우선.
-          if (candidate.includes(target)) {
-            const hit = { score: 0, ctx };
-            if (!best || hit.score < best.score) best = hit;
-            return;
+      const runPass = async (rotation) => {
+        // 렌더링을 한 번 양보해서 "인식중" 화면이 먼저 표시되도록 한다.
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const result = await Tesseract.recognize(
+          makeOcrImage(rotation),
+          "eng",
+          {
+            logger: () => {},
+            tessedit_pageseg_mode: "6",
+            preserve_interword_spaces: "1",
           }
+        );
+        return {
+          rotation,
+          text: String(result?.data?.text || ""),
+          words: Array.isArray(result?.data?.words) ? result.data.words : [],
+        };
+      };
 
-          // 긴 OCR 문장에서 코드 길이 근처의 모든 조각을 비교.
-          const minLen = Math.max(4, target.length - tolerance);
-          const maxLen = Math.min(candidate.length, target.length + tolerance);
-          for (let len = minLen; len <= maxLen; len++) {
-            for (let i = 0; i <= candidate.length - len; i++) {
-              const piece = candidate.slice(i, i + len);
-              const dist = ocrDistance(target, piece);
-              if (!best || dist < best.score) best = { score: dist, ctx };
-              if (dist === 0) return;
-            }
-          }
-        });
+      // 1차: 원본 방향만 OCR
+      const passes = [await runPass(0)];
+      let matched = matchFromPasses(passes);
 
-        if (!best || best.score > tolerance) return;
-        used.add(code);
-        const qty = findQtyNear(best.ctx, code);
-        matched.push({
-          code,
-          masterItem: item,
-          docQty: qty,
-          inputQty: qty,
-          checked: true,
-          ocrScore: best.score,
-        });
-      });
+      // 자재가 충분히 잡히지 않을 때만 회전 OCR을 추가한다.
+      // 4회 고정 실행을 하지 않아 모바일 멈춤 현상을 크게 줄인다.
+      if (matched.length < 2) {
+        passes.push(await runPass(90));
+        matched = matchFromPasses(passes);
+      }
+      if (matched.length < 2) {
+        passes.push(await runPass(270));
+        matched = matchFromPasses(passes);
+      }
+
+      const text = passes
+        .map(pass => `\n[회전 ${pass.rotation}도]\n${pass.text}`)
+        .join("\n");
+      setOcrText(text);
 
       if (matched.length === 0) {
         notify("OCR은 실행됐지만 자재코드를 매칭하지 못했습니다. 사진을 정면에서 촬영하거나 QR 스캔을 이용해주세요.", "err");
         return;
       }
 
-      // 같은 코드가 여러 OCR 회전 결과에서 중복 매칭되는 경우는 한 번만 유지한다.
       const uniqueMatched = matched.filter((entry, index, arr) =>
-        arr.findIndex((other) => other.code === entry.code) === index
+        arr.findIndex(other => other.code === entry.code) === index
       );
 
       setInvoiceData({
@@ -6415,7 +6417,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       );
     } catch (err) {
       console.error("거래명세서 OCR 오류:", err);
-      notify("거래명세서 OCR을 실행할 수 없습니다. 인터넷 연결과 사진 상태를 확인해주세요.", "err");
+      notify(`거래명세서 OCR을 실행할 수 없습니다: ${err?.message || err}`, "err");
     } finally {
       setOcrLoading(false);
     }

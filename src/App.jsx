@@ -6218,28 +6218,111 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     setOcrText("");
     try {
       const Tesseract = await loadTesseract();
-      // 자재코드/영문/숫자 위주 문서이므로 eng 우선 인식
+      // 자재코드가 영문/숫자/하이픈 조합이므로 eng 우선 인식
       const result = await Tesseract.recognize(file, "eng", { logger: () => {} });
       const text = String(result?.data?.text || "");
       setOcrText(text);
 
+      // OCR 오인식 보정용: 공백/줄바꿈/특수문자를 제거해 코드 비교
+      const compact = (value) => String(value || "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "");
+
+      // OCR에서 자주 바뀌는 글자쌍은 완전 동일하지 않아도 낮은 비용으로 비교한다.
+      const similarChar = (a, b) => {
+        if (a === b) return true;
+        const pairs = new Set(["O0", "0O", "I1", "1I", "L1", "1L", "S5", "5S", "B8", "8B", "Z2", "2Z", "G6", "6G"]);
+        return pairs.has(`${a}${b}`);
+      };
+
+      // OCR용 편집거리: O/0, I/1 등은 작은 오차로 취급
+      const ocrDistance = (a, b) => {
+        const aa = compact(a), bb = compact(b);
+        const dp = Array.from({ length: aa.length + 1 }, (_, i) => Array(bb.length + 1).fill(0));
+        for (let i = 0; i <= aa.length; i++) dp[i][0] = i;
+        for (let j = 0; j <= bb.length; j++) dp[0][j] = j;
+        for (let i = 1; i <= aa.length; i++) {
+          for (let j = 1; j <= bb.length; j++) {
+            const sub = similarChar(aa[i - 1], bb[j - 1]) ? 0 : 1;
+            dp[i][j] = Math.min(
+              dp[i - 1][j] + 1,
+              dp[i][j - 1] + 1,
+              dp[i - 1][j - 1] + sub
+            );
+          }
+        }
+        return dp[aa.length][bb.length];
+      };
+
       const normalized = text.replace(/\r/g, "");
       const lines = normalized.split(/\n+/).map(v => v.trim()).filter(Boolean);
+
+      // 표 OCR은 코드가 한 줄로 읽히지 않는 경우가 있어 인접 3줄까지 하나의 후보로 만든다.
+      const contexts = [];
+      lines.forEach((line, index) => {
+        contexts.push({ index, text: line });
+        if (lines[index + 1]) contexts.push({ index, text: `${line} ${lines[index + 1]}` });
+        if (lines[index + 2]) contexts.push({ index, text: `${line} ${lines[index + 1]} ${lines[index + 2]}` });
+      });
+      contexts.push({ index: -1, text: normalized });
+
+      const findQtyNear = (contextText, lineIndex, code) => {
+        const nearby = [
+          contextText,
+          lines[lineIndex - 1] || "",
+          lines[lineIndex] || "",
+          lines[lineIndex + 1] || "",
+          lines[lineIndex + 2] || "",
+        ].join(" ");
+        const codeNums = new Set((String(code).match(/\d+/g) || []).map(Number));
+        const nums = [...nearby.matchAll(/\b(\d{1,7})\b/g)]
+          .map(m => Number(m[1]))
+          .filter(n => n > 0 && !codeNums.has(n));
+        // 거래명세서의 행 끝 수량을 우선하되 날짜/프로젝트 번호 같은 큰 숫자는 제외
+        const sensible = nums.filter(n => n <= 100000);
+        return sensible.length ? sensible[sensible.length - 1] : 1;
+      };
+
       const matched = [];
       const used = new Set();
 
       materialItems.forEach((item) => {
         const code = String(item.code || "").trim();
-        if (!code) return;
-        const codeIndex = normalized.toUpperCase().indexOf(code.toUpperCase());
-        if (codeIndex < 0 || used.has(code)) return;
+        const target = compact(code);
+        if (!target || used.has(code)) return;
+
+        let best = null;
+        contexts.forEach((ctx) => {
+          const candidate = compact(ctx.text);
+          if (!candidate) return;
+
+          // 1) 완전 일치/공백·하이픈 누락 일치
+          let score = candidate.includes(target) ? 0 : Infinity;
+
+          // 2) OCR이 코드를 조금 틀리거나 앞뒤 글자가 섞인 경우 슬라이딩 비교
+          if (!Number.isFinite(score)) {
+            const tolerance = Math.max(1, Math.min(4, Math.ceil(target.length * 0.16)));
+            const minLen = Math.max(4, target.length - tolerance);
+            const maxLen = Math.min(candidate.length, target.length + tolerance);
+            for (let len = minLen; len <= maxLen; len++) {
+              for (let i = 0; i <= candidate.length - len; i++) {
+                const piece = candidate.slice(i, i + len);
+                const dist = ocrDistance(target, piece);
+                if (!best || dist < best.score) best = { score: dist, index: ctx.index, text: ctx.text };
+                if (dist === 0) break;
+              }
+              if (best?.score === 0) break;
+            }
+            if (!best || best.score > tolerance) return;
+            score = best.score;
+          }
+
+          if (!best || score < best.score) best = { score, index: ctx.index, text: ctx.text };
+        });
+
+        if (!best) return;
         used.add(code);
-        const after = normalized.slice(codeIndex, codeIndex + 300);
-        const before = normalized.slice(Math.max(0, codeIndex - 80), codeIndex);
-        const qtyCandidates = [...(after + " " + before).matchAll(/\b(\d{1,6})\b/g)].map(m => Number(m[1])).filter(n => n > 0);
-        // 코드 자체의 숫자 조각은 제거하고, 가장 가까운 숫자를 수량 후보로 사용
-        const codeNums = new Set((code.match(/\d+/g) || []).map(Number));
-        const qty = qtyCandidates.find(n => !codeNums.has(n)) || 1;
+        const qty = findQtyNear(best.text, best.index, code);
         matched.push({ code, masterItem: item, docQty: qty, inputQty: qty, checked: true });
       });
 

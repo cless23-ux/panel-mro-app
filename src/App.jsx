@@ -1664,7 +1664,7 @@ function AppInner() {
 
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
-    { id: "in", label: "부자재입고", icon: ArrowDownToLine },
+    { id: "in", label: "입고등록", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode },
@@ -2230,7 +2230,7 @@ if (showSplash) {
 
       {/* 모바일 하단 탭 */}
       <nav className="mobile-bottom-nav">
-        {["in", "stock", "out", "rawInbound", "return"].map((id) => {
+        {["stock", "in", "out", "rawInbound", "return"].map((id) => {
           const n = NAV.find((item) => item.id === id);
           if (!n) return null;
           const active = tab === n.id;
@@ -6143,7 +6143,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
       // 거래명세서 전용 전처리:
       // 전체 문서를 그대로 OCR하지 않고 중앙~하단의 자재 목록 영역을 우선 사용한다.
-      // 모바일 부하를 줄이기 위해 최종 OCR 캔버스는 최대 1100px로 제한한다.
+      // 인식률 향상을 위해 최종 OCR 캔버스는 최대 1700px까지 허용한다(기존 1100px).
       const srcW = image.naturalWidth || image.width;
       const srcH = image.naturalHeight || image.height;
 
@@ -6154,8 +6154,8 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       const cropW = Math.round(srcW * 0.94);
       const cropH = Math.round(srcH * 0.74);
 
-      const maxSide = 1100;
-      const scale = Math.min(1, maxSide / Math.max(cropW, cropH));
+      const maxSide = 1400;
+      const scale = Math.min(1.3, maxSide / Math.max(cropW, cropH));
       const outW = Math.max(1, Math.round(cropW * scale));
       const outH = Math.max(1, Math.round(cropH * scale));
 
@@ -6163,10 +6163,13 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       canvas.width = outW;
       canvas.height = outH;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
 
       ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
 
-      // OCR 대비 향상: 회색조 + 간단한 자동 대비.
+      // OCR 대비 향상: 그레이스케일 + 자동 대비(하드 이진화는 그림자 있는 사진에서
+      // 글자를 통째로 날려버릴 수 있어 사용하지 않는다).
       try {
         const imgData = ctx.getImageData(0, 0, outW, outH);
         const d = imgData.data;
@@ -6190,7 +6193,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
       const result = await Tesseract.recognize(
         canvas,
-        "eng",
+        "kor+eng",
         {
           logger: () => {},
           tessedit_pageseg_mode: "6",
@@ -6237,20 +6240,18 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         return prev[bb.length];
       };
 
-      // OCR 코드 후보는 "한 줄 / 인접 두 줄"까지만 사용합니다.
-      // 전체 문서를 한 덩어리로 합치면 서로 다른 행의 코드가 섞여
-      // 앞부분이 같은 여러 자재가 동시에 매칭되는 문제가 발생할 수 있어 제외합니다.
+      // 한 줄 + 인접 줄을 묶어 코드가 잘린 경우도 처리
       const contexts = [];
       lines.forEach((line, index) => {
         contexts.push({ index, text: line });
-        if (lines[index + 1]) {
-          contexts.push({ index, text: `${line} ${lines[index + 1]}` });
-        }
+        if (lines[index + 1]) contexts.push({ index, text: `${line} ${lines[index + 1]}` });
+        if (lines[index + 2]) contexts.push({ index, text: `${line} ${lines[index + 1]} ${lines[index + 2]}` });
       });
+      contexts.push({ index: -1, text: lines.join(" ") });
 
       const findQtyNear = (context, code) => {
         const source = context.index >= 0
-          ? lines.slice(Math.max(0, context.index - 1), Math.min(lines.length, context.index + 3)).join(" ")
+          ? lines.slice(Math.max(0, context.index - 1), Math.min(lines.length, context.index + 4)).join(" ")
           : context.text;
 
         const codeNums = new Set((String(code).match(/\d+/g) || []).map(Number));
@@ -6261,93 +6262,58 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         return nums.length ? nums[nums.length - 1] : 1;
       };
 
-      // 후보 문자열 하나당 가장 유력한 자재코드 1개만 선택합니다.
-      // 기존 방식처럼 자재마스터 전체를 각각 독립 검색하지 않아
-      // "앞 글자가 같은 코드"가 전부 선택되는 현상을 방지합니다.
-      const matchCandidates = [];
+      const matched = [];
 
-      contexts.forEach((context) => {
-        const candidate = compact(context.text);
-        if (!candidate || candidate.length < 4) return;
+      // 현재 입고 화면의 자재 목록만 대상으로 후보를 생성한다.
+      materialItems.forEach((item) => {
+        const code = String(item.code || "").trim();
+        const target = compact(code);
+        if (!target || target.length < 4) return;
 
-        const scores = [];
-        materialItems.forEach((item) => {
-          const code = String(item.code || "").trim();
-          const target = compact(code);
-          if (!target || target.length < 4) return;
+        const tolerance = Math.max(2, Math.min(4, Math.ceil(target.length * 0.16)));
+        let best = null;
 
-          const baseTolerance = Math.max(1, Math.min(3, Math.floor(target.length * 0.12)));
-          let score = Infinity;
+        contexts.forEach((context) => {
+          const candidate = compact(context.text);
+          if (!candidate) return;
 
-          // 정확한 전체 코드 포함은 최우선.
           if (candidate.includes(target)) {
-            score = 0;
-          } else {
-            // OCR 오인식을 고려한 비교는 코드 전체 길이와 거의 같은 구간만 허용.
-            const minLen = Math.max(target.length - baseTolerance, Math.ceil(target.length * 0.8));
-            const maxLen = Math.min(candidate.length, target.length + baseTolerance);
+            if (!best || best.score > 0) best = { score: 0, context };
+            return;
+          }
 
-            for (let len = minLen; len <= maxLen; len++) {
-              for (let i = 0; i <= candidate.length - len; i++) {
-                const piece = candidate.slice(i, i + len);
-                const s = distance(target, piece);
-                if (s < score) score = s;
-                if (score === 0) break;
-              }
+          // 코드와 비슷한 길이의 구간만 비교
+          const minLen = Math.max(4, target.length - tolerance);
+          const maxLen = Math.min(candidate.length, target.length + tolerance);
+
+          for (let len = minLen; len <= maxLen; len++) {
+            const maxStart = candidate.length - len;
+            for (let i = 0; i <= maxStart; i++) {
+              const piece = candidate.slice(i, i + len);
+              const score = distance(target, piece);
+              if (!best || score < best.score) best = { score, context };
               if (score === 0) break;
             }
-          }
-
-          if (score <= baseTolerance) {
-            scores.push({ score, code, item, target, tolerance: baseTolerance });
+            if (best?.score === 0) break;
           }
         });
 
-        if (!scores.length) return;
+        if (!best || best.score > tolerance) return;
 
-        scores.sort((a, b) => a.score - b.score || b.target.length - a.target.length);
-
-        const winner = scores[0];
-        const runnerUp = scores[1];
-
-        // 1위와 2위가 같은 점수이거나 애매하면 자동 선택하지 않습니다.
-        // 공통 접두어 자재의 오매칭을 차단합니다.
-        if (
-          runnerUp &&
-          (
-            winner.score === runnerUp.score ||
-            (winner.score > 0 && runnerUp.score - winner.score < 1)
-          )
-        ) {
-          return;
-        }
-
-        matchCandidates.push({
-          code: winner.code,
-          masterItem: winner.item,
-          context,
-          score: winner.score,
-          qty: findQtyNear(context, winner.code),
-        });
-      });
-
-      // 동일 자재가 여러 OCR 문맥에서 발견되면 가장 정확한 결과만 유지.
-      const bestByCode = new Map();
-      matchCandidates.forEach((entry) => {
-        const prev = bestByCode.get(entry.code);
-        if (!prev || entry.score < prev.score) bestByCode.set(entry.code, entry);
-      });
-
-      const uniqueMatched = [...bestByCode.values()]
-        .sort((a, b) => a.context.index - b.context.index)
-        .map((entry) => ({
-          code: entry.code,
-          masterItem: entry.masterItem,
-          docQty: entry.qty,
-          inputQty: entry.qty,
+        const qty = findQtyNear(best.context, code);
+        matched.push({
+          code,
+          masterItem: item,
+          docQty: qty,
+          inputQty: qty,
           checked: true,
-          ocrScore: entry.score,
-        }));
+          ocrScore: best.score,
+        });
+      });
+
+      const uniqueMatched = matched.filter((entry, index, arr) =>
+        arr.findIndex(other => other.code === entry.code) === index
+      );
 
       if (!uniqueMatched.length) {
         notify(

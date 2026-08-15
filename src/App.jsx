@@ -6257,14 +6257,15 @@ console.log(rawText);
     const flatCode = (value) =>
       normalizeCode(value).replace(/[-_]/g, "");
 
-    const codePrefix = materialType === "raw" ? "1-" : "2-";
-
+    // OCR 스캔에서는 materialType 값의 표기 차이 때문에
+    // 마스터 코드가 비어 버리는 일을 막기 위해 현재 materialItems 전체를 사용한다.
+    // 최종적으로는 반드시 실제 마스터 코드와 정확 비교한다.
     const masterMap = new Map();
     const masterFlatMap = new Map();
 
     materialItems.forEach((item) => {
       const code = normalizeCode(item?.code);
-      if (!code || !code.startsWith(codePrefix)) return;
+      if (!code) return;
 
       masterMap.set(code, item);
       masterFlatMap.set(flatCode(code), code);
@@ -6403,6 +6404,27 @@ console.log(rawText);
         .replace(/[‐-‒–—―]/g, "-")
         .replace(/[^A-Z0-9]/g, "");
 
+    // OCR에서 자주 발생하는 문자 혼동만 제한적으로 보정한다.
+    // 유사 코드 추측은 하지 않고, 보정 후에도 마스터 코드와 전체 일치해야 한다.
+    const ocrExactVariants = (value) => {
+      const original = flatExact(value);
+      const variants = new Set([original]);
+
+      if (original) {
+        variants.add(original.replace(/O/g, "0"));
+        variants.add(original.replace(/Q/g, "0"));
+        variants.add(original.replace(/[IL]/g, "1"));
+        variants.add(
+          original
+            .replace(/O/g, "0")
+            .replace(/Q/g, "0")
+            .replace(/[IL]/g, "1")
+        );
+      }
+
+      return [...variants].filter(Boolean);
+    };
+
     const detectedRows = [];
     const detectedCodes = new Set();
 
@@ -6426,14 +6448,19 @@ console.log(rawText);
 
     // 여러 OCR 조각을 붙인 결과가 마스터 코드와 정확히 일치할 때만 등록
     const tryExact = (value, payload) => {
-      const flat = flatExact(value);
-      if (!flat || flat.length < 6) return null;
+      const variants = ocrExactVariants(value);
 
-      const code = masterFlatMap.get(flat);
-      if (!code) return null;
+      for (const flat of variants) {
+        if (!flat || flat.length < 6) continue;
 
-      pushDetected(code, payload);
-      return code;
+        const code = masterFlatMap.get(flat);
+        if (!code) continue;
+
+        pushDetected(code, payload);
+        return code;
+      }
+
+      return null;
     };
 
     // -----------------------------------------------------
@@ -6629,13 +6656,16 @@ console.log(rawText);
 
     // 4차: OCR 원문 전체에서 "실제 문자 순서가 연속된" 코드만 검사
     // 하이픈/공백/줄바꿈만 제거한 정확 비교
-    const rawFlat = flatExact(rawText);
+    const rawFlatVariants = ocrExactVariants(rawText);
 
     for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
-      if (
-        masterFlat.length >= 6 &&
-        rawFlat.includes(masterFlat)
-      ) {
+      const found = rawFlatVariants.some(
+        (rawFlat) =>
+          masterFlat.length >= 6 &&
+          rawFlat.includes(masterFlat)
+      );
+
+      if (found) {
         pushDetected(masterCode, {
           start: -1,
           end: -1,

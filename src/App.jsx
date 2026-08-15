@@ -6134,7 +6134,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   if (!file || ocrLoading) return;
 
   const previewUrl = URL.createObjectURL(file);
-
   setOcrPreview(previewUrl);
   setOcrLoading(true);
   setOcrText("");
@@ -6150,985 +6149,235 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   };
 
   try {
-    /* =====================================================
-       1. 이미지 로드
-    ===================================================== */
-
     const image = await new Promise((resolve, reject) => {
       const img = new Image();
-
       img.onload = () => resolve(img);
       img.onerror = reject;
-
       img.src = previewUrl;
     });
 
-    const srcW =
-      image.naturalWidth || image.width;
+    const srcW = image.naturalWidth || image.width;
+    const srcH = image.naturalHeight || image.height;
 
-    const srcH =
-      image.naturalHeight || image.height;
+    // 거래명세서의 자재표 영역을 넉넉하게 사용
+    const cropX = Math.round(srcW * 0.03);
+    const cropY = Math.round(srcH * 0.30);
+    const cropW = Math.round(srcW * 0.94);
+    const cropH = Math.round(srcH * 0.67);
+    const maxSide = 1800;
+    const scale = Math.min(1, maxSide / Math.max(cropW, cropH));
+    const width = Math.max(1, Math.round(cropW * scale));
+    const height = Math.max(1, Math.round(cropH * scale));
 
-    /* =====================================================
-       2. 거래명세서 자재표 영역만 자르기
-
-       상단:
-       거래처
-       주소
-       등록번호
-       QR
-       프로젝트 정보
-
-       등은 OCR 대상에서 제외
-
-       중앙~하단 자재 목록 표만 OCR
-    ===================================================== */
-
-    const cropX =
-      Math.round(srcW * 0.05);
-
-    // 자재표가 사진마다 조금씩 아래로 내려가는 경우가 있어
-    // 기존 42%~90% 고정 영역보다 넓게 잡는다.
-    const cropY =
-      Math.round(srcH * 0.28);
-
-    const cropW =
-      Math.round(srcW * 0.96);
-
-    // 사진의 하단이 잘리는 경우를 막기 위해 끝까지 사용
-    const cropH =
-      Math.round(srcH * 0.70);
-
-    /* =====================================================
-       3. OCR용 이미지 생성
-
-       너무 큰 이미지는 API 전송량과
-       처리속도를 느리게 만들기 때문에
-       최대 1800px 유지
-    ===================================================== */
-
-    const maxSize = 2200;
-
-    const scale =
-      Math.min(
-        1,
-        maxSize /
-          Math.max(cropW, cropH)
-      );
-
-    const width =
-      Math.max(
-        1,
-        Math.round(cropW * scale)
-      );
-
-    const height =
-      Math.max(
-        1,
-        Math.round(cropH * scale)
-      );
-
-    const canvas =
-      document.createElement("canvas");
-
+    const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, width, height);
 
-    const ctx =
-      canvas.getContext(
-        "2d",
-        { willReadFrequently: true }
-      );
+    const imageData = canvas.toDataURL("image/jpeg", 0.92);
 
-    ctx.drawImage(
-      image,
+    const response = await fetch("/api/vision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: imageData }),
+    });
 
-      cropX,
-      cropY,
-      cropW,
-      cropH,
-
-      0,
-      0,
-      width,
-      height
-    );
-
-    // 거래명세서의 옅은 글자/테두리를 조금 더 선명하게 만들어 OCR 누락을 줄인다.
-    try {
-      const pixels = ctx.getImageData(0, 0, width, height);
-      const d = pixels.data;
-      for (let i = 0; i < d.length; i += 4) {
-        const gray = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
-        const v = gray > 185 ? 255 : (gray < 115 ? 0 : Math.round((gray - 115) * 255 / 70));
-        d[i] = d[i + 1] = d[i + 2] = v;
-      }
-      ctx.putImageData(pixels, 0, 0);
-    } catch {}
-
-    const imageData =
-      canvas.toDataURL(
-        "image/jpeg",
-        0.96
-      );
-
-    /* =====================================================
-       4. Google Vision OCR 호출
-    ===================================================== */
-
-    const response =
-      await fetch(
-        "/api/vision",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            image: imageData,
-          }),
-        }
-      );
-
-    const result =
-      await response.json();
+    const result = await response.json();
 
     if (!response.ok) {
-      throw new Error(
-        result?.error ||
-        "Google Vision OCR 요청 실패"
-      );
+      throw new Error(result?.error || "Google Vision OCR 요청 실패");
     }
 
-    const rawText =
-      String(
-        result?.text || ""
-      );
-
+    const rawText = String(result?.text || "");
     if (!rawText.trim()) {
-      throw new Error(
-        "사진에서 텍스트를 인식하지 못했습니다."
-      );
+      throw new Error("사진에서 텍스트를 인식하지 못했습니다.");
     }
 
     setOcrText(rawText);
 
-    /* =====================================================
-       5. 코드 정규화
-    ===================================================== */
+    const normalizeCode = (value) =>
+      String(value || "")
+        .toUpperCase()
+        .replace(/[‐-‒–—―]/g, "-")
+        .replace(/\s+/g, "")
+        .replace(/[^A-Z0-9_-]/g, "");
 
-    const normalizeCode =
-      (value) =>
-        String(value || "")
-          .toUpperCase()
-          .replace(/\s+/g, "")
-          .replace(/[‐-‒–—―]/g, "-")
-          .replace(
-            /[^A-Z0-9_-]/g,
-            ""
-          );
+    const codePrefix = materialType === "raw" ? "1-" : "2-";
 
-    /* =====================================================
-       6. 현재 화면의 자재 타입에 맞는 코드
+    // 원본 OCR 줄 보존: 한 단어만 있는 줄도 절대 버리지 않는다.
+    const rawLines = rawText
+      .replace(/\r/g, "")
+      .split("\n")
+      .map((text, index) => ({ text: text.trim(), index }))
+      .filter((row) => row.text);
 
-       원자재  → 1-
-       부자재  → 2-
-    ===================================================== */
-
-    const codePrefix =
-      materialType === "raw"
-        ? "1-"
-        : "2-";
-
-    /* =====================================================
-       7. Google Vision 좌표 정보에서
-          단어 추출
-    ===================================================== */
-
-    const annotation =
-      result?.raw
-        ?.responses?.[0]
-        ?.fullTextAnnotation;
-
-    const pages =
-      annotation?.pages || [];
-
-    const words = [];
-
-    const getWordText =
-      (word) =>
-        (word?.symbols || [])
-          .map(
-            (symbol) =>
-              symbol.text || ""
-          )
-          .join("");
-
-    pages.forEach((page) => {
-      (page.blocks || [])
-        .forEach((block) => {
-          (block.paragraphs || [])
-            .forEach((paragraph) => {
-              (paragraph.words || [])
-                .forEach((word) => {
-
-                  const text =
-                    getWordText(word);
-
-                  if (!text) return;
-
-                  const vertices =
-                    word.boundingBox
-                      ?.vertices || [];
-
-                  const xs =
-                    vertices
-                      .map(
-                        (v) =>
-                          Number(v.x) || 0
-                      );
-
-                  const ys =
-                    vertices
-                      .map(
-                        (v) =>
-                          Number(v.y) || 0
-                      );
-
-                  if (
-                    !xs.length ||
-                    !ys.length
-                  ) {
-                    return;
-                  }
-
-                  const minX =
-                    Math.min(...xs);
-
-                  const maxX =
-                    Math.max(...xs);
-
-                  const minY =
-                    Math.min(...ys);
-
-                  const maxY =
-                    Math.max(...ys);
-
-                  words.push({
-                    text,
-
-                    x:
-                      (minX + maxX) / 2,
-
-                    y:
-                      (minY + maxY) / 2,
-
-                    minX,
-                    maxX,
-                    minY,
-                    maxY,
-
-                    width:
-                      maxX - minX,
-
-                    height:
-                      Math.max(
-                        1,
-                        maxY - minY
-                      ),
-                  });
-
-                });
-            });
-        });
+    const masterMap = new Map();
+    materialItems.forEach((item) => {
+      const key = normalizeCode(item.code);
+      if (key && key.startsWith(codePrefix)) masterMap.set(key, item);
     });
 
-    /* =====================================================
-       좌표 정보가 없는 경우
+    // 코드가 두 줄로 분리된 경우를 먼저 재구성한다.
+    // 예: 2-STOCK-ACCY- + 863 => 2-STOCK-ACCY-863
+    const logicalRows = [];
+    for (let i = 0; i < rawLines.length; i++) {
+      const current = rawLines[i];
+      const currentNorm = normalizeCode(current.text);
+      const next = rawLines[i + 1];
+      const nextNorm = next ? normalizeCode(next.text) : "";
 
-       기존 텍스트 방식으로 최소 처리
-    ===================================================== */
+      let text = current.text;
+      let consumed = false;
 
-    if (!words.length) {
-      throw new Error(
-        "OCR 좌표 정보를 가져오지 못했습니다."
-      );
+      const startsAsCode = currentNorm.startsWith(codePrefix);
+      const looksLikePrefix =
+        startsAsCode &&
+        (/-$/.test(String(current.text).trim()) || /-$/.test(currentNorm));
+
+      const shortContinuation =
+        nextNorm &&
+        nextNorm.length <= 12 &&
+        /^[A-Z0-9_-]+$/.test(nextNorm) &&
+        /[0-9]/.test(nextNorm);
+
+      if (looksLikePrefix && shortContinuation) {
+        text = `${current.text}${next.text}`;
+        consumed = true;
+      }
+
+      // OCR이 "2-STOCK-ACCY-"와 "863"을 완전히 별도 줄로 낸 경우
+      // 현재 행 + 다음 행을 코드 후보로 항상 한 번 검사할 수 있게 후보 배열 보존
+      const candidates = [text];
+      if (next && startsAsCode) {
+        candidates.push(`${current.text}${next.text}`);
+        candidates.push(`${current.text} ${next.text}`);
+      }
+
+      logicalRows.push({
+        text,
+        candidates,
+        sourceStart: i,
+        sourceEnd: consumed ? i + 1 : i,
+      });
+
+      if (consumed) i += 1;
     }
 
-    /* =====================================================
-       8. 같은 가로줄끼리 묶기
+    const findMasterCode = (sources) => {
+      for (const source of sources) {
+        const normalized = normalizeCode(source);
+        if (masterMap.has(normalized)) return normalized;
 
-       OCR 단어를 Y좌표 기준으로 정렬하고
-       가까운 Y좌표는 같은 자재 행으로 판단
-    ===================================================== */
-
-    words.sort(
-      (a, b) =>
-        a.y - b.y ||
-        a.x - b.x
-    );
-
-    const avgHeight =
-      words.reduce(
-        (sum, word) =>
-          sum + word.height,
-        0
-      ) /
-      Math.max(
-        1,
-        words.length
-      );
-
-    // 행이 서로 합쳐지지 않도록 OCR 글자 높이에 맞춰 허용 오차를 낮춘다.
-    const rowTolerance =
-      Math.max(
-        10,
-        avgHeight * 0.72
-      );
-
-    const rows = [];
-
-    words.forEach((word) => {
-
-      let targetRow =
-        null;
-
-      for (
-        let i = rows.length - 1;
-        i >= 0;
-        i--
-      ) {
-
-        const row =
-          rows[i];
-
-        if (
-          Math.abs(
-            row.centerY - word.y
-          ) <= rowTolerance
-        ) {
-
-          targetRow =
-            row;
-
-          break;
-        }
-
-        if (
-          row.centerY <
-          word.y - rowTolerance * 2
-        ) {
-          break;
+        // 문서 행 안에서만 정확한 등록 코드 검색
+        for (const key of masterMap.keys()) {
+          if (normalized === key) return key;
+          if (normalized.includes(key)) return key;
         }
       }
-
-      if (!targetRow) {
-
-        targetRow = {
-          centerY: word.y,
-          words: [],
-        };
-
-        rows.push(
-          targetRow
-        );
-      }
-
-      targetRow.words.push(
-        word
-      );
-
-      targetRow.centerY =
-        targetRow.words.reduce(
-          (sum, item) =>
-            sum + item.y,
-          0
-        ) /
-        targetRow.words.length;
-    });
-
-    /* =====================================================
-       9. 행 내부를 왼쪽 → 오른쪽 순서로 정렬
-    ===================================================== */
-
-    const tableRows =
-      rows
-        .map((row) => {
-
-          const rowWords =
-            [...row.words]
-              .sort(
-                (a, b) =>
-                  a.x - b.x
-              );
-
-          return {
-            ...row,
-
-            words:
-              rowWords,
-
-            text:
-              rowWords
-                .map(
-                  (word) =>
-                    word.text
-                )
-                .join(" "),
-          };
-        })
-
-        .filter(
-          (row) =>
-            row.words.length >= 2
-        );
-
-    /* =====================================================
-       9-1. 좌표 행 분리가 실패했을 때를 위한 텍스트 행 보조
-
-       Google Vision이 표의 일부를 하나의 행으로 묶거나,
-       자재코드만 단독으로 인식한 경우에도 코드 후보를 잃지 않는다.
-       전체 자재명을 검색하는 것이 아니라 OCR이 읽은 각 줄만 검사한다.
-    ===================================================== */
-
-    const rawTextRows = rawText
-      .split(/\r?\n/)
-      .map((line, lineIndex) => {
-        const lineText = String(line || "").trim();
-        const parts = lineText.split(/\s+/).filter(Boolean);
-        return {
-          centerY: 100000 + lineIndex,
-          words: parts.map((text, i) => ({
-            text, x: i * 100, y: 100000 + lineIndex,
-            minX: i * 100, maxX: i * 100 + 1, minY: 100000 + lineIndex, maxY: 100001,
-            width: 1, height: 1,
-          })),
-          text: lineText,
-          rawFallback: true,
-        };
-      })
-      .filter((row) => row.text.length >= 4);
-
-    const allCandidateRows = [
-      ...tableRows,
-      ...rawTextRows,
-    ];
-
-    /* =====================================================
-       10. 자재마스터 코드 맵 생성
-    ===================================================== */
-
-    const itemMap =
-      new Map();
-
-    materialItems.forEach(
-      (item) => {
-
-        const normalized =
-          normalizeCode(
-            item.code
-          );
-
-        if (
-          normalized &&
-          normalized.startsWith(
-            codePrefix
-          )
-        ) {
-
-          itemMap.set(
-            normalized,
-            item
-          );
-        }
-      }
-    );
-
-    /* =====================================================
-       11. OCR 행에서 코드 찾기
-
-       중요:
-
-       기존 방식처럼
-       OCR 전체 문자열 검색 금지
-
-       "한 행 안에서만"
-       코드 후보를 찾는다.
-    ===================================================== */
-
-    const levenshtein = (a, b) => {
-      const aa = String(a || "");
-      const bb = String(b || "");
-      if (!aa) return bb.length;
-      if (!bb) return aa.length;
-
-      const prev = Array.from(
-        { length: bb.length + 1 },
-        (_, i) => i
-      );
-
-      for (let i = 1; i <= aa.length; i++) {
-        let left = i;
-        let diagonal = i - 1;
-
-        for (let j = 1; j <= bb.length; j++) {
-          const up = prev[j];
-          const next = Math.min(
-            prev[j] + 1,
-            left + 1,
-            diagonal + (aa[i - 1] === bb[j - 1] ? 0 : 1)
-          );
-          prev[j] = left;
-          left = next;
-          diagonal = up;
-        }
-        prev[0] = i;
-      }
-
-      return prev[bb.length];
+      return null;
     };
 
-    const findCodeInRow =
-      (row) => {
+    const findNewCodeCandidate = (sources) => {
+      for (const source of sources) {
+        const compact = String(source || "")
+          .toUpperCase()
+          .replace(/[‐-‒–—―]/g, "-")
+          .replace(/\s+/g, "");
 
-        const joined =
-          row.words
-            .map((word) => word.text)
-            .join("");
-
-        const spaced =
-          row.words
-            .map((word) => word.text)
-            .join(" ");
-
-        const candidates =
-          [joined, spaced, row.text]
-            .map(normalizeCode)
-            .filter(Boolean);
-
-        /*
-          1) 같은 OCR 행 안에서만 먼저 정확 매칭
-             → 이전처럼 전체 자재마스터를 무작정 검색하지 않음
-        */
-        for (const [normalizedCode] of itemMap) {
-          for (const normalizedSource of candidates) {
-            if (
-              normalizedSource === normalizedCode ||
-              normalizedSource.includes(normalizedCode)
-            ) {
-              return {
-                code: normalizedCode,
-                exact: true,
-                distance: 0,
-              };
-            }
+        const matches = compact.match(/[12]-[A-Z0-9]+(?:-[A-Z0-9]+){2,}/g) || [];
+        for (const value of matches) {
+          const normalized = normalizeCode(value);
+          if (
+            normalized.startsWith(codePrefix) &&
+            normalized.length >= 6 &&
+            /[A-Z]/.test(normalized) &&
+            /\d/.test(normalized)
+          ) {
+            return normalized;
           }
         }
-
-        /*
-          2) OCR이 O/0, I/1, 한 글자 누락처럼 조금 틀린 경우만
-             "현재 행"에서 제한적으로 보정한다.
-
-             전체 OCR에서 찾지 않고, 코드 길이에 비례한 작은 오차만 허용.
-        */
-        let best = null;
-
-        for (const [normalizedCode] of itemMap) {
-          const tolerance =
-            normalizedCode.length >= 16
-              ? 2
-              : normalizedCode.length >= 10
-                ? 1
-                : 1;
-
-          for (const normalizedSource of candidates) {
-            if (
-              normalizedSource.length < normalizedCode.length - tolerance
-            ) {
-              continue;
-            }
-
-            const minLen =
-              Math.max(
-                4,
-                normalizedCode.length - tolerance
-              );
-
-            const maxLen =
-              Math.min(
-                normalizedSource.length,
-                normalizedCode.length + tolerance
-              );
-
-            for (
-              let len = minLen;
-              len <= maxLen;
-              len++
-            ) {
-              for (
-                let start = 0;
-                start <= normalizedSource.length - len;
-                start++
-              ) {
-                const piece =
-                  normalizedSource.slice(
-                    start,
-                    start + len
-                  );
-
-                if (
-                  !piece.startsWith(codePrefix)
-                ) {
-                  continue;
-                }
-
-                const distance =
-                  levenshtein(
-                    normalizedCode,
-                    piece
-                  );
-
-                if (
-                  distance > tolerance
-                ) {
-                  continue;
-                }
-
-                if (
-                  !best ||
-                  distance < best.distance ||
-                  (
-                    distance === best.distance &&
-                    normalizedCode.length > best.code.length
-                  )
-                ) {
-                  best = {
-                    code: normalizedCode,
-                    exact: false,
-                    distance,
-                  };
-                }
-
-                if (distance === 0) break;
-              }
-              if (best?.distance === 0) break;
-            }
-          }
-        }
-
-        if (best) {
-          return best;
-        }
-
-        /*
-          3) 미등록 신규 코드 후보
-        */
-        const rawCandidates =
-          (
-            `${joined} ${spaced}`
-              .match(
-                /[0-9A-Za-z]+(?:[\s_-]+[0-9A-Za-z]+){2,}/g
-              ) || []
-          );
-
-        for (const candidate of rawCandidates) {
-          const normalized =
-            normalizeCode(candidate);
-
-          if (!normalized.startsWith(codePrefix)) continue;
-          if (normalized.length < 6) continue;
-          if (!/[A-Z]/.test(normalized)) continue;
-          if (!/\d/.test(normalized)) continue;
-
-          return {
-            code: normalized,
-            exact: false,
-            distance: null,
-          };
-        }
-
-        return null;
-      };
-
-    /* =====================================================
-       12. 같은 행의 수량 찾기
-
-       표에서 수량은 일반적으로
-       가장 오른쪽 숫자
-
-       → 그 행의 숫자만 사용
-       → 다른 행의 숫자 절대 사용 안 함
-    ===================================================== */
-
-    const findQtyInRow =
-      (row) => {
-
-        const numberWords =
-          row.words
-            .map(
-              (word) => {
-
-                const cleaned =
-                  String(
-                    word.text
-                  )
-                    .replace(
-                      /[^0-9]/g,
-                      ""
-                    );
-
-                if (!cleaned) {
-                  return null;
-                }
-
-                const value =
-                  Number(cleaned);
-
-                if (
-                  !Number.isFinite(
-                    value
-                  )
-                ) {
-                  return null;
-                }
-
-                if (
-                  value <= 0 ||
-                  value > 100000
-                ) {
-                  return null;
-                }
-
-                return {
-                  value,
-
-                  x:
-                    word.x,
-                };
-              }
-            )
-
-            .filter(Boolean)
-
-            .sort(
-              (a, b) =>
-                b.x - a.x
-            );
-
-        return numberWords.length
-          ? numberWords[0].value
-          : 1;
-      };
-
-    /* =====================================================
-       13. 실제 결과 생성
-
-       코드 중복 방지
-
-       등록된 코드 → 기존 자재 연결
-       미등록 코드 → 신규등록 후보
-    ===================================================== */
-
-    const resultList =
-      [];
-
-    const usedCodes =
-      new Set();
-
-    allCandidateRows.forEach(
-      (row) => {
-
-        let found =
-          findCodeInRow(
-            row
-          );
-
-        /*
-          OCR이 한 품목의 코드를 위/아래 두 줄로 쪼개는 경우를 보정.
-          인접 행만 합쳐서 다시 검사하므로 전체 자재 검색으로 인한 오인식은 막는다.
-        */
-        if (!found) {
-          const rowIndex =
-            allCandidateRows.indexOf(row);
-
-          const neighbors =
-            [
-              allCandidateRows[rowIndex - 1],
-              allCandidateRows[rowIndex + 1],
-            ].filter(Boolean);
-
-          for (const neighbor of neighbors) {
-            const merged = {
-              ...row,
-              words:
-                [...row.words, ...neighbor.words]
-                  .sort((a, b) => a.x - b.x),
-              text:
-                `${row.text} ${neighbor.text}`,
-            };
-
-            found =
-              findCodeInRow(
-                merged
-              );
-
-            if (found) break;
-          }
-        }
-
-        if (!found) return;
-
-        const normalizedCode =
-          normalizeCode(
-            found.code
-          );
-
-        if (
-          usedCodes.has(
-            normalizedCode
-          )
-        ) {
-          return;
-        }
-
-        const masterItem =
-          itemMap.get(
-            normalizedCode
-          ) || null;
-
-        /*
-          등록 코드라면
-          자재마스터의 원래 코드 사용
-        */
-
-        const finalCode =
-          masterItem
-            ? masterItem.code
-            : found.code;
-
-        const qty =
-          findQtyInRow(
-            row
-          );
-
-        usedCodes.add(
-          normalizedCode
-        );
-
-        resultList.push({
-          code:
-            finalCode,
-
-          masterItem,
-
-          docQty:
-            qty,
-
-          inputQty:
-            qty,
-
-          checked:
-            true,
-
-          ocrScore:
-            found.exact
-              ? 0
-              : null,
-
-          unregistered:
-            !masterItem,
-
-          /*
-            신규등록용 OCR 원본
-          */
-
-          ocrRowText:
-            row.text,
-        });
       }
-    );
+      return null;
+    };
 
-    /* =====================================================
-       14. 결과 없음
-    ===================================================== */
+    const findQtyForBlock = (row) => {
+      // 해당 품목 행 + 바로 뒤 몇 줄만 검사. 다음 품목 코드가 나오면 중단.
+      const block = [];
+      for (let i = row.sourceStart; i <= Math.min(rawLines.length - 1, row.sourceEnd + 4); i++) {
+        if (i > row.sourceEnd) {
+          const n = normalizeCode(rawLines[i].text);
+          if (n.startsWith(codePrefix) && n.length >= 6) break;
+        }
+        block.push(rawLines[i].text);
+      }
 
-    if (
-      !resultList.length
-    ) {
+      // 한 줄에 여러 숫자가 있으면 마지막 숫자를 우선 사용
+      const nums = block
+        .flatMap((line) => [...String(line).matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)])
+        .map((m) => Number(m[1]))
+        .filter((n) => Number.isFinite(n) && n > 0 && n <= 100000);
 
-      throw new Error(
-        "거래명세서 텍스트는 읽었지만 자재코드/품목을 하나도 확정하지 못했습니다. OCR 실패로 처리했습니다."
-      );
-    }
+      return nums.length ? nums[nums.length - 1] : 1;
+    };
 
-    /* =====================================================
-       15. 화면 표시
-    ===================================================== */
+    const resultList = [];
+    const usedCodes = new Set();
 
-    setInvoiceData({
-      key_code:
-        `OCR-${new Date()
-          .toISOString()
-          .slice(0, 10)}`,
+    logicalRows.forEach((row) => {
+      const masterKey = findMasterCode(row.candidates);
+      const newKey = masterKey ? null : findNewCodeCandidate(row.candidates);
+      const finalKey = masterKey || newKey;
+      if (!finalKey || usedCodes.has(finalKey)) return;
 
-      supplier:
-        "Google Vision OCR · 자재표 행 인식",
+      const masterItem = masterMap.get(finalKey) || null;
+      usedCodes.add(finalKey);
 
-      list:
-        resultList,
-
-      ocr:
-        true,
+      resultList.push({
+        code: masterItem ? masterItem.code : finalKey,
+        masterItem,
+        docQty: findQtyForBlock(row),
+        inputQty: findQtyForBlock(row),
+        checked: true,
+        ocrScore: masterItem ? 0 : null,
+        unregistered: !masterItem,
+        ocrRowText: row.candidates.join(" | "),
+      });
     });
 
-    const registeredCount =
-      resultList.filter(
-        (item) =>
-          item.masterItem
-      ).length;
+    if (!resultList.length) {
+      addOcrUsage(false);
+      notify(
+        "OCR 텍스트는 읽었지만 자재코드를 찾지 못했습니다. 두 줄로 나뉜 코드를 포함해 다시 분석했지만 확정할 수 없습니다.",
+        "err"
+      );
+      return;
+    }
 
-    const unregisteredCount =
-      resultList.filter(
-        (item) =>
-          !item.masterItem
-      ).length;
-
-    // 실제 품목이 최소 1개 확정된 경우에만 OCR 성공으로 집계
+    // 실제 품목을 하나 이상 찾은 경우에만 성공 처리
     addOcrUsage(true);
 
+    setInvoiceData({
+      key_code: `OCR-${new Date().toISOString().slice(0, 10)}`,
+      supplier: "Google Vision OCR · 두줄코드 재구성",
+      list: resultList,
+      ocr: true,
+    });
+
+    const registeredCount = resultList.filter((item) => item.masterItem).length;
+    const unregisteredCount = resultList.length - registeredCount;
+
     notify(
-      `OCR 완료: 등록 자재 ${registeredCount}개` +
-        (
-          unregisteredCount
-            ? ` / 신규등록 후보 ${unregisteredCount}개`
-            : ""
-        ),
+      `OCR 완료: ${resultList.length}개 품목 / 등록 자재 ${registeredCount}개` +
+        (unregisteredCount ? ` / 신규등록 후보 ${unregisteredCount}개` : ""),
       "ok"
     );
-
   } catch (err) {
-
-    console.error(
-      "Google Vision OCR 오류:",
-      err
-    );
-
+    console.error("Google Vision OCR 오류:", err);
     addOcrUsage(false);
-
-    notify(
-      `OCR 오류: ${
-        err?.message || err
-      }`,
-      "err"
-    );
-
+    notify(`OCR 오류: ${err?.message || err}`, "err");
   } finally {
-
     setOcrLoading(false);
-
   }
 };
 

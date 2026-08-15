@@ -6149,20 +6149,49 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   };
 
   // 공통 Vision API 호출 함수
-  const callVisionApi = async (imageData) => {
-    const response = await fetch("/api/vision", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: imageData }),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result?.error || "Google Vision OCR 요청 실패");
-    }
-    return String(result?.text || "");
-  };
+const response = await fetch("/api/vision", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ image: imageData }),
+});
 
-  try {
+const result = await response.json();
+
+if (!response.ok) {
+  throw new Error(result?.error || "Google Vision OCR 요청 실패");
+}
+
+const rawText = String(result?.text || "");
+if (!rawText.trim()) {
+  throw new Error("사진에서 텍스트를 인식하지 못했습니다.");
+}
+
+  try {// 공통 Vision API 호출 함수 (타임아웃류 에러 시 1회 재시도)
+const callVisionApi = async (imageData, retryOnTimeout = true) => {
+  const response = await fetch("/api/vision", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image: imageData }),
+  });
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result?.error || "Google Vision OCR 요청 실패");
+  }
+
+  const visionError = result?.raw?.responses?.[0]?.error;
+  const text = String(result?.text || "");
+
+  if (!text.trim() && visionError) {
+    if (retryOnTimeout && (visionError.code === 4 || visionError.code === 8 || visionError.code === 14)) {
+      await new Promise((r) => setTimeout(r, 800));
+      return callVisionApi(imageData, false);
+    }
+    throw new Error(visionError.message || "Vision API 오류");
+  }
+
+  return text;
+};
     const image = await new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
@@ -6191,7 +6220,36 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
     const imageData = canvas.toDataURL("image/jpeg", 0.92);
 
-    let rawText = await callVisionApi(imageData);
+    let rawText = "";
+try {
+  rawText = await callVisionApi(imageData);
+} catch (err) {
+  console.error("1차 크롭 OCR 실패:", err);
+}
+
+if (!rawText.trim()) {
+  const fullScale = Math.min(1, maxSide / Math.max(srcW, srcH));
+  const fullWidth = Math.max(1, Math.round(srcW * fullScale));
+  const fullHeight = Math.max(1, Math.round(srcH * fullScale));
+
+  const fullCanvas = document.createElement("canvas");
+  fullCanvas.width = fullWidth;
+  fullCanvas.height = fullHeight;
+  const fullCtx = fullCanvas.getContext("2d", { willReadFrequently: true });
+  fullCtx.drawImage(image, 0, 0, fullWidth, fullHeight);
+
+  const fullImageData = fullCanvas.toDataURL("image/jpeg", 0.92);
+
+  try {
+    rawText = await callVisionApi(fullImageData);
+  } catch (retryErr) {
+    console.error("전체 이미지 재시도 실패:", retryErr);
+  }
+}
+
+if (!rawText.trim()) {
+  throw new Error("사진에서 텍스트를 인식하지 못했습니다. 다시 촬영해 주세요.");
+}
 
     // 2차 폴백: 크롭 영역에서 텍스트를 전혀 못 찾았을 때만
     // 크롭 없이 전체 원본 이미지(축소)로 한 번 더 시도

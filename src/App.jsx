@@ -6150,14 +6150,56 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
   try {
    const imageData = await new Promise((resolve, reject) => {
+  const img = new Image();
   const reader = new FileReader();
 
   reader.onload = () => {
-    resolve(reader.result);
+    img.onload = () => {
+      try {
+        const maxSize = 1600;
+
+        let width = img.naturalWidth;
+        let height = img.naturalHeight;
+
+        const scale = Math.min(
+          1,
+          maxSize / Math.max(width, height)
+        );
+
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+
+        const canvas = document.createElement("canvas");
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+
+        // 전체 이미지를 그대로 축소
+        ctx.drawImage(img, 0, 0, width, height);
+
+        resolve(
+          canvas.toDataURL("image/jpeg", 0.85)
+        );
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    img.onerror = () => {
+      reject(
+        new Error("이미지를 처리하지 못했습니다.")
+      );
+    };
+
+    img.src = reader.result;
   };
 
   reader.onerror = () => {
-    reject(new Error("이미지 파일을 읽지 못했습니다."));
+    reject(
+      new Error("이미지 파일을 읽지 못했습니다.")
+    );
   };
 
   reader.readAsDataURL(file);

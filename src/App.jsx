@@ -6148,50 +6148,35 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     }));
   };
 
-  // 공통 Vision API 호출 함수
-const response = await fetch("/api/vision", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ image: imageData }),
-});
+  // 공통 Vision API 호출 함수 (타임아웃류 에러 시 최대 1회만 재시도)
+  const callVisionApi = async (imageData, allowRetry) => {
+    const response = await fetch("/api/vision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: imageData }),
+    });
+    const result = await response.json();
 
-const result = await response.json();
-
-if (!response.ok) {
-  throw new Error(result?.error || "Google Vision OCR 요청 실패");
-}
-
-const rawText = String(result?.text || "");
-if (!rawText.trim()) {
-  throw new Error("사진에서 텍스트를 인식하지 못했습니다.");
-}
-
-  try {// 공통 Vision API 호출 함수 (타임아웃류 에러 시 1회 재시도)
-const callVisionApi = async (imageData, retryOnTimeout = true) => {
-  const response = await fetch("/api/vision", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image: imageData }),
-  });
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result?.error || "Google Vision OCR 요청 실패");
-  }
-
-  const visionError = result?.raw?.responses?.[0]?.error;
-  const text = String(result?.text || "");
-
-  if (!text.trim() && visionError) {
-    if (retryOnTimeout && (visionError.code === 4 || visionError.code === 8 || visionError.code === 14)) {
-      await new Promise((r) => setTimeout(r, 800));
-      return callVisionApi(imageData, false);
+    if (!response.ok) {
+      throw new Error(result?.error || "Google Vision OCR 요청 실패");
     }
-    throw new Error(visionError.message || "Vision API 오류");
-  }
 
-  return text;
-};
+    const visionError = result?.raw?.responses?.[0]?.error;
+    const text = String(result?.text || "");
+
+    if (!text.trim() && visionError) {
+      const isTimeoutLike = visionError.code === 4 || visionError.code === 8 || visionError.code === 14;
+      if (allowRetry && isTimeoutLike) {
+        await new Promise((r) => setTimeout(r, 800));
+        return callVisionApi(imageData, false); // 재시도는 딱 한 번만
+      }
+      throw new Error(visionError.message || "Vision API 오류");
+    }
+
+    return text;
+  };
+
+  try {
     const image = await new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
@@ -6217,42 +6202,16 @@ const callVisionApi = async (imageData, retryOnTimeout = true) => {
     canvas.height = height;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, width, height);
-
     const imageData = canvas.toDataURL("image/jpeg", 0.92);
 
     let rawText = "";
-try {
-  rawText = await callVisionApi(imageData);
-} catch (err) {
-  console.error("1차 크롭 OCR 실패:", err);
-}
+    try {
+      rawText = await callVisionApi(imageData, true);
+    } catch (err) {
+      console.error("1차 크롭 OCR 실패:", err);
+    }
 
-if (!rawText.trim()) {
-  const fullScale = Math.min(1, maxSide / Math.max(srcW, srcH));
-  const fullWidth = Math.max(1, Math.round(srcW * fullScale));
-  const fullHeight = Math.max(1, Math.round(srcH * fullScale));
-
-  const fullCanvas = document.createElement("canvas");
-  fullCanvas.width = fullWidth;
-  fullCanvas.height = fullHeight;
-  const fullCtx = fullCanvas.getContext("2d", { willReadFrequently: true });
-  fullCtx.drawImage(image, 0, 0, fullWidth, fullHeight);
-
-  const fullImageData = fullCanvas.toDataURL("image/jpeg", 0.92);
-
-  try {
-    rawText = await callVisionApi(fullImageData);
-  } catch (retryErr) {
-    console.error("전체 이미지 재시도 실패:", retryErr);
-  }
-}
-
-if (!rawText.trim()) {
-  throw new Error("사진에서 텍스트를 인식하지 못했습니다. 다시 촬영해 주세요.");
-}
-
-    // 2차 폴백: 크롭 영역에서 텍스트를 전혀 못 찾았을 때만
-    // 크롭 없이 전체 원본 이미지(축소)로 한 번 더 시도
+    // 2차 폴백: 크롭 결과가 비었을 때만 원본 전체 이미지로 1회 시도
     if (!rawText.trim()) {
       const fullScale = Math.min(1, maxSide / Math.max(srcW, srcH));
       const fullWidth = Math.max(1, Math.round(srcW * fullScale));
@@ -6263,18 +6222,17 @@ if (!rawText.trim()) {
       fullCanvas.height = fullHeight;
       const fullCtx = fullCanvas.getContext("2d", { willReadFrequently: true });
       fullCtx.drawImage(image, 0, 0, fullWidth, fullHeight);
-
       const fullImageData = fullCanvas.toDataURL("image/jpeg", 0.92);
 
       try {
-        rawText = await callVisionApi(fullImageData);
+        rawText = await callVisionApi(fullImageData, true);
       } catch (retryErr) {
         console.error("전체 이미지 재시도 실패:", retryErr);
       }
     }
 
     if (!rawText.trim()) {
-      throw new Error("사진에서 텍스트를 인식하지 못했습니다.");
+      throw new Error("사진에서 텍스트를 인식하지 못했습니다. 다시 촬영해 주세요.");
     }
 
     setOcrText(rawText);
@@ -6288,7 +6246,6 @@ if (!rawText.trim()) {
 
     const codePrefix = materialType === "raw" ? "1-" : "2-";
 
-    // 원본 OCR 줄 보존: 한 단어만 있는 줄도 절대 버리지 않는다.
     const rawLines = rawText
       .replace(/\r/g, "")
       .split("\n")
@@ -6301,8 +6258,6 @@ if (!rawText.trim()) {
       if (key && key.startsWith(codePrefix)) masterMap.set(key, item);
     });
 
-    // 코드가 두 줄로 분리된 경우를 먼저 재구성한다.
-    // 예: 2-STOCK-ACCY- + 863 => 2-STOCK-ACCY-863
     const logicalRows = [];
     for (let i = 0; i < rawLines.length; i++) {
       const current = rawLines[i];

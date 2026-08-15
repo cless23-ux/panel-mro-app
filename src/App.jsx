@@ -6148,32 +6148,42 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     }));
   };
 
-  // 공통 Vision API 호출 함수 (타임아웃류 에러 시 최대 1회만 재시도)
+  // 공통 Vision API 호출 함수
+  // - 25초 넘게 응답이 없으면 강제 중단
+  // - 서버가 502/504(타임아웃류)로 응답하면 딱 1회만 재시도
   const callVisionApi = async (imageData, allowRetry) => {
-    const response = await fetch("/api/vision", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image: imageData }),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+    let response;
+    try {
+      response = await fetch("/api/vision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: imageData }),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      if (fetchErr.name === "AbortError") {
+        throw new Error("OCR 응답 시간이 초과되었습니다.");
+      }
+      throw fetchErr;
+    }
+    clearTimeout(timeoutId);
+
     const result = await response.json();
 
     if (!response.ok) {
+      const isRetryable = response.status === 502 || response.status === 504;
+      if (allowRetry && isRetryable) {
+        await new Promise((r) => setTimeout(r, 800));
+        return callVisionApi(imageData, false);
+      }
       throw new Error(result?.error || "Google Vision OCR 요청 실패");
     }
 
-    const visionError = result?.raw?.responses?.[0]?.error;
-    const text = String(result?.text || "");
-
-    if (!text.trim() && visionError) {
-      const isTimeoutLike = visionError.code === 4 || visionError.code === 8 || visionError.code === 14;
-      if (allowRetry && isTimeoutLike) {
-        await new Promise((r) => setTimeout(r, 800));
-        return callVisionApi(imageData, false); // 재시도는 딱 한 번만
-      }
-      throw new Error(visionError.message || "Vision API 오류");
-    }
-
-    return text;
+    return String(result?.text || "");
   };
 
   try {
@@ -6211,7 +6221,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       console.error("1차 크롭 OCR 실패:", err);
     }
 
-    // 2차 폴백: 크롭 결과가 비었을 때만 원본 전체 이미지로 1회 시도
+    // 2차 폴백: 크롭 결과가 비었을 때만 원본 전체 이미지로 시도
     if (!rawText.trim()) {
       const fullScale = Math.min(1, maxSide / Math.max(srcW, srcH));
       const fullWidth = Math.max(1, Math.round(srcW * fullScale));

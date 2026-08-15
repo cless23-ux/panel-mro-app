@@ -6413,29 +6413,64 @@ const compactVariants = (value) => {
     const findMasterCodeInText = (value) => {
   if (!value) return null;
 
-  const variants = compactVariants(value);
+  const raw = String(value)
+    .toUpperCase()
+    .replace(/[‐-‒–—―]/g, "-");
 
-  for (const variant of variants) {
-    const normalized = normalizeCode(variant);
+  const normalized = normalizeCode(raw);
 
-    // 1. 정확히 일치하는 코드만 허용
-    if (masterMap.has(normalized)) {
-      return normalized;
-    }
+  // -------------------------------------------------
+  // 1. 일반적인 정확한 코드 매칭
+  // -------------------------------------------------
+  if (masterMap.has(normalized)) {
+    return normalized;
+  }
 
-    // 2. 하이픈 / 언더바 / 공백 제거 후 정확히 일치하는 경우만 허용
-    const candidateFlat = normalized
+  // -------------------------------------------------
+  // 2. 공백 / 하이픈 / 언더바 제거 후 비교
+  // 예:
+  // 2-STOCK-ACCY-621
+  // 2 STOCK ACCY 621
+  // 2STOCKACCY621
+  // -------------------------------------------------
+  const flatText = normalized.replace(/[-_\s]/g, "");
+
+  for (const masterCode of masterMap.keys()) {
+    const masterFlat = String(masterCode)
       .replace(/[-_\s]/g, "");
 
-    if (!candidateFlat) continue;
+    if (
+      flatText === masterFlat &&
+      flatText.length >= 6
+    ) {
+      return masterCode;
+    }
+  }
+
+  // -------------------------------------------------
+  // 3. OCR에서 코드가 줄 단위로 잘린 경우
+  //
+  // 예:
+  // 2-STOCK-A
+  // CCY-621
+  //
+  // 또는:
+  // 2-TL-LUG-
+  // 001
+  // -------------------------------------------------
+  const variants = compactVariants(raw);
+
+  for (const variant of variants) {
+    const compact = normalizeCode(variant)
+      .replace(/[-_\s]/g, "");
 
     for (const masterCode of masterMap.keys()) {
       const masterFlat = String(masterCode)
         .replace(/[-_\s]/g, "");
 
       if (
-        candidateFlat === masterFlat &&
-        candidateFlat.length >= 6
+        compact === masterFlat &&
+        compact.length >= 6
       ) {
         return masterCode;
       }

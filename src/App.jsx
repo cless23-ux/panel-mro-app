@@ -6501,6 +6501,82 @@ console.log(rawText);
       }
     };
 
+    // -----------------------------------------------------
+    // 0차: 실제 거래명세서 분리 코드 전용 매칭
+    //
+    // 실제 OCR 예:
+    //   2-STOCK-A
+    //   1000EA=1B
+    //   1
+    //   T/L:2.5SQX4Y
+    //   CCY-621
+    //
+    // 코드 조각 사이에 수량/규격이 끼어 있으므로 "인접 줄 연결"이 아니라
+    // 마스터 코드의 앞부분과 정확히 이어지는 OCR 조각만 선택한다.
+    // -----------------------------------------------------
+    const findSplitMasterCodes = () => {
+      const rows = rawLines.map((row) => ({
+        ...row,
+        flat: flatExact(row.text),
+      }));
+
+      for (let start = 0; start < rows.length; start++) {
+        const startFlat = rows[start].flat;
+
+        // 코드 시작 후보는 실제 마스터 코드의 시작 부분이어야 한다.
+        if (!startFlat || startFlat.length < 3) continue;
+
+        for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
+          if (
+            masterFlat.length < 6 ||
+            !masterFlat.startsWith(startFlat)
+          ) {
+            continue;
+          }
+
+          let assembled = startFlat;
+          const usedRows = [rows[start]];
+          const maxSearch = Math.min(rows.length, start + 14);
+
+          for (let i = start + 1; i < maxSearch; i++) {
+            if (assembled === masterFlat) break;
+
+            const piece = rows[i].flat;
+            if (!piece) continue;
+
+            const remaining = masterFlat.slice(assembled.length);
+
+            // 다음 OCR 줄이 남은 코드의 정확한 앞부분일 때만 채택.
+            // 수량/규격/프로젝트 번호 등은 자동으로 건너뛴다.
+            if (
+              remaining.startsWith(piece) &&
+              piece.length >= 1
+            ) {
+              assembled += piece;
+              usedRows.push(rows[i]);
+
+              if (assembled === masterFlat) {
+                pushDetected(masterCode, {
+                  start: rows[start].index,
+                  end: rows[i].index,
+                  lines: usedRows.map((row) => row.text),
+                  y: rows[start].index,
+                  x: 0,
+                  left: 0,
+                  right: 0,
+                  lineIndex: rows[start].index,
+                  source: "split-master-prefix",
+                });
+                break;
+              }
+            }
+          }
+        }
+      }
+    };
+
+    findSplitMasterCodes();
+
     // 1차: Google Vision 원본 단어 순서
     // 같은 줄에서 잘린 코드에 가장 강함
     if (hasLayout && visionWords.length) {

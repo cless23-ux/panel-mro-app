@@ -6680,20 +6680,40 @@ console.log(rawText);
     const resultList = [];
 
     detectedRows.forEach((row, rowIndex) => {
-      const masterItem = masterMap.get(row.code) || null;
-      const qty = findQtyForItem(row, rowIndex);
+  const masterItem = masterMap.get(row.code) || null;
 
-      resultList.push({
-        code: masterItem ? masterItem.code : row.code,
-        masterItem,
-        docQty: qty,
-        inputQty: qty,
-        checked: true,
-        ocrScore: masterItem ? 0 : null,
-        unregistered: !masterItem,
-        ocrRowText: (row.lines || []).join(" | "),
-      });
-    });
+  // =====================================================
+  // OCR이 만들어낸 가짜 코드 방지
+  //
+  // 현재 자재마스터에 실제로 존재하는 코드만
+  // 최종 입고 목록에 등록한다.
+  // =====================================================
+  if (!masterItem) {
+    console.log(
+      "OCR 제외 - 자재마스터에 없는 코드:",
+      row.code
+    );
+    return;
+  }
+
+  const qty = findQtyForItem(
+    row,
+    rowIndex
+  );
+
+  resultList.push({
+    code: masterItem.code,
+    masterItem,
+    docQty: qty,
+    inputQty: qty,
+    checked: true,
+    ocrScore: 0,
+    unregistered: false,
+    ocrRowText: (
+      row.lines || []
+    ).join(" | "),
+  });
+});
 
     console.log("=== OCR LAYOUT WORDS ===", visionWords);
     console.log("=== OCR DETECTED ITEMS ===", resultList);

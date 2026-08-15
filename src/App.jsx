@@ -6237,6 +6237,16 @@ console.log(rawText);
     // 3. 다른 품목 코드 안의 숫자(예: ACCY-621)를 수량으로 절대 사용하지 않는다.
     // 4. 수량을 확신할 수 없으면 기본값 1로 두고 사용자가 확인한다.
     // =====================================================
+    // =====================================================
+    // OCR 자재코드 탐지
+    //
+    // 원칙:
+    // - "마스터 코드 후보를 OCR에 억지로 맞추지 않는다"
+    // - 대신 OCR에서 실제로 연속/분리되어 읽힌 문자열을 여러 방식으로
+    //   재조합한 뒤, 마스터 코드와 충분한 길이의 일치/포함 관계만 인정한다.
+    // - 이전 버전에서 실제 품목 탐지에 성공했던 넓은 탐지 범위를 유지하되
+    //   최종 등록 대상은 반드시 현재 자재마스터 코드로 제한한다.
+    // =====================================================
     const normalizeCode = (value) =>
       String(value || "")
         .toUpperCase()
@@ -6244,7 +6254,9 @@ console.log(rawText);
         .replace(/\s+/g, "")
         .replace(/[^A-Z0-9_-]/g, "");
 
-    const flatCode = (value) => normalizeCode(value).replace(/[-_]/g, "");
+    const flatCode = (value) =>
+      normalizeCode(value).replace(/[-_]/g, "");
+
     const codePrefix = materialType === "raw" ? "1-" : "2-";
 
     const masterMap = new Map();
@@ -6253,6 +6265,7 @@ console.log(rawText);
     materialItems.forEach((item) => {
       const code = normalizeCode(item?.code);
       if (!code || !code.startsWith(codePrefix)) return;
+
       masterMap.set(code, item);
       masterFlatMap.set(flatCode(code), code);
     });
@@ -6260,18 +6273,24 @@ console.log(rawText);
     const rawLines = rawText
       .replace(/\r/g, "")
       .split("\n")
-      .map((text, index) => ({ text: String(text || "").trim(), index }))
+      .map((text, index) => ({
+        text: String(text || "").trim(),
+        index,
+      }))
       .filter((row) => row.text);
 
     const getVertices = (box) => {
       const vertices = box?.vertices || [];
       if (!vertices.length) return null;
+
       const xs = vertices.map((v) => Number(v?.x || 0));
       const ys = vertices.map((v) => Number(v?.y || 0));
+
       const left = Math.min(...xs);
       const right = Math.max(...xs);
       const top = Math.min(...ys);
       const bottom = Math.max(...ys);
+
       return {
         left,
         right,
@@ -6284,17 +6303,28 @@ console.log(rawText);
       };
     };
 
-    // Google Vision의 실제 단어 + 좌표
+    // Google Vision 원본 단어 + 좌표
     const visionWords = [];
-    const pages = result?.raw?.responses?.[0]?.fullTextAnnotation?.pages || [];
+    const pages =
+      result?.raw?.responses?.[0]?.fullTextAnnotation?.pages || [];
 
     pages.forEach((page) => {
       (page.blocks || []).forEach((block) => {
         (block.paragraphs || []).forEach((paragraph) => {
           (paragraph.words || []).forEach((word, wordIndex) => {
-            const text = (word.symbols || []).map((symbol) => symbol.text || "").join("");
+            const text = (word.symbols || [])
+              .map((symbol) => symbol.text || "")
+              .join("");
+
             const box = getVertices(word.boundingBox);
-            if (text && box) visionWords.push({ text, ...box, wordIndex });
+
+            if (text && box) {
+              visionWords.push({
+                text,
+                ...box,
+                wordIndex,
+              });
+            }
           });
         });
       });
@@ -6303,232 +6333,521 @@ console.log(rawText);
     const hasLayout = visionWords.length > 0;
     const layoutLines = [];
 
+    // 실제 표의 같은 Y축 단어를 하나의 행으로 묶는다.
     if (hasLayout) {
       [...visionWords]
         .sort((a, b) => a.y - b.y || a.x - b.x)
         .forEach((word) => {
-          const tolerance = Math.max(10, word.height * 0.75);
-          let line = layoutLines.find(
-            (candidate) => Math.abs(candidate.y - word.y) <= Math.max(tolerance, candidate.avgHeight * 0.75)
+          const tolerance = Math.max(12, word.height * 0.9);
+
+          let target = layoutLines.find(
+            (line) =>
+              Math.abs(line.y - word.y) <=
+              Math.max(tolerance, line.avgHeight * 0.9)
           );
-          if (!line) {
-            line = { words: [], y: word.y, avgHeight: word.height };
-            layoutLines.push(line);
+
+          if (!target) {
+            target = {
+              words: [],
+              y: word.y,
+              avgHeight: word.height,
+            };
+            layoutLines.push(target);
           }
-          line.words.push(word);
-          line.y = line.words.reduce((sum, item) => sum + item.y, 0) / line.words.length;
-          line.avgHeight = line.words.reduce((sum, item) => sum + item.height, 0) / line.words.length;
+
+          target.words.push(word);
+
+          target.y =
+            target.words.reduce(
+              (sum, item) => sum + item.y,
+              0
+            ) / target.words.length;
+
+          target.avgHeight =
+            target.words.reduce(
+              (sum, item) => sum + item.height,
+              0
+            ) / target.words.length;
         });
 
       layoutLines.sort((a, b) => a.y - b.y);
+
       layoutLines.forEach((line, index) => {
         line.index = index;
         line.words.sort((a, b) => a.x - b.x);
-        line.text = line.words.map((word) => word.text).join(" ");
-        line.left = Math.min(...line.words.map((word) => word.left));
-        line.right = Math.max(...line.words.map((word) => word.right));
+        line.text = line.words
+          .map((word) => word.text)
+          .join(" ");
+        line.left = Math.min(
+          ...line.words.map((word) => word.left)
+        );
+        line.right = Math.max(
+          ...line.words.map((word) => word.right)
+        );
       });
     }
 
+    const compactVariants = (value) => {
+      const text = String(value || "")
+        .toUpperCase()
+        .replace(/[‐-‒–—―]/g, "-")
+        .trim();
+
+      const normalized = normalizeCode(text);
+
+      return [
+        text,
+        text.replace(/\s+/g, ""),
+        text.replace(/\s*[-_]\s*/g, "-"),
+        normalized,
+        normalized.replace(/_/g, "-"),
+        normalized.replace(/-/g, ""),
+        normalized.replace(/[-_]/g, ""),
+      ].filter(Boolean);
+    };
+
+    // 자주 발생하는 OCR 문자 혼동 보조
     const ocrSafeFlat = (value) =>
-      flatCode(value).replace(/[OQ]/g, "0").replace(/[IL]/g, "1");
+      flatCode(value)
+        .replace(/[OQ]/g, "0")
+        .replace(/[IL]/g, "1");
 
-    // 완전 일치 우선. 짧은 조각이 마스터 코드 일부에 포함되는 방식은 금지.
+    // 가장 긴 마스터 코드 기준으로 결정.
+    // 짧은 OCR 조각 하나 때문에 먼저 다른 품목으로 확정하지 않는다.
     const findMasterCodeInText = (value) => {
-      const normalized = normalizeCode(value);
-      if (!normalized) return null;
-      if (masterMap.has(normalized)) return normalized;
+      if (!value) return null;
 
-      const flat = flatCode(normalized);
-      if (flat.length >= 6 && masterFlatMap.has(flat)) {
-        return masterFlatMap.get(flat);
-      }
+      let best = null;
 
-      const safe = ocrSafeFlat(normalized);
-      if (safe.length >= 6) {
+      for (const variant of compactVariants(value)) {
+        const normalized = normalizeCode(variant);
+
+        if (masterMap.has(normalized)) {
+          return normalized;
+        }
+
+        const candidateFlat = flatCode(normalized);
+
+        if (!candidateFlat || candidateFlat.length < 3) {
+          continue;
+        }
+
+        if (masterFlatMap.has(candidateFlat)) {
+          return masterFlatMap.get(candidateFlat);
+        }
+
+        const safeCandidate = ocrSafeFlat(candidateFlat);
+
         for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
-          if (ocrSafeFlat(masterFlat) === safe) return masterCode;
+          if (masterFlat.length < 6) continue;
+
+          const safeMaster = ocrSafeFlat(masterFlat);
+
+          // OCR 조합 문자열 안에 마스터 전체 코드가 있는 경우
+          // 또는 코드가 잘려 있지만 충분히 긴 부분이 일치하는 경우
+          const exactish =
+            candidateFlat.includes(masterFlat) ||
+            masterFlat.includes(candidateFlat) ||
+            safeCandidate.includes(safeMaster) ||
+            safeMaster.includes(safeCandidate);
+
+          if (!exactish) continue;
+
+          const minLength =
+            Math.min(candidateFlat.length, masterFlat.length);
+
+          // 너무 짧은 조각(예: ACCY, 621)만으로는 인정하지 않음.
+          if (minLength < 6) continue;
+
+          // 후보가 마스터의 상당 부분을 포함해야 함.
+          if (
+            candidateFlat.length < masterFlat.length * 0.45 &&
+            masterFlat.length > 10
+          ) {
+            continue;
+          }
+
+          if (
+            !best ||
+            masterFlat.length > best.masterFlat.length
+          ) {
+            best = {
+              masterCode,
+              masterFlat,
+            };
+          }
         }
       }
-      return null;
+
+      return best?.masterCode || null;
     };
 
     const detectedRows = [];
     const detectedCodes = new Set();
 
     const pushDetected = (code, payload = {}) => {
-      if (!code || detectedCodes.has(code)) return;
+      if (
+        !code ||
+        detectedCodes.has(code) ||
+        !masterMap.has(code)
+      ) {
+        return;
+      }
+
       detectedCodes.add(code);
+
       detectedRows.push({
         code,
-        y: Number.isFinite(payload.y) ? payload.y : 0,
-        x: Number.isFinite(payload.x) ? payload.x : 0,
-        left: Number.isFinite(payload.left) ? payload.left : payload.x ?? 0,
-        right: Number.isFinite(payload.right) ? payload.right : payload.x ?? 0,
+        start:
+          payload.start ??
+          detectedRows.length,
+        end:
+          payload.end ??
+          payload.start ??
+          detectedRows.length,
+        lines: payload.lines || [],
+        y: payload.y ?? 0,
+        x: payload.x ?? 0,
+        left: payload.left ?? payload.x ?? 0,
+        right: payload.right ?? payload.x ?? 0,
         top: payload.top ?? 0,
         bottom: payload.bottom ?? 0,
-        lineIndex: Number.isInteger(payload.lineIndex) ? payload.lineIndex : -1,
-        lines: payload.lines || [],
+        lineIndex:
+          Number.isInteger(payload.lineIndex)
+            ? payload.lineIndex
+            : -1,
         source: payload.source || "ocr",
       });
     };
 
+    const detectCandidate = (text, payload = {}) => {
+      const code = findMasterCodeInText(text);
+
+      if (code) {
+        pushDetected(code, payload);
+      }
+
+      return code;
+    };
+
     // -----------------------------------------------------
-    // 1차: 같은 OCR 행의 연속 단어 조합
-    // 코드가 "2-STOCK" "-ACCY-381"처럼 분리돼도 복원한다.
+    // 1차: 각 OCR 행 전체 + 인접 행 연결
     // -----------------------------------------------------
     if (hasLayout) {
-      layoutLines.forEach((line) => {
-        const words = line.words;
-        for (let startIndex = 0; startIndex < words.length; startIndex++) {
-          let joined = "";
-          for (let endIndex = startIndex; endIndex < Math.min(words.length, startIndex + 10); endIndex++) {
-            joined += words[endIndex].text;
-            const code = findMasterCodeInText(joined);
-            if (!code) continue;
-
-            const first = words[startIndex];
-            const last = words[endIndex];
-            pushDetected(code, {
-              y: line.y,
-              x: first.left,
-              left: first.left,
-              right: last.right,
-              top: Math.min(...words.slice(startIndex, endIndex + 1).map((word) => word.top)),
-              bottom: Math.max(...words.slice(startIndex, endIndex + 1).map((word) => word.bottom)),
-              lineIndex: line.index,
-              lines: [line.text],
-              source: "same-line",
-            });
-          }
-        }
-      });
-
-      // ---------------------------------------------------
-      // 2차: 세로로 분리된 코드 조합
-      // 서로 가까운 X열에서 아래 방향 2~4줄만 연결한다.
-      // ---------------------------------------------------
       for (let i = 0; i < layoutLines.length; i++) {
-        let joined = "";
-        let pieces = [];
-        let left = Infinity;
-        let right = -Infinity;
-        let top = Infinity;
-        let bottom = -Infinity;
-        const firstLine = layoutLines[i];
+        const current = layoutLines[i];
 
-        for (let j = i; j < Math.min(layoutLines.length, i + 4); j++) {
+        detectCandidate(current.text, {
+          start: current.index,
+          end: current.index,
+          lines: [current.text],
+          y: current.y,
+          x: current.left,
+          left: current.left,
+          right: current.right,
+          top: Math.min(
+            ...current.words.map((word) => word.top)
+          ),
+          bottom: Math.max(
+            ...current.words.map((word) => word.bottom)
+          ),
+          lineIndex: current.index,
+          source: "line",
+        });
+
+        let joined = "";
+
+        for (
+          let j = i;
+          j < Math.min(i + 4, layoutLines.length);
+          j++
+        ) {
           const line = layoutLines[j];
+
           if (j > i) {
-            const gap = line.y - layoutLines[j - 1].y;
-            if (gap > Math.max(140, firstLine.avgHeight * 8)) break;
+            const gap =
+              line.y - layoutLines[j - 1].y;
+
+            if (
+              gap >
+              Math.max(
+                120,
+                current.avgHeight * 8
+              )
+            ) {
+              break;
+            }
           }
 
-          // 행 전체가 너무 넓은 경우 서로 다른 표 열이 섞일 수 있으므로
-          // 이전 행의 중심과 완전히 동떨어진 행은 제외.
-          const center = (line.left + line.right) / 2;
-          const firstCenter = (firstLine.left + firstLine.right) / 2;
-          if (j > i && Math.abs(center - firstCenter) > 700) break;
+          joined +=
+            (joined ? " " : "") +
+            line.text;
 
-          joined += line.text;
-          pieces.push(line.text);
-          left = Math.min(left, line.left);
-          right = Math.max(right, line.right);
-          top = Math.min(top, ...line.words.map((word) => word.top));
-          bottom = Math.max(bottom, ...line.words.map((word) => word.bottom));
-
-          const code = findMasterCodeInText(joined);
-          if (code) {
-            pushDetected(code, {
-              y: firstLine.y,
-              x: left,
-              left,
-              right,
-              top,
-              bottom,
-              lineIndex: firstLine.index,
-              lines: pieces,
-              source: "vertical",
-            });
-          }
+          detectCandidate(joined, {
+            start: current.index,
+            end: line.index,
+            lines: layoutLines
+              .slice(i, j + 1)
+              .map((item) => item.text),
+            y: current.y,
+            x: current.left,
+            left: current.left,
+            right: Math.max(
+              current.right,
+              line.right
+            ),
+            lineIndex: current.index,
+            source: "joined-lines",
+          });
         }
       }
-    }
 
-    // -----------------------------------------------------
-    // 3차: raw OCR 줄 백업. 코드만 찾고 수량은 여기서 추정하지 않는다.
-    // -----------------------------------------------------
-    if (!detectedRows.length) {
-      for (let i = 0; i < rawLines.length; i++) {
+      // ---------------------------------------------------
+      // 2차: OCR 단어를 최대 10개까지 실제 순서대로 조합
+      // 가장 중요한 안전망.
+      // 예: 2 / -STOCK / -ACCY / -381
+      // ---------------------------------------------------
+      const orderedWords = [...visionWords]
+        .sort((a, b) => a.y - b.y || a.x - b.x);
+
+      for (let i = 0; i < orderedWords.length; i++) {
         let joined = "";
-        for (let j = i; j < Math.min(rawLines.length, i + 4); j++) {
-          joined += rawLines[j].text;
-          const code = findMasterCodeInText(joined);
-          if (code) {
-            pushDetected(code, {
-              y: i,
-              x: 0,
-              left: 0,
-              right: 0,
-              lineIndex: i,
-              lines: rawLines.slice(i, j + 1).map((row) => row.text),
-              source: "raw-lines",
-            });
+
+        for (
+          let j = i;
+          j < Math.min(
+            orderedWords.length,
+            i + 10
+          );
+          j++
+        ) {
+          const word = orderedWords[j];
+
+          if (j > i) {
+            const prev = orderedWords[j - 1];
+
+            const verticalGap =
+              Math.abs(word.y - prev.y);
+
+            const horizontalGap =
+              Math.abs(word.left - prev.right);
+
+            // 완전히 다른 문단/영역으로 넘어가면 중단
+            if (
+              verticalGap >
+                Math.max(
+                  700,
+                  prev.height * 30
+                ) &&
+              horizontalGap >
+                Math.max(
+                  1200,
+                  prev.width * 20
+                )
+            ) {
+              break;
+            }
           }
+
+          joined += word.text;
+
+          detectCandidate(joined, {
+            start: i,
+            end: j,
+            lines: orderedWords
+              .slice(i, j + 1)
+              .map((item) => item.text),
+            y: orderedWords[i].y,
+            x: orderedWords[i].left,
+            left: Math.min(
+              ...orderedWords
+                .slice(i, j + 1)
+                .map((item) => item.left)
+            ),
+            right: Math.max(
+              ...orderedWords
+                .slice(i, j + 1)
+                .map((item) => item.right)
+            ),
+            top: Math.min(
+              ...orderedWords
+                .slice(i, j + 1)
+                .map((item) => item.top)
+            ),
+            bottom: Math.max(
+              ...orderedWords
+                .slice(i, j + 1)
+                .map((item) => item.bottom)
+            ),
+            source: "word-window",
+          });
         }
       }
     }
 
-    detectedRows.sort((a, b) => a.y - b.y || a.x - b.x);
+    // -----------------------------------------------------
+    // 3차: raw OCR 줄 백업
+    // -----------------------------------------------------
+    for (let i = 0; i < rawLines.length; i++) {
+      let joined = "";
+
+      for (
+        let j = i;
+        j < Math.min(rawLines.length, i + 5);
+        j++
+      ) {
+        joined +=
+          (joined ? " " : "") +
+          rawLines[j].text;
+
+        detectCandidate(joined, {
+          start: i,
+          end: j,
+          lines: rawLines
+            .slice(i, j + 1)
+            .map((row) => row.text),
+          y: i,
+          x: 0,
+          left: 0,
+          right: 0,
+          lineIndex: -1,
+          source: "raw",
+        });
+      }
+    }
+
+    // -----------------------------------------------------
+    // 4차: 전체 OCR 텍스트 최종 안전망
+    // -----------------------------------------------------
+    const wholeFlat = flatCode(rawText);
+
+    for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
+      if (
+        masterFlat.length >= 6 &&
+        wholeFlat.includes(masterFlat)
+      ) {
+        const pos = wholeFlat.indexOf(masterFlat);
+
+        pushDetected(masterCode, {
+          start: pos,
+          end: pos,
+          lines: [masterCode],
+          y: pos,
+          x: 0,
+          source: "whole-text",
+        });
+      }
+    }
+
+    detectedRows.sort(
+      (a, b) =>
+        a.y - b.y ||
+        a.x - b.x ||
+        a.start - b.start
+    );
 
     // -----------------------------------------------------
     // 수량 추출
     //
-    // 중요: 코드에 포함된 숫자는 수량 후보가 아니다.
-    // 1순위 = 코드와 같은 행에서 코드 오른쪽의 가장 가까운 독립 숫자
-    // 2순위 = 같은 표 행에 있는 "숫자 + EA/PCS/BAG" 형식
-    // 3순위 = 코드 OCR 텍스트 주변의 명시적인 수량 표기
-    // 실패 시 1
+    // "품목 코드 안의 숫자"는 수량으로 사용하지 않는다.
+    // 같은 행의 코드 오른쪽 숫자 → 명시적 단위 → 1 순서.
     // -----------------------------------------------------
     const parseNumber = (value) => {
-      const text = String(value || "").replace(/,/g, "").trim();
-      if (!/^\d+(?:\.\d+)?$/.test(text)) return null;
+      const text = String(value || "")
+        .replace(/,/g, "")
+        .trim();
+
+      if (!/^\d+(?:\.\d+)?$/.test(text)) {
+        return null;
+      }
+
       const number = Number(text);
-      return Number.isFinite(number) && number > 0 && number <= 100000 ? number : null;
+
+      return Number.isFinite(number) &&
+        number > 0 &&
+        number <= 100000
+        ? number
+        : null;
     };
 
     const findQtyForItem = (current) => {
-      if (hasLayout && current.lineIndex >= 0) {
-        const toleranceY = Math.max(18, (layoutLines[current.lineIndex]?.avgHeight || 20) * 1.5);
-        const nearbyLines = layoutLines
-          .filter((line) => Math.abs(line.y - current.y) <= toleranceY)
-          .sort((a, b) => Math.abs(a.y - current.y) - Math.abs(b.y - current.y));
+      if (
+        hasLayout &&
+        Number.isFinite(current.y)
+      ) {
+        const sameRowTolerance =
+          Math.max(
+            18,
+            layoutLines
+              .reduce(
+                (best, line) =>
+                  Math.abs(line.y - current.y) <
+                  Math.abs((best?.y ?? Infinity) - current.y)
+                    ? line
+                    : best,
+                null
+              )
+              ?.avgHeight || 20
+          ) * 1.4;
 
-        // 1순위: 코드 오른쪽에서 가장 가까운 독립 숫자
-        for (const line of nearbyLines) {
-          const candidates = line.words
-            .filter((word) => word.left >= current.right + 8)
-            .map((word) => ({ word, value: parseNumber(word.text) }))
-            .filter((item) => item.value !== null)
-            .sort((a, b) => a.word.left - b.word.left);
-          if (candidates.length) return candidates[0].value;
+        const candidateLines = layoutLines
+          .filter(
+            (line) =>
+              Math.abs(line.y - current.y) <=
+              sameRowTolerance
+          )
+          .sort(
+            (a, b) =>
+              Math.abs(a.y - current.y) -
+              Math.abs(b.y - current.y)
+          );
+
+        // 1순위: 코드 오른쪽의 독립 숫자
+        for (const line of candidateLines) {
+          const numbers = line.words
+            .map((word) => ({
+              word,
+              value: parseNumber(word.text),
+            }))
+            .filter(
+              (item) =>
+                item.value !== null &&
+                item.word.left >=
+                  (current.right || current.x) + 8
+            )
+            .sort(
+              (a, b) =>
+                a.word.left - b.word.left
+            );
+
+          if (numbers.length) {
+            return numbers[0].value;
+          }
         }
 
-        // 2순위: 같은 행 텍스트의 명시적 수량 단위
-        for (const line of nearbyLines) {
-          const unitMatch = String(line.text).match(/(?:^|\s)(\d{1,6}(?:\.\d+)?)\s*(?:EA|PCS?|SET|BAG|ROLL|M|KG|BOX)(?:\s|$)/i);
-          if (unitMatch) {
-            const value = parseNumber(unitMatch[1]);
+        // 2순위: 같은 행의 "숫자 + 단위"
+        for (const line of candidateLines) {
+          const match = String(line.text).match(
+            /(?:^|\s)(\d{1,6}(?:\.\d+)?)\s*(?:EA|PCS?|SET|BAG|ROLL|BOX|M|KG)(?:\s|$)/i
+          );
+
+          if (match) {
+            const value = parseNumber(match[1]);
             if (value !== null) return value;
           }
         }
       }
 
-      // 좌표 없는 OCR 백업: 명시적 단위만 허용한다.
-      const sourceText = (current.lines || []).join(" ");
-      const explicitMatch = sourceText.match(/(?:^|\s)(\d{1,6}(?:\.\d+)?)\s*(?:EA|PCS?|SET|BAG|ROLL|M|KG|BOX)(?:\s|$)/i);
-      if (explicitMatch) {
-        const value = parseNumber(explicitMatch[1]);
+      // 좌표를 신뢰할 수 없는 경우 명시적 단위만 허용
+      const text =
+        (current.lines || []).join(" ");
+
+      const explicit = text.match(
+        /(?:^|\s)(\d{1,6}(?:\.\d+)?)\s*(?:EA|PCS?|SET|BAG|ROLL|BOX|M|KG)(?:\s|$)/i
+      );
+
+      if (explicit) {
+        const value = parseNumber(explicit[1]);
         if (value !== null) return value;
       }
 
@@ -6536,25 +6855,31 @@ console.log(rawText);
     };
 
     // =====================================================
-    // 최종 OCR 품목 생성
+    // 최종 OCR 품목
+    // - 마스터에 실제 존재하는 품목만 생성
     // =====================================================
-    const resultList = detectedRows
-      .map((row) => {
-        const masterItem = masterMap.get(row.code) || null;
-        if (!masterItem) return null;
-        const qty = findQtyForItem(row);
-        return {
-          code: masterItem.code,
-          masterItem,
-          docQty: qty,
-          inputQty: qty,
-          checked: true,
-          ocrScore: 100,
-          unregistered: false,
-          ocrRowText: (row.lines || []).join(" | "),
-        };
-      })
-      .filter(Boolean);
+    const resultList = [];
+
+    detectedRows.forEach((row) => {
+      const masterItem =
+        masterMap.get(row.code);
+
+      if (!masterItem) return;
+
+      const qty = findQtyForItem(row);
+
+      resultList.push({
+        code: masterItem.code,
+        masterItem,
+        docQty: qty,
+        inputQty: qty,
+        checked: true,
+        ocrScore: 100,
+        unregistered: false,
+        ocrRowText:
+          (row.lines || []).join(" | "),
+      });
+    });
 
     console.log("=== OCR LAYOUT WORDS ===", visionWords);
     console.log("=== OCR DETECTED ROWS ===", detectedRows);

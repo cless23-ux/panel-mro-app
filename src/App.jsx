@@ -6218,6 +6218,10 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     }
 
     const rawText = String(result?.text || "");
+    console.log("=== GOOGLE VISION OCR RESULT ===");
+console.log(result);
+console.log("=== OCR TEXT ===");
+console.log(rawText);
     if (!rawText.trim()) {
       throw new Error("사진에서 텍스트를 인식하지 못했습니다.");
     }

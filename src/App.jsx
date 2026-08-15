@@ -6149,33 +6149,19 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   };
 
   try {
-    const image = await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = previewUrl;
-    });
+   const imageData = await new Promise((resolve, reject) => {
+  const reader = new FileReader();
 
-    const srcW = image.naturalWidth || image.width;
-    const srcH = image.naturalHeight || image.height;
+  reader.onload = () => {
+    resolve(reader.result);
+  };
 
-    // 거래명세서의 자재표 영역을 넉넉하게 사용
-    const cropX = Math.round(srcW * 0.03);
-    const cropY = Math.round(srcH * 0.30);
-    const cropW = Math.round(srcW * 0.94);
-    const cropH = Math.round(srcH * 0.67);
-    const maxSide = 1800;
-    const scale = Math.min(1, maxSide / Math.max(cropW, cropH));
-    const width = Math.max(1, Math.round(cropW * scale));
-    const height = Math.max(1, Math.round(cropH * scale));
+  reader.onerror = () => {
+    reject(new Error("이미지 파일을 읽지 못했습니다."));
+  };
 
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, width, height);
-
-    const imageData = canvas.toDataURL("image/jpeg", 0.92);
+  reader.readAsDataURL(file);
+});
 
     const response = await fetch("/api/vision", {
       method: "POST",

@@ -6410,7 +6410,6 @@ const compactVariants = (value) => {
   return [...variants].filter(Boolean);
 };
 
-};
     const findMasterCodeInText = (value) => {
   if (!value) return null;
 

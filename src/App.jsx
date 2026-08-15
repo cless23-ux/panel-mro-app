@@ -6378,6 +6378,12 @@ console.log(rawText);
     };
 
     // OCR 문자열 안에서 자재마스터 코드만 찾아낸다.
+    // 공백/하이픈 분리, 줄 분리, 일부 OCR 문자 오인식까지 보조 처리한다.
+    const ocrSafeFlat = (value) =>
+      flatCode(value)
+        .replace(/[OQ]/g, "0")
+        .replace(/[IL]/g, "1");
+
     const findMasterCodeInText = (value) => {
       if (!value) return null;
 
@@ -6389,21 +6395,38 @@ console.log(rawText);
         if (masterMap.has(normalized)) return normalized;
 
         const candidateFlat = flatCode(normalized);
-        if (!candidateFlat || candidateFlat.length < 4) continue;
+        if (!candidateFlat || candidateFlat.length < 3) continue;
 
         if (masterFlatMap.has(candidateFlat)) {
           return masterFlatMap.get(candidateFlat);
         }
 
-        // 표의 다른 텍스트와 함께 붙은 경우에는
-        // '후보 안에 전체 마스터 코드가 포함된 경우'만 허용한다.
+        // 후보 문자열 안에 마스터 전체 코드가 포함된 경우
         for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
+          if (masterFlat.length < 6) continue;
+
           if (
-            masterFlat.length >= 6 &&
-            candidateFlat.includes(masterFlat)
+            candidateFlat.includes(masterFlat) ||
+            masterFlat.includes(candidateFlat)
           ) {
             if (!best || masterFlat.length > best.masterFlat.length) {
               best = { masterCode, masterFlat };
+            }
+          }
+        }
+
+        // OCR 문자 오인식(O↔0, Q↔0, I/L↔1) 보조 비교
+        const safeCandidate = ocrSafeFlat(normalized);
+        if (safeCandidate.length >= 6) {
+          for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
+            const safeMaster = ocrSafeFlat(masterFlat);
+
+            if (
+              safeCandidate === safeMaster ||
+              safeCandidate.includes(safeMaster) ||
+              safeMaster.includes(safeCandidate)
+            ) {
+              return masterCode;
             }
           }
         }
@@ -6471,36 +6494,56 @@ console.log(rawText);
       }
 
       // ---------------------------------------------------
-      // 1-보조: 같은 X축에 세로로 나뉜 단어만 조합
-      // 예) 2-STOCK-A / CCY-621
+      // 1-보조: OCR 단어를 1~8개씩 슬라이딩 윈도우로 조합
+      //
+      // Vision이 "2" / "-STOCK" / "-A" / "CCY" / "-621"
+      // 처럼 코드 자체를 여러 조각으로 분해해도 복원한다.
+      // 특정 X축이나 prefix에서 시작한다는 조건을 두지 않는다.
       // ---------------------------------------------------
-      for (let i = 0; i < visionWords.length; i++) {
-        const base = visionWords[i];
-        if (!normalizeCode(base.text).startsWith(codePrefix)) continue;
+      const orderedWords = [...visionWords]
+        .sort((a, b) => a.y - b.y || a.x - b.x);
 
-        const columnWords = visionWords
-          .filter((word) => {
-            const xDistance = Math.abs(word.x - base.x);
-            const yDistance = word.y - base.y;
-            return yDistance >= -base.height &&
-              yDistance <= Math.max(600, base.height * 25) &&
-              xDistance <= Math.max(120, base.width * 2.5);
-          })
-          .sort((a, b) => a.y - b.y || a.x - b.x)
-          .slice(0, 5);
-
+      for (let i = 0; i < orderedWords.length; i++) {
         let joined = "";
-        columnWords.forEach((word, index) => {
-          if (index > 0) joined += " ";
+
+        for (
+          let j = i;
+          j < Math.min(i + 8, orderedWords.length);
+          j++
+        ) {
+          const word = orderedWords[j];
+
+          // 너무 멀리 떨어진 문단까지 무조건 연결하지 않음
+          if (j > i) {
+            const prev = orderedWords[j - 1];
+            const verticalGap = Math.abs(word.y - prev.y);
+            const horizontalGap = Math.abs(word.x - prev.x);
+
+            if (
+              verticalGap > Math.max(900, prev.height * 35) &&
+              horizontalGap > Math.max(1200, prev.width * 15)
+            ) {
+              break;
+            }
+          }
+
           joined += word.text;
-          detectFromCandidate(joined, {
-            start: base.wordIndex,
-            end: word.wordIndex,
-            lines: columnWords.slice(0, index + 1).map((item) => item.text),
-            y: base.y,
-            x: base.x,
-          });
-        });
+
+          const matched = findMasterCodeInText(joined);
+
+          if (matched) {
+            pushDetected(matched, {
+              start: i,
+              end: j,
+              lines: orderedWords
+                .slice(i, j + 1)
+                .map((item) => item.text),
+              y: orderedWords[i].y,
+              x: orderedWords[i].x,
+              exact: true,
+            });
+          }
+        }
       }
     }
 

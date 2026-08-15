@@ -6228,6 +6228,15 @@ console.log(rawText);
 
     setOcrText(rawText);
 
+    // =====================================================
+    // OCR 자재코드 분석 - 최종 통합본
+    //
+    // 원칙:
+    // 1) 자재마스터에 실제 존재하는 코드만 확정한다.
+    // 2) 하이픈/공백/줄바꿈으로 잘린 코드는 다시 붙여 비교한다.
+    // 3) 표 OCR에서 같은 행 또는 같은 X축의 세로 조각을 조합한다.
+    // 4) 신규 코드 후보는 자동 등록하지 않는다.
+    // =====================================================
     const normalizeCode = (value) =>
       String(value || "")
         .toUpperCase()
@@ -6235,20 +6244,10 @@ console.log(rawText);
         .replace(/\s+/g, "")
         .replace(/[^A-Z0-9_-]/g, "");
 
-    const codePrefix = materialType === "raw" ? "1-" : "2-";
+    const flatCode = (value) =>
+      normalizeCode(value).replace(/[-_]/g, "");
 
-    // =====================================================
-    // OCR 좌표 기반 다중 품목 분석
-    //
-    // 기존 방식은 OCR 결과의 줄 순서만 사용했기 때문에
-    // 표 문서에서 코드가
-    //   2-STOCK-A
-    //   CCY-621
-    // 처럼 세로로 나뉘면 다른 열의 텍스트와 섞일 수 있었다.
-    //
-    // Vision의 boundingBox 좌표를 사용해서 같은 X 위치에 있는
-    // 텍스트를 위→아래로 다시 조합한다.
-    // =====================================================
+    const codePrefix = materialType === "raw" ? "1-" : "2-";
 
     const rawLines = rawText
       .replace(/\r/g, "")
@@ -6260,21 +6259,21 @@ console.log(rawText);
       .filter((row) => row.text);
 
     const masterMap = new Map();
+    const masterFlatMap = new Map();
 
     materialItems.forEach((item) => {
-      const key = normalizeCode(item.code);
-
-      if (key && key.startsWith(codePrefix)) {
-        masterMap.set(key, item);
-      }
+      const code = normalizeCode(item?.code);
+      if (!code || !code.startsWith(codePrefix)) return;
+      masterMap.set(code, item);
+      masterFlatMap.set(flatCode(code), code);
     });
 
     const getVertices = (box) => {
       const vertices = box?.vertices || [];
+      if (!vertices.length) return null;
+
       const xs = vertices.map((v) => Number(v?.x || 0));
       const ys = vertices.map((v) => Number(v?.y || 0));
-
-      if (!xs.length || !ys.length) return null;
 
       const left = Math.min(...xs);
       const right = Math.max(...xs);
@@ -6293,11 +6292,9 @@ console.log(rawText);
       };
     };
 
-    // Vision OCR 원본에서 단어 + 좌표 추출
+    // Vision OCR 단어 + 좌표 수집
     const visionWords = [];
-
-    const pages =
-      result?.raw?.responses?.[0]?.fullTextAnnotation?.pages || [];
+    const pages = result?.raw?.responses?.[0]?.fullTextAnnotation?.pages || [];
 
     pages.forEach((page) => {
       (page.blocks || []).forEach((block) => {
@@ -6306,25 +6303,18 @@ console.log(rawText);
             const text = (word.symbols || [])
               .map((symbol) => symbol.text || "")
               .join("");
-
             const box = getVertices(word.boundingBox);
-
             if (text && box) {
-              visionWords.push({
-                text,
-                ...box,
-                wordIndex,
-              });
+              visionWords.push({ text, ...box, wordIndex });
             }
           });
         });
       });
     });
 
-    // 좌표 정보가 없는 경우 기존 줄 기반도 백업으로 유지
     const hasLayout = visionWords.length > 0;
 
-    // 같은 Y 위치의 단어를 실제 문서의 한 줄로 묶는다.
+    // 같은 Y축의 단어를 화면상의 실제 행으로 묶는다.
     const layoutLines = [];
 
     if (hasLayout) {
@@ -6333,34 +6323,25 @@ console.log(rawText);
       );
 
       sortedWords.forEach((word) => {
-        const tolerance = Math.max(10, word.height * 0.8);
-
+        const tolerance = Math.max(12, word.height * 0.9);
         let target = layoutLines.find(
           (line) =>
             Math.abs(line.y - word.y) <=
-            Math.max(tolerance, line.avgHeight * 0.8)
+            Math.max(tolerance, line.avgHeight * 0.9)
         );
 
         if (!target) {
-          target = {
-            words: [],
-            y: word.y,
-            avgHeight: word.height,
-          };
+          target = { words: [], y: word.y, avgHeight: word.height };
           layoutLines.push(target);
         }
 
         target.words.push(word);
-
         target.y =
           target.words.reduce((sum, item) => sum + item.y, 0) /
           target.words.length;
-
         target.avgHeight =
-          target.words.reduce(
-            (sum, item) => sum + item.height,
-            0
-          ) / target.words.length;
+          target.words.reduce((sum, item) => sum + item.height, 0) /
+          target.words.length;
       });
 
       layoutLines.forEach((line, index) => {
@@ -6372,122 +6353,71 @@ console.log(rawText);
       });
 
       layoutLines.sort((a, b) => a.y - b.y);
-      layoutLines.forEach((line, index) => {
-        line.index = index;
-      });
+      layoutLines.forEach((line, index) => { line.index = index; });
     }
 
-    // 코드가 잘린 형태까지 포함해 한 문자열에서 코드 후보를 검사
-    // 코드가 잘린 형태까지 포함해 한 문자열에서 코드 후보를 검사
-const compactVariants = (value) => {
-  const text = String(value || "")
-    .toUpperCase()
-    .replace(/[‐-‒–—―]/g, "-")
-    .trim();
+    // 입력 문자열에서 공백/하이픈 분리 등 가능한 형태를 모두 만든다.
+    const compactVariants = (value) => {
+      const text = String(value || "")
+        .toUpperCase()
+        .replace(/[‐-‒–—―]/g, "-")
+        .trim();
 
-  const variants = new Set();
+      const normalized = normalizeCode(text);
+      const variants = new Set([
+        text,
+        text.replace(/\s+/g, ""),
+        text.replace(/\s*[-_]\s*/g, "-"),
+        normalized,
+        normalized.replace(/_/g, "-"),
+        normalized.replace(/-/g, ""),
+        normalized.replace(/[-_]/g, ""),
+      ]);
 
-  // 원본
-  variants.add(text);
+      return [...variants].filter(Boolean);
+    };
 
-  // 공백 제거
-  variants.add(
-    text.replace(/\s+/g, "")
-  );
-
-  // 줄바꿈 포함 공백 제거
-  variants.add(
-    text.replace(/[\s\r\n]+/g, "")
-  );
-
-  // 하이픈 주변 공백 제거
-  variants.add(
-    text
-      .replace(/\s*-\s*/g, "-")
-      .replace(/\s+/g, "")
-  );
-
-  return [...variants].filter(Boolean);
-};
-
+    // OCR 문자열 안에서 자재마스터 코드만 찾아낸다.
     const findMasterCodeInText = (value) => {
-  if (!value) return null;
+      if (!value) return null;
 
-  const raw = String(value)
-    .toUpperCase()
-    .replace(/[‐-‒–—―]/g, "-");
+      const variants = compactVariants(value);
+      let best = null;
 
-  const normalized = normalizeCode(raw);
+      for (const variant of variants) {
+        const normalized = normalizeCode(variant);
+        if (masterMap.has(normalized)) return normalized;
 
-  // -------------------------------------------------
-  // 1. 일반적인 정확한 코드 매칭
-  // -------------------------------------------------
-  if (masterMap.has(normalized)) {
-    return normalized;
-  }
+        const candidateFlat = flatCode(normalized);
+        if (!candidateFlat || candidateFlat.length < 4) continue;
 
-  // -------------------------------------------------
-  // 2. 공백 / 하이픈 / 언더바 제거 후 비교
-  // 예:
-  // 2-STOCK-ACCY-621
-  // 2 STOCK ACCY 621
-  // 2STOCKACCY621
-  // -------------------------------------------------
-  const flatText = normalized.replace(/[-_\s]/g, "");
+        if (masterFlatMap.has(candidateFlat)) {
+          return masterFlatMap.get(candidateFlat);
+        }
 
-  for (const masterCode of masterMap.keys()) {
-    const masterFlat = String(masterCode)
-      .replace(/[-_\s]/g, "");
-
-    if (
-      flatText === masterFlat &&
-      flatText.length >= 6
-    ) {
-      return masterCode;
-    }
-  }
-
-  // -------------------------------------------------
-  // 3. OCR에서 코드가 줄 단위로 잘린 경우
-  //
-  // 예:
-  // 2-STOCK-A
-  // CCY-621
-  //
-  // 또는:
-  // 2-TL-LUG-
-  // 001
-  // -------------------------------------------------
-  const variants = compactVariants(raw);
-
-  for (const variant of variants) {
-    const compact = normalizeCode(variant)
-      .replace(/[-_\s]/g, "");
-
-    for (const masterCode of masterMap.keys()) {
-      const masterFlat = String(masterCode)
-        .replace(/[-_\s]/g, "");
-
-      if (
-        compact === masterFlat &&
-        compact.length >= 6
-      ) {
-        return masterCode;
+        // 표의 다른 텍스트와 함께 붙은 경우에는
+        // '후보 안에 전체 마스터 코드가 포함된 경우'만 허용한다.
+        for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
+          if (
+            masterFlat.length >= 6 &&
+            candidateFlat.includes(masterFlat)
+          ) {
+            if (!best || masterFlat.length > best.masterFlat.length) {
+              best = { masterCode, masterFlat };
+            }
+          }
+        }
       }
-    }
-  }
 
-  return null;
-};
+      return best?.masterCode || null;
+    };
 
     const detectedRows = [];
     const detectedCodes = new Set();
 
     const pushDetected = (code, payload = {}) => {
       if (!code || detectedCodes.has(code)) return;
-
       detectedCodes.add(code);
-
       detectedRows.push({
         code,
         start: payload.start ?? detectedRows.length,
@@ -6499,349 +6429,169 @@ const compactVariants = (value) => {
       });
     };
 
+    // 후보 조각 하나를 검사한다.
+    const detectFromCandidate = (text, payload) => {
+      const code = findMasterCodeInText(text);
+      if (code) pushDetected(code, { ...payload, exact: true });
+      return code;
+    };
+
     // -----------------------------------------------------
-    // 1차: 좌표 기반 분석
-    //
-    // 같은 코드 열은 X 중심 위치가 거의 같고 Y만 증가한다.
-    // 따라서 현재 줄 + 아래쪽 줄을 조합하면서 모든 마스터 코드와 비교.
+    // 1차: 같은 행 전체 텍스트 + 인접 행 조합
     // -----------------------------------------------------
     if (hasLayout) {
       for (let i = 0; i < layoutLines.length; i++) {
         const current = layoutLines[i];
-        const currentText = current.text;
 
-        const directCode = findMasterCodeInText(currentText);
+        detectFromCandidate(current.text, {
+          start: current.index,
+          end: current.index,
+          lines: [current.text],
+          y: current.y,
+          x: current.left,
+        });
 
-        if (directCode) {
-          pushDetected(directCode, {
-            start: i,
-            end: i,
-            lines: [currentText],
-            y: current.y,
-            x: current.left,
-            exact: true,
-          });
-        }
-
-        // 2~4개의 세로 인접 줄을 연결.
-        // 단, 코드가 있는 열의 X 위치가 비슷한 조각만 연결한다.
+        // 현재 행과 아래 1~3행을 순서대로 붙여 두 줄/세 줄 코드 복원.
         let joined = "";
-
         for (let j = i; j < Math.min(i + 4, layoutLines.length); j++) {
           const line = layoutLines[j];
+          const gap = j === i ? 0 : line.y - layoutLines[j - 1].y;
+          const maxGap = Math.max(120, current.avgHeight * 8);
+          if (j > i && gap > maxGap) break;
 
-          const horizontalDistance =
-            Math.abs(line.left - current.left);
-
-          const maxGap =
-            Math.max(80, current.avgHeight * 6);
-
-          const verticalGap =
-            j === i ? 0 : line.y - layoutLines[j - 1].y;
-
-          if (
-            j > i &&
-            (
-              horizontalDistance > Math.max(140, current.right - current.left) ||
-              verticalGap > maxGap
-            )
-          ) {
-            break;
-          }
-
-          joined += line.text;
-
-          const matchedCode = findMasterCodeInText(joined);
-
-          if (matchedCode) {
-            pushDetected(matchedCode, {
-              start: i,
-              end: j,
-              lines: layoutLines
-                .slice(i, j + 1)
-                .map((item) => item.text),
-              y: current.y,
-              x: current.left,
-              exact: true,
-            });
-          }
+          joined += (joined ? " " : "") + line.text;
+          detectFromCandidate(joined, {
+            start: current.index,
+            end: line.index,
+            lines: layoutLines.slice(i, j + 1).map((item) => item.text),
+            y: current.y,
+            x: current.left,
+          });
         }
+      }
+
+      // ---------------------------------------------------
+      // 1-보조: 같은 X축에 세로로 나뉜 단어만 조합
+      // 예) 2-STOCK-A / CCY-621
+      // ---------------------------------------------------
+      for (let i = 0; i < visionWords.length; i++) {
+        const base = visionWords[i];
+        if (!normalizeCode(base.text).startsWith(codePrefix)) continue;
+
+        const columnWords = visionWords
+          .filter((word) => {
+            const xDistance = Math.abs(word.x - base.x);
+            const yDistance = word.y - base.y;
+            return yDistance >= -base.height &&
+              yDistance <= Math.max(600, base.height * 25) &&
+              xDistance <= Math.max(120, base.width * 2.5);
+          })
+          .sort((a, b) => a.y - b.y || a.x - b.x)
+          .slice(0, 5);
+
+        let joined = "";
+        columnWords.forEach((word, index) => {
+          if (index > 0) joined += " ";
+          joined += word.text;
+          detectFromCandidate(joined, {
+            start: base.wordIndex,
+            end: word.wordIndex,
+            lines: columnWords.slice(0, index + 1).map((item) => item.text),
+            y: base.y,
+            x: base.x,
+          });
+        });
       }
     }
 
     // -----------------------------------------------------
-    // 2차: 좌표가 없거나 좌표 분석에서 누락된 경우
-    // 기존 줄 기반을 보조 검색으로 사용
+    // 2차: rawText 줄 기반 백업 + 2~4줄 조합
     // -----------------------------------------------------
     for (let i = 0; i < rawLines.length; i++) {
       let joined = "";
-
-      for (
-        let j = i;
-        j < Math.min(i + 4, rawLines.length);
-        j++
-      ) {
-        joined += rawLines[j].text;
-
-        const matchedCode = findMasterCodeInText(joined);
-
-        if (matchedCode) {
-          pushDetected(matchedCode, {
-            start: i,
-            end: j,
-            lines: rawLines
-              .slice(i, j + 1)
-              .map((item) => item.text),
-            y: i,
-            x: 0,
-            exact: true,
-          });
-        }
+      for (let j = i; j < Math.min(i + 4, rawLines.length); j++) {
+        joined += (joined ? " " : "") + rawLines[j].text;
+        detectFromCandidate(joined, {
+          start: i,
+          end: j,
+          lines: rawLines.slice(i, j + 1).map((item) => item.text),
+          y: i,
+          x: 0,
+        });
       }
     }
+
     // -----------------------------------------------------
-    // 2.5차: OCR 전체 텍스트 기반 마스터 코드 재확인
-    //
-    // 거래명세서 표에서는 코드가
-    //
-    // 2-STOCK-A
-    // CCY-621
-    //
-    // 처럼 줄바꿈되어 인식될 수 있다.
-    //
-    // 따라서 OCR 전체 텍스트에서 공백/줄바꿈/하이픈을 제거한 뒤
-    // 실제 자재마스터 코드와 정확하게 비교한다.
+    // 3차: OCR 전체 텍스트에서 마스터 코드 재확인
+    // 문서가 한 줄로 붙어서 반환되는 경우를 위한 최종 안전망.
     // -----------------------------------------------------
-
-    const documentCompactText = String(rawText || "")
-      .toUpperCase()
-      .replace(/[‐-‒–—―]/g, "")
-      .replace(/[\s\r\n_-]+/g, "")
-      .replace(/[^A-Z0-9]/g, "");
-
-    for (const masterCode of masterMap.keys()) {
-      const masterFlat = String(masterCode)
-        .toUpperCase()
-        .replace(/[‐-‒–—―]/g, "")
-        .replace(/[\s\r\n_-]+/g, "")
-        .replace(/[^A-Z0-9]/g, "");
-
+    const normalizedWholeText = flatCode(rawText);
+    for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
       if (
         masterFlat.length >= 6 &&
-        documentCompactText.includes(masterFlat)
+        normalizedWholeText.includes(masterFlat)
       ) {
-        // 이미 위의 좌표 분석에서 찾은 코드는 중복 등록하지 않음
-        if (!detectedCodes.has(masterCode)) {
-          // 원본 OCR에서 코드가 등장한 위치를 최대한 찾음
-          let foundIndex = rawLines.findIndex((line) => {
-            const lineFlat = String(line.text || "")
-              .toUpperCase()
-              .replace(/[‐-‒–—―]/g, "")
-              .replace(/[\s\r\n_-]+/g, "")
-              .replace(/[^A-Z0-9]/g, "");
-
-            return (
-              lineFlat.includes(masterFlat) ||
-              masterFlat.includes(lineFlat)
-            );
-          });
-
-          // 코드가 여러 줄로 나뉜 경우
-          if (foundIndex < 0) {
-            for (let i = 0; i < rawLines.length; i++) {
-              let joined = "";
-
-              for (
-                let j = i;
-                j < Math.min(i + 5, rawLines.length);
-                j++
-              ) {
-                joined += String(rawLines[j].text || "");
-
-                const joinedFlat = joined
-                  .toUpperCase()
-                  .replace(/[‐-‒–—―]/g, "")
-                  .replace(/[\s\r\n_-]+/g, "")
-                  .replace(/[^A-Z0-9]/g, "");
-
-                if (joinedFlat.includes(masterFlat)) {
-                  foundIndex = i;
-
-                  pushDetected(masterCode, {
-                    start: i,
-                    end: j,
-                    lines: rawLines
-                      .slice(i, j + 1)
-                      .map((row) => row.text),
-                    y: i,
-                    x: 0,
-                    exact: true,
-                  });
-
-                  break;
-                }
-              }
-
-              if (detectedCodes.has(masterCode)) break;
-            }
-          }
-
-          // 한 줄에서 찾은 경우
-          if (
-            foundIndex >= 0 &&
-            !detectedCodes.has(masterCode)
-          ) {
-            pushDetected(masterCode, {
-              start: foundIndex,
-              end: foundIndex,
-              lines: [rawLines[foundIndex].text],
-              y: foundIndex,
-              x: 0,
-              exact: true,
-            });
-          }
-        }
-      }
-    }
-    // 실제 문서의 위→아래 순서 유지
-    detectedRows.sort(
-      (a, b) => a.y - b.y || a.x - b.x || a.start - b.start
-    );
-    // -----------------------------------------------------
-    // 4차: OCR 전체 텍스트 기반 마스터 코드 재검사
-    //
-    // 거래명세서에서는 코드가
-    //
-    // 2-STOCK-A
-    // CCY-621
-    //
-    // 또는
-    //
-    // 2-TL-LUG-
-    // 001
-    //
-    // 처럼 OCR에서 여러 줄로 잘리는 경우가 있다.
-    //
-    // 따라서 OCR 전체를 공백 / 줄바꿈 / 하이픈 차이를 제거한
-    // 하나의 문자열로 만든 뒤 마스터 코드와 직접 비교한다.
-    // -----------------------------------------------------
-
-    const fullOcrText = [
-      ...rawLines.map((row) => row.text),
-      ...layoutLines.map((line) => line.text),
-    ].join(" ");
-
-    const fullOcrFlat = normalizeCode(fullOcrText)
-      .replace(/[-_\s]/g, "");
-
-    console.log("===== OCR 전체 코드 검사 =====");
-    console.log("OCR FLAT:", fullOcrFlat);
-    console.log(
-      "MASTER CODES:",
-      [...masterMap.keys()]
-    );
-
-    for (const masterCode of masterMap.keys()) {
-      if (detectedCodes.has(masterCode)) continue;
-
-      const masterFlat = normalizeCode(masterCode)
-        .replace(/[-_\s]/g, "");
-
-      if (
-        masterFlat.length >= 6 &&
-        fullOcrFlat.includes(masterFlat)
-      ) {
-        console.log(
-          "OCR 전체 텍스트에서 마스터 코드 발견:",
-          masterCode
-        );
-
+        const firstIndex = normalizedWholeText.indexOf(masterFlat);
         pushDetected(masterCode, {
-          start: detectedRows.length,
-          end: detectedRows.length,
-          lines: [fullOcrText],
-          y: 999999 + detectedRows.length,
+          start: firstIndex,
+          end: firstIndex,
+          lines: [masterCode],
+          y: firstIndex,
           x: 0,
           exact: true,
         });
       }
     }
 
-    // 다시 실제 문서 순서 정렬
+    // 실제 문서의 위 → 아래 순서 유지
     detectedRows.sort(
-      (a, b) =>
-        a.y - b.y ||
-        a.x - b.x ||
-        a.start - b.start
+      (a, b) => a.y - b.y || a.x - b.x || a.start - b.start
     );
+
     // -----------------------------------------------------
     // 수량 찾기
-    //
-    // 표에서는 수량이 코드의 오른쪽 같은 행에 있으므로
-    // 좌표 정보가 있으면 같은 Y 행의 숫자를 우선 사용.
-    // 없으면 기존 OCR 블록에서 보조 탐색.
     // -----------------------------------------------------
     const findQtyForItem = (current, currentIndex) => {
       if (hasLayout && Number.isFinite(current.y)) {
-        const nearestLine = layoutLines.reduce(
-          (best, line) =>
-            !best ||
-            Math.abs(line.y - current.y) <
-              Math.abs(best.y - current.y)
-              ? line
-              : best,
-          null
-        );
+        const nearest = layoutLines.reduce((best, line) => {
+          if (!best) return line;
+          return Math.abs(line.y - current.y) < Math.abs(best.y - current.y)
+            ? line
+            : best;
+        }, null);
 
-        if (nearestLine) {
-          const numericWords = nearestLine.words
-            .filter(
-              (word) =>
-                word.left > current.x + 40 &&
-                /^\d+(?:[.,]\d+)?$/.test(
-                  String(word.text).replace(/,/g, "")
-                )
+        if (nearest?.words?.length) {
+          const numericWords = nearest.words
+            .filter((word) =>
+              word.x > current.x + 20 &&
+              /^\d+(?:[.,]\d+)?$/.test(
+                String(word.text).replace(/,/g, "")
+              )
             )
-            .map((word) =>
-              Number(String(word.text).replace(/,/g, ""))
-            )
-            .filter(
-              (value) =>
-                Number.isFinite(value) &&
-                value > 0 &&
-                value <= 100000
+            .map((word) => Number(String(word.text).replace(/,/g, "")))
+            .filter((value) =>
+              Number.isFinite(value) && value > 0 && value <= 100000
             );
 
-          if (numericWords.length) {
-            // 표의 오른쪽에 단가/금액이 있어도 수량은 일반적으로
-            // 코드에 가장 가까운 숫자이므로 첫 번째 숫자를 사용
-            return numericWords[0];
-          }
+          if (numericWords.length) return numericWords[0];
         }
       }
 
-      const nextItem = detectedRows[currentIndex + 1];
-      const start = Math.max(0, current.start);
-      const end = nextItem
-        ? Math.max(start, nextItem.start - 1)
-        : Math.min(rawLines.length - 1, current.end + 8);
+      const next = detectedRows[currentIndex + 1];
+      const start = Math.max(0, Number(current.start) || 0);
+      const end = next
+        ? Math.max(start, (Number(next.start) || start) - 1)
+        : Math.min(rawLines.length - 1, start + 8);
 
-      const allText = rawLines
+      const text = rawLines
         .slice(start, end + 1)
         .map((row) => row.text)
         .join(" ");
 
-      const numbers = [
-        ...String(allText).matchAll(
-          /(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi
-        ),
-      ]
+      const numbers = [...text.matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)]
         .map((match) => Number(match[1]))
-        .filter(
-          (value) =>
-            Number.isFinite(value) &&
-            value > 0 &&
-            value <= 100000
+        .filter((value) =>
+          Number.isFinite(value) && value > 0 && value <= 100000
         );
 
       return numbers.length ? numbers[numbers.length - 1] : 1;
@@ -6853,60 +6603,21 @@ const compactVariants = (value) => {
 
     const resultList = [];
 
-// 이미 등록된 코드 중복 방지
-const addedCodes = new Set();
+    detectedRows.forEach((row, rowIndex) => {
+      const masterItem = masterMap.get(row.code) || null;
+      const qty = findQtyForItem(row, rowIndex);
 
-detectedRows.forEach((row, rowIndex) => {
-  if (!row?.code) return;
-
-  // OCR에서 실제 조합된 코드
-  const detectedCode = String(row.code)
-    .toUpperCase()
-    .replace(/\s+/g, "")
-    .replace(/[^A-Z0-9-]/g, "");
-
-  if (!detectedCode) return;
-
-  /*
-    매우 중요
-
-    OCR에서 발견한 코드와
-    자재마스터 코드를 "정확하게" 비교한다.
-
-    비슷한 코드 자동 선택 금지
-  */
-  const masterItem =
-    masterMap.get(detectedCode) || null;
-
-  // 이미 추가된 코드는 중복 추가 금지
-  if (addedCodes.has(detectedCode)) {
-    return;
-  }
-
-  addedCodes.add(detectedCode);
-
-  const qty = qtyForItem(row, rowIndex);
-
-  resultList.push({
-    code: detectedCode,
-
-    masterItem,
-
-    docQty: qty,
-
-    inputQty: qty,
-
-    checked: true,
-
-    /*
-      마스터에 없는 경우만 미등록 처리
-    */
-    ocrScore: masterItem ? 100 : null,
-
-    ocrRawText:
-      (row.lines || []).join(" | "),
-  });
-});
+      resultList.push({
+        code: masterItem ? masterItem.code : row.code,
+        masterItem,
+        docQty: qty,
+        inputQty: qty,
+        checked: true,
+        ocrScore: masterItem ? 0 : null,
+        unregistered: !masterItem,
+        ocrRowText: (row.lines || []).join(" | "),
+      });
+    });
 
     console.log("=== OCR LAYOUT WORDS ===", visionWords);
     console.log("=== OCR DETECTED ITEMS ===", resultList);

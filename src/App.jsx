@@ -6388,13 +6388,13 @@ console.log(rawText);
     }
 
     // =====================================================
-    // OCR 코드 탐지 - "추측 매칭" 완전 제거
+    // OCR 코드 탐지 - 분리 코드 전용 정확 매칭
     //
-    // 원칙:
-    // 1) 자재마스터 코드 전체가 OCR 조합 결과와 정확히 같을 때만 인정
-    // 2) 공백/줄바꿈/하이픈 차이만 제거
-    // 3) 같은 행, 인접 행, 같은 X열의 세로 조각만 조합
-    // 4) "비슷한 코드", "코드 일부 포함" 매칭 금지
+    // 중요:
+    // - 자재마스터와 "정확히 같은 코드"만 인정
+    // - 단, OCR이 한 코드를 여러 줄/여러 단어로 나눈 경우
+    //   실제 OCR 조각을 순서대로 연결해서 정확히 비교
+    // - 유사 코드 / 포함 관계 / 추측 매칭은 사용하지 않음
     // =====================================================
 
     const flatExact = (value) =>
@@ -6403,17 +6403,12 @@ console.log(rawText);
         .replace(/[‐-‒–—―]/g, "-")
         .replace(/[^A-Z0-9]/g, "");
 
-    const exactMasterFrom = (value) => {
-      const flat = flatExact(value);
-      if (!flat || flat.length < 6) return null;
-      return masterFlatMap.get(flat) || null;
-    };
-
     const detectedRows = [];
     const detectedCodes = new Set();
 
     const pushDetected = (code, payload = {}) => {
       if (!code || detectedCodes.has(code) || !masterMap.has(code)) return;
+
       detectedCodes.add(code);
       detectedRows.push({
         code,
@@ -6429,171 +6424,218 @@ console.log(rawText);
       });
     };
 
+    // 여러 OCR 조각을 붙인 결과가 마스터 코드와 정확히 일치할 때만 등록
     const tryExact = (value, payload) => {
-      const code = exactMasterFrom(value);
-      if (code) pushDetected(code, payload);
+      const flat = flatExact(value);
+      if (!flat || flat.length < 6) return null;
+
+      const code = masterFlatMap.get(flat);
+      if (!code) return null;
+
+      pushDetected(code, payload);
       return code;
     };
 
     // -----------------------------------------------------
-    // 1차: 같은 OCR 행 전체 + 행 안의 연속 단어 조합
+    // 공통: 순서가 유지된 OCR 조각의 모든 연속 조합 검사
+    // 예:
+    //   2-STOCK-A
+    //   CCY-621
+    // 또는
+    //   2 / -STOCK / -A / CCY / -621
     // -----------------------------------------------------
-    if (hasLayout) {
-      for (const line of layoutLines) {
-        tryExact(line.text, {
-          start: line.index,
-          end: line.index,
-          lines: [line.text],
-          y: line.y,
-          x: line.left,
-          left: line.left,
-          right: line.right,
-          lineIndex: line.index,
-          source: "same-line",
-        });
+    const scanExactWindows = (
+      parts,
+      getText,
+      makePayload,
+      maxWindow = 12
+    ) => {
+      for (let i = 0; i < parts.length; i++) {
+        let joined = "";
 
-        // 한 행에서 OCR 단어가 분리된 경우 모든 연속 조합 검사
-        for (let a = 0; a < line.words.length; a++) {
-          let joined = "";
-          for (let b = a; b < Math.min(a + 8, line.words.length); b++) {
-            joined += line.words[b].text;
-            tryExact(joined, {
-              start: line.index,
-              end: line.index,
-              lines: line.words.slice(a, b + 1).map(w => w.text),
-              y: line.y,
-              x: line.words[a].left,
-              left: line.words[a].left,
-              right: line.words[b].right,
-              lineIndex: line.index,
-              source: "same-line-words",
-            });
-          }
+        for (
+          let j = i;
+          j < Math.min(parts.length, i + maxWindow);
+          j++
+        ) {
+          const piece = String(getText(parts[j]) || "");
+          if (!piece) continue;
+
+          joined += piece;
+
+          const matched = tryExact(
+            joined,
+            makePayload(i, j, joined)
+          );
+
+          // 정확히 하나를 찾았어도 계속 검사해서
+          // 문서 안의 다른 코드도 누락되지 않게 한다.
         }
       }
+    };
 
-      // ---------------------------------------------------
-      // 2차: 같은 X열의 세로 연속 코드 조각 조합
-      // 예: 2-STOCK-A / CCY-621
-      //
-      // 전체 행을 붙이지 않고, 시작 단어의 X폭 근처에 있는
-      // 다음 행의 조각만 연결한다.
-      // ---------------------------------------------------
+    // 1차: Google Vision 원본 단어 순서
+    // 같은 줄에서 잘린 코드에 가장 강함
+    if (hasLayout && visionWords.length) {
+      const readingWords = [...visionWords].sort(
+        (a, b) => a.y - b.y || a.x - b.x
+      );
+
+      scanExactWindows(
+        readingWords,
+        (word) => word.text,
+        (i, j) => {
+          const first = readingWords[i];
+          const last = readingWords[j];
+
+          return {
+            start: i,
+            end: j,
+            lines: readingWords
+              .slice(i, j + 1)
+              .map((word) => word.text),
+            y: first.y,
+            x: first.left,
+            left: first.left,
+            right: last.right,
+            lineIndex: i,
+            source: "vision-word-window",
+          };
+        },
+        12
+      );
+    }
+
+    // 2차: OCR 텍스트 줄 순서
+    // 코드가 정확히 두 줄/세 줄로 나뉜 경우
+    scanExactWindows(
+      rawLines,
+      (row) => row.text,
+      (i, j) => {
+        const first = rawLines[i];
+        const last = rawLines[j];
+
+        return {
+          start: first.index,
+          end: last.index,
+          lines: rawLines
+            .slice(i, j + 1)
+            .map((row) => row.text),
+          y: first.index,
+          x: 0,
+          left: 0,
+          right: 0,
+          lineIndex: first.index,
+          source: "raw-line-window",
+        };
+      },
+      6
+    );
+
+    // 3차: 좌표 기반 세로 코드 블록
+    // 시작 조각과 같은 열 근처의 다음 조각만 연결한다.
+    // 중간에 다른 열의 품명/규격/수량이 끼는 문제를 방지한다.
+    if (hasLayout) {
       for (const startLine of layoutLines) {
         for (const startWord of startLine.words) {
-          let joined = startWord.text;
-          let prevY = startWord.y;
-          let prevX = startWord.x;
-          let prevHeight = startWord.height;
-          const pieces = [startWord.text];
+          const chain = [startWord];
+          let prev = startWord;
 
-          tryExact(joined, {
+          // 시작 조각부터 정확 일치 여부 검사
+          tryExact(startWord.text, {
             start: startLine.index,
             end: startLine.index,
-            lines: [...pieces],
+            lines: [startWord.text],
             y: startWord.y,
             x: startWord.left,
             left: startWord.left,
             right: startWord.right,
             lineIndex: startLine.index,
-            source: "column-word",
+            source: "column-chain",
           });
-
-          let lastLineIndex = startLine.index;
 
           for (
             let li = startLine.index + 1;
-            li < Math.min(startLine.index + 6, layoutLines.length);
+            li < Math.min(layoutLines.length, startLine.index + 8);
             li++
           ) {
             const nextLine = layoutLines[li];
-            const verticalGap = nextLine.y - prevY;
 
-            if (verticalGap > Math.max(140, prevHeight * 8)) break;
+            const verticalGap = nextLine.y - prev.y;
+            const maxGap = Math.max(
+              180,
+              Math.max(prev.height || 0, startWord.height || 0) * 10
+            );
 
-            // 같은 코드 열에서 가장 가까운 단어 하나 선택
+            if (verticalGap > maxGap) break;
+
+            // X 중심뿐 아니라 왼쪽 경계도 고려
+            // 두 줄 코드가 약간 들여쓰기 되어도 허용
             const candidates = nextLine.words
-              .map(word => ({
-                word,
-                distance: Math.abs(word.x - prevX),
-              }))
-              .filter(({ distance }) => distance <= Math.max(180, startWord.width * 2.5))
+              .map((word) => {
+                const centerDistance = Math.abs(word.x - prev.x);
+                const leftDistance = Math.abs(
+                  word.left - prev.left
+                );
+
+                return {
+                  word,
+                  distance: Math.min(
+                    centerDistance,
+                    leftDistance
+                  ),
+                };
+              })
+              .filter(
+                ({ distance }) =>
+                  distance <= Math.max(
+                    260,
+                    startWord.width * 4
+                  )
+              )
               .sort((a, b) => a.distance - b.distance);
 
-            if (!candidates.length) break;
+            if (!candidates.length) continue;
 
-            const nextWord = candidates[0].word;
+            const next = candidates[0].word;
 
-            joined += nextWord.text;
-            pieces.push(nextWord.text);
+            chain.push(next);
+
+            const joined = chain
+              .map((word) => word.text)
+              .join("");
 
             tryExact(joined, {
               start: startLine.index,
               end: nextLine.index,
-              lines: [...pieces],
+              lines: chain.map((word) => word.text),
               y: startWord.y,
               x: startWord.left,
-              left: Math.min(startWord.left, nextWord.left),
-              right: Math.max(startWord.right, nextWord.right),
+              left: Math.min(
+                ...chain.map((word) => word.left)
+              ),
+              right: Math.max(
+                ...chain.map((word) => word.right)
+              ),
               lineIndex: startLine.index,
-              source: "same-column",
+              source: "same-column-chain",
             });
 
-            prevY = nextWord.y;
-            prevX = nextWord.x;
-            prevHeight = nextWord.height;
-            lastLineIndex = nextLine.index;
+            prev = next;
           }
         }
       }
-
-      // ---------------------------------------------------
-      // 3차: 인접 행 전체 연결
-      // 좌표가 불완전한 문서의 보조 수단
-      // ---------------------------------------------------
-      for (let i = 0; i < layoutLines.length; i++) {
-        let joined = "";
-        for (let j = i; j < Math.min(i + 3, layoutLines.length); j++) {
-          joined += layoutLines[j].text;
-          tryExact(joined, {
-            start: layoutLines[i].index,
-            end: layoutLines[j].index,
-            lines: layoutLines.slice(i, j + 1).map(line => line.text),
-            y: layoutLines[i].y,
-            x: layoutLines[i].left,
-            left: layoutLines[i].left,
-            right: layoutLines[j].right,
-            lineIndex: layoutLines[i].index,
-            source: "adjacent-lines",
-          });
-        }
-      }
     }
 
-    // -----------------------------------------------------
-    // 4차: 좌표가 없을 때 raw OCR 인접 줄 조합
-    // -----------------------------------------------------
-    for (let i = 0; i < rawLines.length; i++) {
-      let joined = "";
-      for (let j = i; j < Math.min(i + 4, rawLines.length); j++) {
-        joined += rawLines[j].text;
-        tryExact(joined, {
-          start: i,
-          end: j,
-          lines: rawLines.slice(i, j + 1).map(row => row.text),
-          y: i,
-          x: 0,
-          lineIndex: i,
-          source: "raw-lines",
-        });
-      }
-    }
-
-    // OCR에 실제 코드가 한 줄로 존재하는 경우 마지막 정확 재검사
-    // 단, 코드 일부/유사 코드는 절대 인정하지 않는다.
+    // 4차: OCR 원문 전체에서 "실제 문자 순서가 연속된" 코드만 검사
+    // 하이픈/공백/줄바꿈만 제거한 정확 비교
     const rawFlat = flatExact(rawText);
+
     for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
-      if (rawFlat.includes(masterFlat)) {
+      if (
+        masterFlat.length >= 6 &&
+        rawFlat.includes(masterFlat)
+      ) {
         pushDetected(masterCode, {
           start: -1,
           end: -1,
@@ -6605,8 +6647,11 @@ console.log(rawText);
       }
     }
 
-    detectedRows.sort((a, b) =>
-      a.y - b.y || a.x - b.x || a.start - b.start
+    detectedRows.sort(
+      (a, b) =>
+        a.y - b.y ||
+        a.x - b.x ||
+        a.start - b.start
     );
 
     const findQtyForItem = (current) => {

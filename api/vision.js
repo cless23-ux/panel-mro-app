@@ -75,14 +75,61 @@ export default async function handler(req, res) {
       });
     }
 
-    const text =
-      result?.responses?.[0]?.fullTextAnnotation?.text || "";
+    const visionResult =
+  result?.responses?.[0] || {};
 
-    return res.status(200).json({
-      success: true,
-      text,
-      raw: result,
-    });
+/* Vision 내부 오류 확인 */
+if (visionResult?.error) {
+  console.error(
+    "Google Vision Response Error:",
+    visionResult.error
+  );
+
+  return res.status(500).json({
+    error:
+      visionResult.error.message ||
+      "Google Vision OCR 처리 중 오류가 발생했습니다.",
+    raw: result,
+  });
+}
+
+/*
+  OCR 결과 추출
+
+  1순위 : DOCUMENT_TEXT_DETECTION
+           fullTextAnnotation.text
+
+  2순위 : TEXT_DETECTION
+           textAnnotations[0].description
+*/
+const text =
+  visionResult?.fullTextAnnotation?.text ||
+  visionResult?.textAnnotations?.[0]?.description ||
+  "";
+
+console.log(
+  "=== GOOGLE VISION OCR TEXT ==="
+);
+
+console.log(text);
+
+console.log(
+  "=== GOOGLE VISION OCR RESPONSE ==="
+);
+
+console.log(
+  JSON.stringify(
+    visionResult,
+    null,
+    2
+  )
+);
+
+return res.status(200).json({
+  success: Boolean(text.trim()),
+  text,
+  raw: result,
+});
 
   } catch (error) {
     console.error("Vision API Error:", error);

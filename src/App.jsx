@@ -6238,144 +6238,531 @@ console.log(rawText);
     const codePrefix = materialType === "raw" ? "1-" : "2-";
 
     // 원본 OCR 줄 보존: 한 단어만 있는 줄도 절대 버리지 않는다.
-    const rawLines = rawText
-      .replace(/\r/g, "")
-      .split("\n")
-      .map((text, index) => ({ text: text.trim(), index }))
-      .filter((row) => row.text);
+    // =====================================================
+// OCR 원본 줄 정리
+// =====================================================
 
-    const masterMap = new Map();
-    materialItems.forEach((item) => {
-      const key = normalizeCode(item.code);
-      if (key && key.startsWith(codePrefix)) masterMap.set(key, item);
+const rawLines = rawText
+  .replace(/\r/g, "")
+  .split("\n")
+  .map((text, index) => ({
+    text: String(text || "").trim(),
+    index,
+  }))
+  .filter((row) => row.text);
+
+
+// =====================================================
+// 자재마스터 코드 맵
+// =====================================================
+
+const masterMap = new Map();
+
+materialItems.forEach((item) => {
+  const key = normalizeCode(item.code);
+
+  if (
+    key &&
+    key.startsWith(codePrefix)
+  ) {
+    masterMap.set(key, item);
+  }
+});
+
+
+// =====================================================
+// 여러 줄을 연결한 코드 후보 생성
+//
+// 예)
+//
+// 2-STOCK-A
+// CCY-621
+//
+// ↓
+//
+// 2-STOCK-ACCY-621
+//
+// 또는
+//
+// 2-TL-LUG-
+// 1000EA
+//
+// ↓
+//
+// 2-TL-LUG-1000EA
+// =====================================================
+
+const buildCandidates = (
+  startIndex,
+  maxLines = 3
+) => {
+  const candidates = [];
+
+  let joined = "";
+
+  for (
+    let offset = 0;
+    offset < maxLines;
+    offset++
+  ) {
+    const row =
+      rawLines[startIndex + offset];
+
+    if (!row) break;
+
+    joined += row.text;
+
+    candidates.push({
+      text: joined,
+
+      start: startIndex,
+
+      end:
+        startIndex + offset,
+
+      lines:
+        rawLines
+          .slice(
+            startIndex,
+            startIndex + offset + 1
+          )
+          .map(
+            (item) => item.text
+          ),
     });
+  }
 
-    // 코드가 두 줄로 분리된 경우를 먼저 재구성한다.
-    // 예: 2-STOCK-ACCY- + 863 => 2-STOCK-ACCY-863
-    const logicalRows = [];
-    for (let i = 0; i < rawLines.length; i++) {
-      const current = rawLines[i];
-      const currentNorm = normalizeCode(current.text);
-      const next = rawLines[i + 1];
-      const nextNorm = next ? normalizeCode(next.text) : "";
+  return candidates;
+};
 
-      let text = current.text;
-      let consumed = false;
 
-      const startsAsCode = currentNorm.startsWith(codePrefix);
-      const looksLikePrefix =
-        startsAsCode &&
-        (/-$/.test(String(current.text).trim()) || /-$/.test(currentNorm));
+// =====================================================
+// 등록된 자재코드 찾기
+//
+// 한 줄
+// 두 줄
+// 세 줄
+//
+// 모두 검사
+// =====================================================
 
-      const shortContinuation =
-        nextNorm &&
-        nextNorm.length <= 12 &&
-        /^[A-Z0-9_-]+$/.test(nextNorm) &&
-        /[0-9]/.test(nextNorm);
+const detectedRows = [];
 
-      if (looksLikePrefix && shortContinuation) {
-        text = `${current.text}${next.text}`;
-        consumed = true;
+const detectedCodes =
+  new Set();
+
+
+for (
+  let i = 0;
+  i < rawLines.length;
+  i++
+) {
+  const candidates =
+    buildCandidates(i, 3);
+
+  let matched =
+    null;
+
+
+  // ---------------------------------------------------
+  // 1차 : 자재마스터 코드와 완전 일치
+  // ---------------------------------------------------
+
+  for (
+    const candidate
+    of candidates
+  ) {
+    const normalized =
+      normalizeCode(
+        candidate.text
+      );
+
+    if (
+      masterMap.has(
+        normalized
+      )
+    ) {
+      matched = {
+        code: normalized,
+
+        start:
+          candidate.start,
+
+        end:
+          candidate.end,
+
+        lines:
+          candidate.lines,
+
+        exact: true,
+      };
+
+      break;
+    }
+  }
+
+
+  // ---------------------------------------------------
+  // 2차 : OCR이 코드 앞뒤에 다른 문자를 붙인 경우
+  //
+  // 예)
+  //
+  // 1 2-STOCK-A
+  // CCY-621 T/L...
+  //
+  // 이런 경우도 코드 포함 여부 검사
+  // ---------------------------------------------------
+
+  if (!matched) {
+
+    for (
+      const candidate
+      of candidates
+    ) {
+      const normalized =
+        normalizeCode(
+          candidate.text
+        );
+
+      for (
+        const masterCode
+        of masterMap.keys()
+      ) {
+        if (
+          normalized.includes(
+            masterCode
+          )
+        ) {
+          matched = {
+            code:
+              masterCode,
+
+            start:
+              candidate.start,
+
+            end:
+              candidate.end,
+
+            lines:
+              candidate.lines,
+
+            exact: true,
+          };
+
+          break;
+        }
       }
 
-      // OCR이 "2-STOCK-ACCY-"와 "863"을 완전히 별도 줄로 낸 경우
-      // 현재 행 + 다음 행을 코드 후보로 항상 한 번 검사할 수 있게 후보 배열 보존
-      const candidates = [text];
-      if (next && startsAsCode) {
-        candidates.push(`${current.text}${next.text}`);
-        candidates.push(`${current.text} ${next.text}`);
+      if (matched) break;
+    }
+  }
+
+
+  // ---------------------------------------------------
+  // 등록된 코드 발견
+  // ---------------------------------------------------
+
+  if (
+    matched &&
+    !detectedCodes.has(
+      matched.code
+    )
+  ) {
+    detectedCodes.add(
+      matched.code
+    );
+
+    detectedRows.push(
+      matched
+    );
+
+    continue;
+  }
+}
+
+
+// =====================================================
+// 미등록 신규 코드 후보 찾기
+//
+// 등록된 코드가 아니더라도
+//
+// 2-XXXX-XXXX
+//
+// 형식이면 신규등록 후보로 표시
+// =====================================================
+
+for (
+  let i = 0;
+  i < rawLines.length;
+  i++
+) {
+  const candidates =
+    buildCandidates(i, 3);
+
+  for (
+    const candidate
+    of candidates
+  ) {
+    const compact =
+      String(
+        candidate.text || ""
+      )
+        .toUpperCase()
+        .replace(
+          /[‐-‒–—―]/g,
+          "-"
+        )
+        .replace(
+          /\s+/g,
+          ""
+        );
+
+
+    const matches =
+      compact.match(
+        /[12]-[A-Z0-9]+(?:-[A-Z0-9]+){2,}/g
+      ) || [];
+
+
+    for (
+      const value
+      of matches
+    ) {
+      const normalized =
+        normalizeCode(
+          value
+        );
+
+
+      if (
+        !normalized.startsWith(
+          codePrefix
+        )
+      ) {
+        continue;
       }
 
-      logicalRows.push({
-        text,
-        candidates,
-        sourceStart: i,
-        sourceEnd: consumed ? i + 1 : i,
+
+      if (
+        normalized.length < 6
+      ) {
+        continue;
+      }
+
+
+      if (
+        !/[A-Z]/.test(
+          normalized
+        )
+      ) {
+        continue;
+      }
+
+
+      if (
+        !/\d/.test(
+          normalized
+        )
+      ) {
+        continue;
+      }
+
+
+      if (
+        detectedCodes.has(
+          normalized
+        )
+      ) {
+        continue;
+      }
+
+
+      detectedCodes.add(
+        normalized
+      );
+
+
+      detectedRows.push({
+        code:
+          normalized,
+
+        start:
+          candidate.start,
+
+        end:
+          candidate.end,
+
+        lines:
+          candidate.lines,
+
+        exact:
+          false,
       });
+    }
+  }
+}
 
-      if (consumed) i += 1;
+
+// =====================================================
+// 문서에 나타난 순서대로 정렬
+// =====================================================
+
+detectedRows.sort(
+  (a, b) =>
+    a.start - b.start
+);
+
+
+// =====================================================
+// 품목별 수량 찾기
+//
+// 현재 품목 코드 위치부터
+// 다음 품목 코드 직전까지만 검사
+// =====================================================
+
+const findQtyForItem =
+  (
+    current,
+    currentIndex
+  ) => {
+
+    const nextItem =
+      detectedRows[
+        currentIndex + 1
+      ];
+
+
+    const start =
+      current.end + 1;
+
+
+    const end =
+      nextItem
+        ? nextItem.start - 1
+        : Math.min(
+            rawLines.length - 1,
+            current.end + 8
+          );
+
+
+    const block = [];
+
+
+    for (
+      let i = start;
+      i <= end;
+      i++
+    ) {
+      if (
+        rawLines[i]
+      ) {
+        block.push(
+          rawLines[i].text
+        );
+      }
     }
 
-    const findMasterCode = (sources) => {
-      for (const source of sources) {
-        const normalized = normalizeCode(source);
-        if (masterMap.has(normalized)) return normalized;
 
-        // 문서 행 안에서만 정확한 등록 코드 검색
-        for (const key of masterMap.keys()) {
-          if (normalized === key) return key;
-          if (normalized.includes(key)) return key;
-        }
-      }
-      return null;
-    };
+    // 현재 코드 행 자체도 포함
+    const allText =
+      [
+        ...(current.lines || []),
+        ...block,
+      ].join(" ");
 
-    const findNewCodeCandidate = (sources) => {
-      for (const source of sources) {
-        const compact = String(source || "")
-          .toUpperCase()
-          .replace(/[‐-‒–—―]/g, "-")
-          .replace(/\s+/g, "");
 
-        const matches = compact.match(/[12]-[A-Z0-9]+(?:-[A-Z0-9]+){2,}/g) || [];
-        for (const value of matches) {
-          const normalized = normalizeCode(value);
-          if (
-            normalized.startsWith(codePrefix) &&
-            normalized.length >= 6 &&
-            /[A-Z]/.test(normalized) &&
-            /\d/.test(normalized)
-          ) {
-            return normalized;
-          }
-        }
-      }
-      return null;
-    };
+    const numbers =
+      [
+        ...String(
+          allText
+        ).matchAll(
+          /(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi
+        ),
+      ]
+        .map(
+          (match) =>
+            Number(
+              match[1]
+            )
+        )
+        .filter(
+          (value) =>
+            Number.isFinite(
+              value
+            ) &&
+            value > 0 &&
+            value <= 100000
+        );
 
-    const findQtyForBlock = (row) => {
-      // 해당 품목 행 + 바로 뒤 몇 줄만 검사. 다음 품목 코드가 나오면 중단.
-      const block = [];
-      for (let i = row.sourceStart; i <= Math.min(rawLines.length - 1, row.sourceEnd + 4); i++) {
-        if (i > row.sourceEnd) {
-          const n = normalizeCode(rawLines[i].text);
-          if (n.startsWith(codePrefix) && n.length >= 6) break;
-        }
-        block.push(rawLines[i].text);
-      }
 
-      // 한 줄에 여러 숫자가 있으면 마지막 숫자를 우선 사용
-      const nums = block
-        .flatMap((line) => [...String(line).matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)])
-        .map((m) => Number(m[1]))
-        .filter((n) => Number.isFinite(n) && n > 0 && n <= 100000);
+    // 현재 구조에서는
+    // 품목 블록의 마지막 독립 숫자를
+    // 수량 후보로 사용
+    return numbers.length
+      ? numbers[
+          numbers.length - 1
+        ]
+      : 1;
+  };
 
-      return nums.length ? nums[nums.length - 1] : 1;
-    };
 
-    const resultList = [];
-    const usedCodes = new Set();
+// =====================================================
+// 최종 OCR 품목 생성
+// =====================================================
 
-    logicalRows.forEach((row) => {
-      const masterKey = findMasterCode(row.candidates);
-      const newKey = masterKey ? null : findNewCodeCandidate(row.candidates);
-      const finalKey = masterKey || newKey;
-      if (!finalKey || usedCodes.has(finalKey)) return;
+const resultList = [];
 
-      const masterItem = masterMap.get(finalKey) || null;
-      usedCodes.add(finalKey);
 
-      resultList.push({
-        code: masterItem ? masterItem.code : finalKey,
-        masterItem,
-        docQty: findQtyForBlock(row),
-        inputQty: findQtyForBlock(row),
-        checked: true,
-        ocrScore: masterItem ? 0 : null,
-        unregistered: !masterItem,
-        ocrRowText: row.candidates.join(" | "),
-      });
+detectedRows.forEach(
+  (
+    row,
+    rowIndex
+  ) => {
+
+    const masterItem =
+      masterMap.get(
+        row.code
+      ) || null;
+
+
+    const qty =
+      findQtyForItem(
+        row,
+        rowIndex
+      );
+
+
+    resultList.push({
+      code:
+        masterItem
+          ? masterItem.code
+          : row.code,
+
+      masterItem,
+
+      docQty:
+        qty,
+
+      inputQty:
+        qty,
+
+      checked:
+        true,
+
+      ocrScore:
+        masterItem
+          ? 0
+          : null,
+
+      unregistered:
+        !masterItem,
+
+      ocrRowText:
+        (row.lines || [])
+          .join(" | "),
     });
+  }
+);
 
     if (!resultList.length) {
       addOcrUsage(false);

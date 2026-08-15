@@ -6707,7 +6707,73 @@ const compactVariants = (value) => {
     detectedRows.sort(
       (a, b) => a.y - b.y || a.x - b.x || a.start - b.start
     );
+    // -----------------------------------------------------
+    // 4차: OCR 전체 텍스트 기반 마스터 코드 재검사
+    //
+    // 거래명세서에서는 코드가
+    //
+    // 2-STOCK-A
+    // CCY-621
+    //
+    // 또는
+    //
+    // 2-TL-LUG-
+    // 001
+    //
+    // 처럼 OCR에서 여러 줄로 잘리는 경우가 있다.
+    //
+    // 따라서 OCR 전체를 공백 / 줄바꿈 / 하이픈 차이를 제거한
+    // 하나의 문자열로 만든 뒤 마스터 코드와 직접 비교한다.
+    // -----------------------------------------------------
 
+    const fullOcrText = [
+      ...rawLines.map((row) => row.text),
+      ...layoutLines.map((line) => line.text),
+    ].join(" ");
+
+    const fullOcrFlat = normalizeCode(fullOcrText)
+      .replace(/[-_\s]/g, "");
+
+    console.log("===== OCR 전체 코드 검사 =====");
+    console.log("OCR FLAT:", fullOcrFlat);
+    console.log(
+      "MASTER CODES:",
+      [...masterMap.keys()]
+    );
+
+    for (const masterCode of masterMap.keys()) {
+      if (detectedCodes.has(masterCode)) continue;
+
+      const masterFlat = normalizeCode(masterCode)
+        .replace(/[-_\s]/g, "");
+
+      if (
+        masterFlat.length >= 6 &&
+        fullOcrFlat.includes(masterFlat)
+      ) {
+        console.log(
+          "OCR 전체 텍스트에서 마스터 코드 발견:",
+          masterCode
+        );
+
+        pushDetected(masterCode, {
+          start: detectedRows.length,
+          end: detectedRows.length,
+          lines: [fullOcrText],
+          y: 999999 + detectedRows.length,
+          x: 0,
+          exact: true,
+        });
+      }
+    }
+
+    // 다시 실제 문서 순서 정렬
+    detectedRows.sort(
+      (a, b) =>
+        a.y - b.y ||
+        a.x - b.x ||
+        a.start - b.start
+    );
     // -----------------------------------------------------
     // 수량 찾기
     //

@@ -31,8 +31,8 @@ export default async function handler(req, res) {
 
     // Vercel 환경변수에서 Google 서비스 계정 정보 읽기
     const credentials = JSON.parse(
-      process.env.GOOGLE_SERVICE_ACCOUNT_KEY
-    );
+  process.env.GOOGLE_VISION_CREDENTIALS
+);
 
     // Google 인증 토큰 생성
     const jwt = await getAccessToken(credentials);

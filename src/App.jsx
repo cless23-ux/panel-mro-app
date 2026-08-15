@@ -5899,6 +5899,13 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrText, setOcrText] = useState("");
   const [ocrPreview, setOcrPreview] = useState("");
+  const [ocrUsage, setOcrUsage] = useState({
+  today: 0,
+  month: 0,
+  total: 0,
+  success: 0,
+  failed: 0,
+});
   const ocrFileRef = useRef(null);
   const [invoicePerson, setInvoicePerson] = useState("");
   const [invoiceShip, setInvoiceShip] = useState("");
@@ -6123,224 +6130,408 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     return window.Tesseract;
   };
 
-  const runInvoiceOcr = async (file) => {
-    if (!file || ocrLoading) return;
+ const runInvoiceOcr = async (file) => {
+  if (!file || ocrLoading) return;
 
-    const previewUrl = URL.createObjectURL(file);
-    setOcrPreview(previewUrl);
-    setOcrLoading(true);
-    setOcrText("");
+  const previewUrl = URL.createObjectURL(file);
 
-    try {
-      const Tesseract = await loadTesseract();
+  setOcrPreview(previewUrl);
+  setOcrLoading(true);
+  setOcrText("");
 
-      const image = await new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = reject;
-        img.src = previewUrl;
-      });
+  const addOcrUsage = (success) => {
+    const now = new Date();
 
-      // 거래명세서 전용 전처리:
-      // 전체 문서를 그대로 OCR하지 않고 중앙~하단의 자재 목록 영역을 우선 사용한다.
-      // 인식률 향상을 위해 최종 OCR 캔버스는 최대 1700px까지 허용한다(기존 1100px).
-      const srcW = image.naturalWidth || image.width;
-      const srcH = image.naturalHeight || image.height;
+    setOcrUsage((prev) => ({
+      today: prev.today + 1,
+      month: prev.month + 1,
+      total: prev.total + 1,
+      success: prev.success + (success ? 1 : 0),
+      failed: prev.failed + (success ? 0 : 1),
+    }));
+  };
 
-      // 가로로 긴 문서는 그대로, 세로 문서는 중앙~하단 70%를 사용.
-      // 상단 회사/주소/담당자 영역을 제외해 코드 인식에 집중한다.
-      const cropX = Math.round(srcW * 0.03);
-      const cropY = Math.round(srcH * 0.22);
-      const cropW = Math.round(srcW * 0.94);
-      const cropH = Math.round(srcH * 0.74);
+  try {
+    // 이미지 크기 축소
+    const image = await new Promise((resolve, reject) => {
+      const img = new Image();
 
-      const maxSide = 1400;
-      const scale = Math.min(1.3, maxSide / Math.max(cropW, cropH));
-      const outW = Math.max(1, Math.round(cropW * scale));
-      const outH = Math.max(1, Math.round(cropH * scale));
+      img.onload = () => resolve(img);
+      img.onerror = reject;
 
-      const canvas = document.createElement("canvas");
-      canvas.width = outW;
-      canvas.height = outH;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
+      img.src = previewUrl;
+    });
 
-      ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
+    const maxSize = 1800;
 
-      // OCR 대비 향상: 그레이스케일 + 자동 대비(하드 이진화는 그림자 있는 사진에서
-      // 글자를 통째로 날려버릴 수 있어 사용하지 않는다).
-      try {
-        const imgData = ctx.getImageData(0, 0, outW, outH);
-        const d = imgData.data;
-        let min = 255, max = 0;
-        for (let i = 0; i < d.length; i += 4) {
-          const g = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-          min = Math.min(min, g);
-          max = Math.max(max, g);
-        }
-        const range = Math.max(30, max - min);
-        for (let i = 0; i < d.length; i += 4) {
-          const g = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-          const v = Math.max(0, Math.min(255, Math.round(((g - min) * 255) / range)));
-          d[i] = d[i + 1] = d[i + 2] = v;
-        }
-        ctx.putImageData(imgData, 0, 0);
-      } catch (_) {}
+    const originalWidth =
+      image.naturalWidth || image.width;
 
-      // 화면이 먼저 갱신된 뒤 OCR 시작
-      await new Promise(resolve => setTimeout(resolve, 0));
+    const originalHeight =
+      image.naturalHeight || image.height;
 
-      const result = await Tesseract.recognize(
-        canvas,
-        "kor+eng",
-        {
-          logger: () => {},
-          tessedit_pageseg_mode: "6",
-          preserve_interword_spaces: "1",
-        }
+    const scale = Math.min(
+      1,
+      maxSize /
+        Math.max(originalWidth, originalHeight)
+    );
+
+    const width = Math.max(
+      1,
+      Math.round(originalWidth * scale)
+    );
+
+    const height = Math.max(
+      1,
+      Math.round(originalHeight * scale)
+    );
+
+    const canvas =
+      document.createElement("canvas");
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx =
+      canvas.getContext("2d");
+
+    ctx.drawImage(
+      image,
+      0,
+      0,
+      width,
+      height
+    );
+
+    // JPEG로 압축해서 전송량 감소
+    const imageData =
+      canvas.toDataURL(
+        "image/jpeg",
+        0.88
       );
 
-      const rawText = String(result?.data?.text || "");
-      const lines = rawText
-        .replace(/\r/g, "")
-        .split(/\n+/)
-        .map(v => v.trim())
-        .filter(Boolean);
+    // Google Vision API 호출
+    const response = await fetch(
+      "/api/vision",
+      {
+        method: "POST",
 
-      setOcrText(rawText);
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
 
-      const compact = (value) => String(value || "")
+        body: JSON.stringify({
+          image: imageData,
+        }),
+      }
+    );
+
+    const result =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result?.error ||
+        "Google Vision OCR 요청 실패"
+      );
+    }
+
+    const rawText =
+      String(result?.text || "");
+
+    if (!rawText.trim()) {
+      throw new Error(
+        "사진에서 텍스트를 인식하지 못했습니다."
+      );
+    }
+
+    setOcrText(rawText);
+
+    // OCR 성공 카운트
+    addOcrUsage(true);
+
+    // ============================
+    // OCR 텍스트 정리
+    // ============================
+
+    const normalizeCode = (value) =>
+      String(value || "")
         .toUpperCase()
-        .replace(/[^A-Z0-9]/g, "");
+        .replace(/\s+/g, "")
+        .replace(/[‐-‒–—―]/g, "-")
+        .replace(/[^A-Z0-9_-]/g, "");
 
-      const similarChar = (a, b) => {
-        if (a === b) return true;
-        const pairs = new Set([
-          "O0","0O","Q0","0Q","D0","0D",
-          "I1","1I","L1","1L",
-          "S5","5S","B8","8B","Z2","2Z","G6","6G"
-        ]);
-        return pairs.has(`${a}${b}`);
-      };
+    const lines = rawText
+      .replace(/\r/g, "")
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
 
-      const distance = (a, b) => {
-        const aa = compact(a), bb = compact(b);
-        const prev = Array.from({ length: bb.length + 1 }, (_, j) => j);
-        for (let i = 1; i <= aa.length; i++) {
-          let diag = prev[0];
-          prev[0] = i;
-          for (let j = 1; j <= bb.length; j++) {
-            const up = prev[j];
-            const cost = similarChar(aa[i - 1], bb[j - 1]) ? 0 : 1;
-            prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + cost);
-            diag = up;
-          }
+    // OCR에서 인식된 코드 후보 생성
+    const ocrCodeCandidates = new Set();
+
+    lines.forEach((line) => {
+      const tokens =
+        line.match(
+          /[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)+/g
+        ) || [];
+
+      tokens.forEach((token) => {
+        const normalized =
+          normalizeCode(token);
+
+        if (
+          normalized.length >= 4 &&
+          /[A-Z]/.test(normalized) &&
+          /\d/.test(normalized)
+        ) {
+          ocrCodeCandidates.add(
+            normalized
+          );
         }
-        return prev[bb.length];
-      };
-
-      // 한 줄 + 인접 줄을 묶어 코드가 잘린 경우도 처리
-      const contexts = [];
-      lines.forEach((line, index) => {
-        contexts.push({ index, text: line });
-        if (lines[index + 1]) contexts.push({ index, text: `${line} ${lines[index + 1]}` });
-        if (lines[index + 2]) contexts.push({ index, text: `${line} ${lines[index + 1]} ${lines[index + 2]}` });
       });
-      contexts.push({ index: -1, text: lines.join(" ") });
+    });
 
-      const findQtyNear = (context, code) => {
-        const source = context.index >= 0
-          ? lines.slice(Math.max(0, context.index - 1), Math.min(lines.length, context.index + 4)).join(" ")
-          : context.text;
+    // ============================
+    // 정확한 자재코드 매칭
+    // ============================
 
-        const codeNums = new Set((String(code).match(/\d+/g) || []).map(Number));
-        const nums = [...source.matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)]
-          .map(m => Number(m[1]))
-          .filter(n => n > 0 && n <= 100000 && !codeNums.has(n));
+    const itemMap = new Map();
 
-        return nums.length ? nums[nums.length - 1] : 1;
-      };
+    materialItems.forEach((item) => {
+      const normalized =
+        normalizeCode(item.code);
 
-      const matched = [];
+      if (normalized) {
+        itemMap.set(
+          normalized,
+          item
+        );
+      }
+    });
 
-      // 현재 입고 화면의 자재 목록만 대상으로 후보를 생성한다.
-      materialItems.forEach((item) => {
-        const code = String(item.code || "").trim();
-        const target = compact(code);
-        if (!target || target.length < 4) return;
+    const matchedCodes = new Set();
+    const resultList = [];
 
-        const tolerance = Math.max(2, Math.min(4, Math.ceil(target.length * 0.16)));
-        let best = null;
+    const findQtyNear = (
+      code,
+      lineIndex
+    ) => {
+      const nearbyLines =
+        lines
+          .slice(
+            Math.max(0, lineIndex - 1),
+            Math.min(
+              lines.length,
+              lineIndex + 2
+            )
+          )
+          .join(" ");
 
-        contexts.forEach((context) => {
-          const candidate = compact(context.text);
-          if (!candidate) return;
+      const numbers =
+        [
+          ...nearbyLines.matchAll(
+            /(?<![A-Za-z0-9])(\d{1,6})(?![A-Za-z0-9])/g
+          ),
+        ]
+          .map((m) =>
+            Number(m[1])
+          )
+          .filter(
+            (n) =>
+              n > 0 &&
+              n <= 100000
+          );
 
-          if (candidate.includes(target)) {
-            if (!best || best.score > 0) best = { score: 0, context };
+      return numbers.length
+        ? numbers[numbers.length - 1]
+        : 1;
+    };
+
+    // 1차:
+    // OCR에서 추출한 코드와
+    // 자재마스터 코드 완전 일치
+    lines.forEach(
+      (line, lineIndex) => {
+        const normalizedLine =
+          normalizeCode(line);
+
+        if (!normalizedLine) return;
+
+        materialItems.forEach((item) => {
+          const normalizedCode =
+            normalizeCode(
+              item.code
+            );
+
+          if (
+            !normalizedCode ||
+            matchedCodes.has(
+              normalizedCode
+            )
+          ) {
             return;
           }
 
-          // 코드와 비슷한 길이의 구간만 비교
-          const minLen = Math.max(4, target.length - tolerance);
-          const maxLen = Math.min(candidate.length, target.length + tolerance);
+          // 핵심:
+          // includes 부분검색 금지
+          // 코드가 정확하게 OCR 결과에
+          // 존재하는 경우만 매칭
+          const exactPattern =
+            new RegExp(
+              `(^|[^A-Z0-9])${normalizedCode.replace(
+                /[-/\\^$*+?.()|[\]{}]/g,
+                "\\$&"
+              )}([^A-Z0-9]|$)`
+            );
 
-          for (let len = minLen; len <= maxLen; len++) {
-            const maxStart = candidate.length - len;
-            for (let i = 0; i <= maxStart; i++) {
-              const piece = candidate.slice(i, i + len);
-              const score = distance(target, piece);
-              if (!best || score < best.score) best = { score, context };
-              if (score === 0) break;
-            }
-            if (best?.score === 0) break;
+          if (
+            normalizedLine ===
+              normalizedCode ||
+            exactPattern.test(
+              normalizedLine
+            )
+          ) {
+            const qty =
+              findQtyNear(
+                item.code,
+                lineIndex
+              );
+
+            resultList.push({
+              code: item.code,
+              masterItem: item,
+              docQty: qty,
+              inputQty: qty,
+              checked: true,
+              ocrScore: 0,
+            });
+
+            matchedCodes.add(
+              normalizedCode
+            );
           }
         });
-
-        if (!best || best.score > tolerance) return;
-
-        const qty = findQtyNear(best.context, code);
-        matched.push({
-          code,
-          masterItem: item,
-          docQty: qty,
-          inputQty: qty,
-          checked: true,
-          ocrScore: best.score,
-        });
-      });
-
-      const uniqueMatched = matched.filter((entry, index, arr) =>
-        arr.findIndex(other => other.code === entry.code) === index
-      );
-
-      if (!uniqueMatched.length) {
-        notify(
-          "자재코드를 자동 매칭하지 못했습니다. OCR 결과에서 코드를 확인하거나 사진을 표가 정면으로 보이게 촬영해주세요.",
-          "err"
-        );
-        return;
       }
+    );
 
-      setInvoiceData({
-        key_code: `OCR-${new Date().toISOString().slice(0, 10)}`,
-        supplier: "OCR 거래명세서",
-        list: uniqueMatched,
-        ocr: true,
-      });
+    // ============================
+    // 2차:
+    // OCR 후보 중 미등록 코드 찾기
+    // ============================
 
+    ocrCodeCandidates.forEach(
+      (candidate) => {
+        if (
+          itemMap.has(candidate) ||
+          matchedCodes.has(candidate)
+        ) {
+          return;
+        }
+
+        // 현재 화면의 원자재/부자재 타입에
+        // 맞는 코드만 처리
+        const originalCandidate =
+          [...ocrCodeCandidates].find(
+            (value) =>
+              value === candidate
+          ) || candidate;
+
+        if (
+          getMaterialType(
+            originalCandidate
+          ) !== materialType
+        ) {
+          return;
+        }
+
+        const duplicate =
+          resultList.some(
+            (item) =>
+              normalizeCode(
+                item.code
+              ) === candidate
+          );
+
+        if (duplicate) return;
+
+        resultList.push({
+          code: originalCandidate,
+          masterItem: null,
+          docQty: 1,
+          inputQty: 1,
+          checked: true,
+          ocrScore: null,
+          unregistered: true,
+        });
+      }
+    );
+
+    if (!resultList.length) {
       notify(
-        `거래명세서 인식 완료: ${uniqueMatched.length}개 자재를 찾았습니다. 수량을 확인 후 입고하세요.`,
-        "ok"
+        "등록된 자재코드를 찾지 못했습니다. OCR 결과를 확인하거나 사진을 다시 촬영해주세요.",
+        "err"
       );
-    } catch (err) {
-      console.error("거래명세서 OCR 오류:", err);
-      notify(`거래명세서 OCR 오류: ${err?.message || err}`, "err");
-    } finally {
-      setOcrLoading(false);
+
+      return;
     }
-  };
+
+    setInvoiceData({
+      key_code:
+        `OCR-${new Date()
+          .toISOString()
+          .slice(0, 10)}`,
+
+      supplier:
+        "Google Vision OCR",
+
+      list: resultList,
+
+      ocr: true,
+    });
+
+    const registeredCount =
+      resultList.filter(
+        (item) =>
+          item.masterItem
+      ).length;
+
+    const unregisteredCount =
+      resultList.filter(
+        (item) =>
+          !item.masterItem
+      ).length;
+
+    notify(
+      `OCR 완료: 등록 자재 ${registeredCount}개` +
+        (
+          unregisteredCount
+            ? ` / 미등록 코드 ${unregisteredCount}개`
+            : ""
+        ),
+      "ok"
+    );
+
+  } catch (err) {
+    console.error(
+      "Google Vision OCR 오류:",
+      err
+    );
+
+    addOcrUsage(false);
+
+    notify(
+      `OCR 오류: ${
+        err?.message || err
+      }`,
+      "err"
+    );
+
+  } finally {
+    setOcrLoading(false);
+  }
+};
 
   const fetchInvoiceData = async (rawVal) => {
     if (!rawVal) return;
@@ -6793,9 +6984,69 @@ keyCode = String(keyCode)
             onChange={(e) => { const file = e.target.files?.[0]; if (file) runInvoiceOcr(file); e.target.value = ""; }}
           />
         </div>
-        <div style={{ fontSize: 11.5, color: "#94a3b8", marginBottom: 12 }}>
-          OCR은 모바일 안정성을 위해 사진을 축소한 뒤 1회 빠르게 인식합니다. 인식 중에는 결과 창을 조작할 수 없으며, 완료 후 자재·수량을 확인·수정하세요.
-        </div>
+        <div
+  style={{
+    marginBottom: 12,
+    padding: "10px 12px",
+    borderRadius: 8,
+    background: "#0b1329",
+    border: "1px solid #1e293b",
+  }}
+>
+  <div
+    style={{
+      fontSize: 11.5,
+      color: "#94a3b8",
+      marginBottom: 7,
+    }}
+  >
+    Google Vision OCR 사용량
+  </div>
+
+  <div
+    style={{
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap",
+      fontSize: 12,
+    }}
+  >
+    <span>
+      오늘{" "}
+      <b style={{ color: "#38bdf8" }}>
+        {ocrUsage.today}
+      </b>
+    </span>
+
+    <span>
+      이번 달{" "}
+      <b style={{ color: "#a78bfa" }}>
+        {ocrUsage.month}
+      </b>
+    </span>
+
+    <span>
+      전체{" "}
+      <b style={{ color: "#22c55e" }}>
+        {ocrUsage.total}
+      </b>
+    </span>
+
+    <span>
+      성공{" "}
+      <b style={{ color: "#22c55e" }}>
+        {ocrUsage.success}
+      </b>
+    </span>
+
+    <span>
+      실패{" "}
+      <b style={{ color: "#ef4444" }}>
+        {ocrUsage.failed}
+      </b>
+    </span>
+  </div>
+</div>
         {ocrPreview && (
           <details
             open={ocrLoading ? false : undefined}

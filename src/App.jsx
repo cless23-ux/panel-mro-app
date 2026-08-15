@@ -6378,47 +6378,40 @@ console.log(rawText);
     }
 
     // 코드가 잘린 형태까지 포함해 한 문자열에서 코드 후보를 검사
-    const compactVariants = (value) => {
-      const source = String(value || "");
-      const normalized = normalizeCode(source);
-
-      return [
-        source,
-        normalized,
-        normalized.replace(/_/g, "-"),
-        normalized.replace(/-/g, ""),
-      ].filter(Boolean);
-    };
-
     const findMasterCodeInText = (value) => {
-      const variants = compactVariants(value);
+  if (!value) return null;
 
-      for (const variant of variants) {
-        const normalized = normalizeCode(variant);
+  const variants = compactVariants(value);
 
-        if (masterMap.has(normalized)) {
-          return normalized;
-        }
+  for (const variant of variants) {
+    const normalized = normalizeCode(variant);
 
-        for (const masterCode of masterMap.keys()) {
-          const masterFlat = masterCode.replace(/[-_]/g, "");
-          const candidateFlat = normalized.replace(/[-_]/g, "");
+    // 1. 정확히 일치하는 코드만 허용
+    if (masterMap.has(normalized)) {
+      return normalized;
+    }
 
-          if (
-            normalized.includes(masterCode) ||
-            candidateFlat.includes(masterFlat) ||
-            masterFlat.includes(candidateFlat)
-          ) {
-            // 너무 짧은 OCR 조각은 오인식을 막기 위해 제외
-            if (candidateFlat.length >= 6) {
-              return masterCode;
-            }
-          }
-        }
+    // 2. 하이픈 / 언더바 / 공백 제거 후 정확히 일치하는 경우만 허용
+    const candidateFlat = normalized
+      .replace(/[-_\s]/g, "");
+
+    if (!candidateFlat) continue;
+
+    for (const masterCode of masterMap.keys()) {
+      const masterFlat = String(masterCode)
+        .replace(/[-_\s]/g, "");
+
+      if (
+        candidateFlat === masterFlat &&
+        candidateFlat.length >= 6
+      ) {
+        return masterCode;
       }
+    }
+  }
 
-      return null;
-    };
+  return null;
+};
 
     const detectedRows = [];
     const detectedCodes = new Set();
@@ -6539,61 +6532,6 @@ console.log(rawText);
         }
       }
     }
-
-    // -----------------------------------------------------
-    // 3차: 미등록 신규 코드 후보
-    // -----------------------------------------------------
-    const allCandidateTexts = hasLayout
-      ? [
-          ...layoutLines.map((line) => ({
-            text: line.text,
-            y: line.y,
-            x: line.left,
-            index: line.index,
-          })),
-          ...rawLines.map((line) => ({
-            text: line.text,
-            y: line.index,
-            x: 0,
-            index: line.index,
-          })),
-        ]
-      : rawLines.map((line) => ({
-          text: line.text,
-          y: line.index,
-          x: 0,
-          index: line.index,
-        }));
-
-    allCandidateTexts.forEach((row) => {
-      const compact = String(row.text || "")
-        .toUpperCase()
-        .replace(/[‐-‒–—―]/g, "-")
-        .replace(/\s+/g, "");
-
-      const matches =
-        compact.match(/[12]-[A-Z0-9]+(?:-[A-Z0-9]+){1,}/g) || [];
-
-      matches.forEach((value) => {
-        const normalized = normalizeCode(value);
-
-        if (
-          normalized.startsWith(codePrefix) &&
-          normalized.length >= 6 &&
-          /[A-Z]/.test(normalized) &&
-          /\d/.test(normalized)
-        ) {
-          pushDetected(normalized, {
-            start: row.index,
-            end: row.index,
-            lines: [row.text],
-            y: row.y,
-            x: row.x,
-            exact: false,
-          });
-        }
-      });
-    });
 
     // 실제 문서의 위→아래 순서 유지
     detectedRows.sort(

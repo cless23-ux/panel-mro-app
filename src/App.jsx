@@ -6190,13 +6190,14 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     // 자재표가 사진마다 조금씩 아래로 내려가는 경우가 있어
     // 기존 42%~90% 고정 영역보다 넓게 잡는다.
     const cropY =
-      Math.round(srcH * 0.36);
+      Math.round(srcH * 0.28);
 
     const cropW =
-      Math.round(srcW * 0.94);
+      Math.round(srcW * 0.96);
 
+    // 사진의 하단이 잘리는 경우를 막기 위해 끝까지 사용
     const cropH =
-      Math.round(srcH * 0.61);
+      Math.round(srcH * 0.70);
 
     /* =====================================================
        3. OCR용 이미지 생성
@@ -6206,7 +6207,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
        최대 1800px 유지
     ===================================================== */
 
-    const maxSize = 1800;
+    const maxSize = 2200;
 
     const scale =
       Math.min(
@@ -6253,10 +6254,22 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       height
     );
 
+    // 거래명세서의 옅은 글자/테두리를 조금 더 선명하게 만들어 OCR 누락을 줄인다.
+    try {
+      const pixels = ctx.getImageData(0, 0, width, height);
+      const d = pixels.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+        const v = gray > 185 ? 255 : (gray < 115 ? 0 : Math.round((gray - 115) * 255 / 70));
+        d[i] = d[i + 1] = d[i + 2] = v;
+      }
+      ctx.putImageData(pixels, 0, 0);
+    } catch {}
+
     const imageData =
       canvas.toDataURL(
         "image/jpeg",
-        0.92
+        0.96
       );
 
     /* =====================================================
@@ -6302,10 +6315,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     }
 
     setOcrText(rawText);
-
-    /* OCR 성공 카운트 */
-
-    addOcrUsage(true);
 
     /* =====================================================
        5. 코드 정규화
@@ -6576,6 +6585,37 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
           (row) =>
             row.words.length >= 2
         );
+
+    /* =====================================================
+       9-1. 좌표 행 분리가 실패했을 때를 위한 텍스트 행 보조
+
+       Google Vision이 표의 일부를 하나의 행으로 묶거나,
+       자재코드만 단독으로 인식한 경우에도 코드 후보를 잃지 않는다.
+       전체 자재명을 검색하는 것이 아니라 OCR이 읽은 각 줄만 검사한다.
+    ===================================================== */
+
+    const rawTextRows = rawText
+      .split(/\r?\n/)
+      .map((line, lineIndex) => {
+        const lineText = String(line || "").trim();
+        const parts = lineText.split(/\s+/).filter(Boolean);
+        return {
+          centerY: 100000 + lineIndex,
+          words: parts.map((text, i) => ({
+            text, x: i * 100, y: 100000 + lineIndex,
+            minX: i * 100, maxX: i * 100 + 1, minY: 100000 + lineIndex, maxY: 100001,
+            width: 1, height: 1,
+          })),
+          text: lineText,
+          rawFallback: true,
+        };
+      })
+      .filter((row) => row.text.length >= 4);
+
+    const allCandidateRows = [
+      ...tableRows,
+      ...rawTextRows,
+    ];
 
     /* =====================================================
        10. 자재마스터 코드 맵 생성
@@ -6898,7 +6938,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     const usedCodes =
       new Set();
 
-    tableRows.forEach(
+    allCandidateRows.forEach(
       (row) => {
 
         let found =
@@ -6912,12 +6952,12 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         */
         if (!found) {
           const rowIndex =
-            tableRows.indexOf(row);
+            allCandidateRows.indexOf(row);
 
           const neighbors =
             [
-              tableRows[rowIndex - 1],
-              tableRows[rowIndex + 1],
+              allCandidateRows[rowIndex - 1],
+              allCandidateRows[rowIndex + 1],
             ].filter(Boolean);
 
           for (const neighbor of neighbors) {
@@ -7019,12 +7059,9 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       !resultList.length
     ) {
 
-      notify(
-        "거래명세서의 자재표에서 현재 자재코드를 찾지 못했습니다. 자재코드와 수량이 보이도록 표 부분을 정면에서 촬영해주세요.",
-        "err"
+      throw new Error(
+        "거래명세서 텍스트는 읽었지만 자재코드/품목을 하나도 확정하지 못했습니다. OCR 실패로 처리했습니다."
       );
-
-      return;
     }
 
     /* =====================================================
@@ -7058,6 +7095,9 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         (item) =>
           !item.masterItem
       ).length;
+
+    // 실제 품목이 최소 1개 확정된 경우에만 OCR 성공으로 집계
+    addOcrUsage(true);
 
     notify(
       `OCR 완료: 등록 자재 ${registeredCount}개` +

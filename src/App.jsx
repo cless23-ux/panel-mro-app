@@ -6679,39 +6679,58 @@ console.log(rawText);
 
     const resultList = [];
 
-    detectedRows.forEach((row, rowIndex) => {
-  const masterItem = masterMap.get(row.code) || null;
+// 이미 등록된 코드 중복 방지
+const addedCodes = new Set();
 
-  // =====================================================
-  // OCR이 만들어낸 가짜 코드 방지
-  //
-  // 현재 자재마스터에 실제로 존재하는 코드만
-  // 최종 입고 목록에 등록한다.
-  // =====================================================
-  if (!masterItem) {
-    console.log(
-      "OCR 제외 - 자재마스터에 없는 코드:",
-      row.code
-    );
+detectedRows.forEach((row, rowIndex) => {
+  if (!row?.code) return;
+
+  // OCR에서 실제 조합된 코드
+  const detectedCode = String(row.code)
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .replace(/[^A-Z0-9-]/g, "");
+
+  if (!detectedCode) return;
+
+  /*
+    매우 중요
+
+    OCR에서 발견한 코드와
+    자재마스터 코드를 "정확하게" 비교한다.
+
+    비슷한 코드 자동 선택 금지
+  */
+  const masterItem =
+    masterMap.get(detectedCode) || null;
+
+  // 이미 추가된 코드는 중복 추가 금지
+  if (addedCodes.has(detectedCode)) {
     return;
   }
 
-  const qty = findQtyForItem(
-    row,
-    rowIndex
-  );
+  addedCodes.add(detectedCode);
+
+  const qty = qtyForItem(row, rowIndex);
 
   resultList.push({
-    code: masterItem.code,
+    code: detectedCode,
+
     masterItem,
+
     docQty: qty,
+
     inputQty: qty,
+
     checked: true,
-    ocrScore: 0,
-    unregistered: false,
-    ocrRowText: (
-      row.lines || []
-    ).join(" | "),
+
+    /*
+      마스터에 없는 경우만 미등록 처리
+    */
+    ocrScore: masterItem ? 100 : null,
+
+    ocrRawText:
+      (row.lines || []).join(" | "),
   });
 });
 

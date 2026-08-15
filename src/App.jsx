@@ -6403,11 +6403,6 @@ console.log(rawText);
         .replace(/[‐-‒–—―]/g, "-")
         .replace(/[^A-Z0-9]/g, "");
 
-    const masterFlatMap = new Map();
-    masterMap.forEach((item, code) => {
-      masterFlatMap.set(flatExact(code), code);
-    });
-
     const exactMasterFrom = (value) => {
       const flat = flatExact(value);
       if (!flat || flat.length < 6) return null;

@@ -6378,6 +6378,39 @@ console.log(rawText);
     }
 
     // 코드가 잘린 형태까지 포함해 한 문자열에서 코드 후보를 검사
+    // 코드가 잘린 형태까지 포함해 한 문자열에서 코드 후보를 검사
+const compactVariants = (value) => {
+  const text = String(value || "")
+    .toUpperCase()
+    .replace(/[‐-‒–—―]/g, "-")
+    .trim();
+
+  const variants = new Set();
+
+  // 원본
+  variants.add(text);
+
+  // 공백 제거
+  variants.add(
+    text.replace(/\s+/g, "")
+  );
+
+  // 줄바꿈 포함 공백 제거
+  variants.add(
+    text.replace(/[\s\r\n]+/g, "")
+  );
+
+  // 하이픈 주변 공백 제거
+  variants.add(
+    text
+      .replace(/\s*-\s*/g, "-")
+      .replace(/\s+/g, "")
+  );
+
+  return [...variants].filter(Boolean);
+};
+
+};
     const findMasterCodeInText = (value) => {
   if (!value) return null;
 

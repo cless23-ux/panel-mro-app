@@ -6187,14 +6187,16 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     const cropX =
       Math.round(srcW * 0.05);
 
+    // 자재표가 사진마다 조금씩 아래로 내려가는 경우가 있어
+    // 기존 42%~90% 고정 영역보다 넓게 잡는다.
     const cropY =
-      Math.round(srcH * 0.42);
+      Math.round(srcH * 0.36);
 
     const cropW =
-      Math.round(srcW * 0.90);
+      Math.round(srcW * 0.94);
 
     const cropH =
-      Math.round(srcH * 0.48);
+      Math.round(srcH * 0.61);
 
     /* =====================================================
        3. OCR용 이미지 생성
@@ -6471,10 +6473,11 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         words.length
       );
 
+    // 행이 서로 합쳐지지 않도록 OCR 글자 높이에 맞춰 허용 오차를 낮춘다.
     const rowTolerance =
       Math.max(
-        12,
-        avgHeight * 0.9
+        10,
+        avgHeight * 0.72
       );
 
     const rows = [];
@@ -6616,97 +6619,173 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
        코드 후보를 찾는다.
     ===================================================== */
 
+    const levenshtein = (a, b) => {
+      const aa = String(a || "");
+      const bb = String(b || "");
+      if (!aa) return bb.length;
+      if (!bb) return aa.length;
+
+      const prev = Array.from(
+        { length: bb.length + 1 },
+        (_, i) => i
+      );
+
+      for (let i = 1; i <= aa.length; i++) {
+        let left = i;
+        let diagonal = i - 1;
+
+        for (let j = 1; j <= bb.length; j++) {
+          const up = prev[j];
+          const next = Math.min(
+            prev[j] + 1,
+            left + 1,
+            diagonal + (aa[i - 1] === bb[j - 1] ? 0 : 1)
+          );
+          prev[j] = left;
+          left = next;
+          diagonal = up;
+        }
+        prev[0] = i;
+      }
+
+      return prev[bb.length];
+    };
+
     const findCodeInRow =
       (row) => {
 
         const joined =
           row.words
-            .map(
-              (word) =>
-                word.text
-            )
+            .map((word) => word.text)
             .join("");
 
         const spaced =
           row.words
-            .map(
-              (word) =>
-                word.text
-            )
+            .map((word) => word.text)
             .join(" ");
 
         const candidates =
-          [
-            joined,
-            spaced,
-            row.text,
-          ];
+          [joined, spaced, row.text]
+            .map(normalizeCode)
+            .filter(Boolean);
 
-        /* 먼저 등록된 코드와 정확 비교 */
-
-        for (
-          const [normalizedCode] of itemMap
-        ) {
-
-          for (
-            const source of candidates
-          ) {
-
-            const normalizedSource =
-              normalizeCode(
-                source
-              );
-
+        /*
+          1) 같은 OCR 행 안에서만 먼저 정확 매칭
+             → 이전처럼 전체 자재마스터를 무작정 검색하지 않음
+        */
+        for (const [normalizedCode] of itemMap) {
+          for (const normalizedSource of candidates) {
             if (
-              normalizedSource ===
-              normalizedCode
+              normalizedSource === normalizedCode ||
+              normalizedSource.includes(normalizedCode)
             ) {
-
               return {
-                code:
-                  normalizedCode,
-
-                exact:
-                  true,
-              };
-            }
-
-            /*
-              OCR 결과가
-
-              2-BOLT-HEX12-002
-
-              또는
-
-              2 BOLT HEX12 002
-
-              처럼 나뉘어도
-              동일한 행에서만 검사
-            */
-
-            if (
-              normalizedSource.includes(
-                normalizedCode
-              )
-            ) {
-
-              return {
-                code:
-                  normalizedCode,
-
-                exact:
-                  true,
+                code: normalizedCode,
+                exact: true,
+                distance: 0,
               };
             }
           }
         }
 
         /*
-          등록되지 않은 신규 코드 후보
+          2) OCR이 O/0, I/1, 한 글자 누락처럼 조금 틀린 경우만
+             "현재 행"에서 제한적으로 보정한다.
 
-          현재 화면 타입의 코드만 허용
+             전체 OCR에서 찾지 않고, 코드 길이에 비례한 작은 오차만 허용.
         */
+        let best = null;
 
+        for (const [normalizedCode] of itemMap) {
+          const tolerance =
+            normalizedCode.length >= 16
+              ? 2
+              : normalizedCode.length >= 10
+                ? 1
+                : 1;
+
+          for (const normalizedSource of candidates) {
+            if (
+              normalizedSource.length < normalizedCode.length - tolerance
+            ) {
+              continue;
+            }
+
+            const minLen =
+              Math.max(
+                4,
+                normalizedCode.length - tolerance
+              );
+
+            const maxLen =
+              Math.min(
+                normalizedSource.length,
+                normalizedCode.length + tolerance
+              );
+
+            for (
+              let len = minLen;
+              len <= maxLen;
+              len++
+            ) {
+              for (
+                let start = 0;
+                start <= normalizedSource.length - len;
+                start++
+              ) {
+                const piece =
+                  normalizedSource.slice(
+                    start,
+                    start + len
+                  );
+
+                if (
+                  !piece.startsWith(codePrefix)
+                ) {
+                  continue;
+                }
+
+                const distance =
+                  levenshtein(
+                    normalizedCode,
+                    piece
+                  );
+
+                if (
+                  distance > tolerance
+                ) {
+                  continue;
+                }
+
+                if (
+                  !best ||
+                  distance < best.distance ||
+                  (
+                    distance === best.distance &&
+                    normalizedCode.length > best.code.length
+                  )
+                ) {
+                  best = {
+                    code: normalizedCode,
+                    exact: false,
+                    distance,
+                  };
+                }
+
+                if (distance === 0) break;
+              }
+              if (best?.distance === 0) break;
+            }
+          }
+        }
+
+        if (best) {
+          return best;
+        }
+
+        /*
+          3) 미등록 신규 코드 후보
+        */
         const rawCandidates =
           (
             `${joined} ${spaced}`
@@ -6715,57 +6794,19 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
               ) || []
           );
 
-        for (
-          const candidate
-          of rawCandidates
-        ) {
-
+        for (const candidate of rawCandidates) {
           const normalized =
-            normalizeCode(
-              candidate
-            );
+            normalizeCode(candidate);
 
-          if (
-            !normalized.startsWith(
-              codePrefix
-            )
-          ) {
-            continue;
-          }
-
-          /*
-            너무 짧거나
-            숫자만 있는 것은 제외
-          */
-
-          if (
-            normalized.length < 6
-          ) {
-            continue;
-          }
-
-          if (
-            !/[A-Z]/.test(
-              normalized
-            )
-          ) {
-            continue;
-          }
-
-          if (
-            !/\d/.test(
-              normalized
-            )
-          ) {
-            continue;
-          }
+          if (!normalized.startsWith(codePrefix)) continue;
+          if (normalized.length < 6) continue;
+          if (!/[A-Z]/.test(normalized)) continue;
+          if (!/\d/.test(normalized)) continue;
 
           return {
-            code:
-              normalized,
-
-            exact:
-              false,
+            code: normalized,
+            exact: false,
+            distance: null,
           };
         }
 
@@ -6860,10 +6901,43 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     tableRows.forEach(
       (row) => {
 
-        const found =
+        let found =
           findCodeInRow(
             row
           );
+
+        /*
+          OCR이 한 품목의 코드를 위/아래 두 줄로 쪼개는 경우를 보정.
+          인접 행만 합쳐서 다시 검사하므로 전체 자재 검색으로 인한 오인식은 막는다.
+        */
+        if (!found) {
+          const rowIndex =
+            tableRows.indexOf(row);
+
+          const neighbors =
+            [
+              tableRows[rowIndex - 1],
+              tableRows[rowIndex + 1],
+            ].filter(Boolean);
+
+          for (const neighbor of neighbors) {
+            const merged = {
+              ...row,
+              words:
+                [...row.words, ...neighbor.words]
+                  .sort((a, b) => a.x - b.x),
+              text:
+                `${row.text} ${neighbor.text}`,
+            };
+
+            found =
+              findCodeInRow(
+                merged
+              );
+
+            if (found) break;
+          }
+        }
 
         if (!found) return;
 

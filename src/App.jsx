@@ -6564,7 +6564,110 @@ const compactVariants = (value) => {
         }
       }
     }
+    // -----------------------------------------------------
+    // 2.5차: OCR 전체 텍스트 기반 마스터 코드 재확인
+    //
+    // 거래명세서 표에서는 코드가
+    //
+    // 2-STOCK-A
+    // CCY-621
+    //
+    // 처럼 줄바꿈되어 인식될 수 있다.
+    //
+    // 따라서 OCR 전체 텍스트에서 공백/줄바꿈/하이픈을 제거한 뒤
+    // 실제 자재마스터 코드와 정확하게 비교한다.
+    // -----------------------------------------------------
 
+    const documentCompactText = String(rawText || "")
+      .toUpperCase()
+      .replace(/[‐-‒–—―]/g, "")
+      .replace(/[\s\r\n_-]+/g, "")
+      .replace(/[^A-Z0-9]/g, "");
+
+    for (const masterCode of masterMap.keys()) {
+      const masterFlat = String(masterCode)
+        .toUpperCase()
+        .replace(/[‐-‒–—―]/g, "")
+        .replace(/[\s\r\n_-]+/g, "")
+        .replace(/[^A-Z0-9]/g, "");
+
+      if (
+        masterFlat.length >= 6 &&
+        documentCompactText.includes(masterFlat)
+      ) {
+        // 이미 위의 좌표 분석에서 찾은 코드는 중복 등록하지 않음
+        if (!detectedCodes.has(masterCode)) {
+          // 원본 OCR에서 코드가 등장한 위치를 최대한 찾음
+          let foundIndex = rawLines.findIndex((line) => {
+            const lineFlat = String(line.text || "")
+              .toUpperCase()
+              .replace(/[‐-‒–—―]/g, "")
+              .replace(/[\s\r\n_-]+/g, "")
+              .replace(/[^A-Z0-9]/g, "");
+
+            return (
+              lineFlat.includes(masterFlat) ||
+              masterFlat.includes(lineFlat)
+            );
+          });
+
+          // 코드가 여러 줄로 나뉜 경우
+          if (foundIndex < 0) {
+            for (let i = 0; i < rawLines.length; i++) {
+              let joined = "";
+
+              for (
+                let j = i;
+                j < Math.min(i + 5, rawLines.length);
+                j++
+              ) {
+                joined += String(rawLines[j].text || "");
+
+                const joinedFlat = joined
+                  .toUpperCase()
+                  .replace(/[‐-‒–—―]/g, "")
+                  .replace(/[\s\r\n_-]+/g, "")
+                  .replace(/[^A-Z0-9]/g, "");
+
+                if (joinedFlat.includes(masterFlat)) {
+                  foundIndex = i;
+
+                  pushDetected(masterCode, {
+                    start: i,
+                    end: j,
+                    lines: rawLines
+                      .slice(i, j + 1)
+                      .map((row) => row.text),
+                    y: i,
+                    x: 0,
+                    exact: true,
+                  });
+
+                  break;
+                }
+              }
+
+              if (detectedCodes.has(masterCode)) break;
+            }
+          }
+
+          // 한 줄에서 찾은 경우
+          if (
+            foundIndex >= 0 &&
+            !detectedCodes.has(masterCode)
+          ) {
+            pushDetected(masterCode, {
+              start: foundIndex,
+              end: foundIndex,
+              lines: [rawLines[foundIndex].text],
+              y: foundIndex,
+              x: 0,
+              exact: true,
+            });
+          }
+        }
+      }
+    }
     // 실제 문서의 위→아래 순서 유지
     detectedRows.sort(
       (a, b) => a.y - b.y || a.x - b.x || a.start - b.start

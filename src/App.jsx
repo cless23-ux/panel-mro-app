@@ -6148,44 +6148,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     }));
   };
 
-  // 공통 Vision API 호출 함수
-  // - 25초 넘게 응답이 없으면 강제 중단
-  // - 서버가 502/504(타임아웃류)로 응답하면 딱 1회만 재시도
-  const callVisionApi = async (imageData, allowRetry) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
-
-    let response;
-    try {
-      response = await fetch("/api/vision", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: imageData }),
-        signal: controller.signal,
-      });
-    } catch (fetchErr) {
-      clearTimeout(timeoutId);
-      if (fetchErr.name === "AbortError") {
-        throw new Error("OCR 응답 시간이 초과되었습니다.");
-      }
-      throw fetchErr;
-    }
-    clearTimeout(timeoutId);
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      const isRetryable = response.status === 502 || response.status === 504;
-      if (allowRetry && isRetryable) {
-        await new Promise((r) => setTimeout(r, 800));
-        return callVisionApi(imageData, false);
-      }
-      throw new Error(result?.error || "Google Vision OCR 요청 실패");
-    }
-
-    return String(result?.text || "");
-  };
-
   try {
     const image = await new Promise((resolve, reject) => {
       const img = new Image();
@@ -6197,7 +6159,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     const srcW = image.naturalWidth || image.width;
     const srcH = image.naturalHeight || image.height;
 
-    // 1차 시도: 거래명세서의 자재표 영역을 넉넉하게 크롭
+    // 거래명세서의 자재표 영역을 넉넉하게 사용
     const cropX = Math.round(srcW * 0.03);
     const cropY = Math.round(srcH * 0.30);
     const cropW = Math.round(srcW * 0.94);
@@ -6212,37 +6174,24 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     canvas.height = height;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     ctx.drawImage(image, cropX, cropY, cropW, cropH, 0, 0, width, height);
+
     const imageData = canvas.toDataURL("image/jpeg", 0.92);
 
-    let rawText = "";
-    try {
-      rawText = await callVisionApi(imageData, true);
-    } catch (err) {
-      console.error("1차 크롭 OCR 실패:", err);
+    const response = await fetch("/api/vision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: imageData }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result?.error || "Google Vision OCR 요청 실패");
     }
 
-    // 2차 폴백: 크롭 결과가 비었을 때만 원본 전체 이미지로 시도
+    const rawText = String(result?.text || "");
     if (!rawText.trim()) {
-      const fullScale = Math.min(1, maxSide / Math.max(srcW, srcH));
-      const fullWidth = Math.max(1, Math.round(srcW * fullScale));
-      const fullHeight = Math.max(1, Math.round(srcH * fullScale));
-
-      const fullCanvas = document.createElement("canvas");
-      fullCanvas.width = fullWidth;
-      fullCanvas.height = fullHeight;
-      const fullCtx = fullCanvas.getContext("2d", { willReadFrequently: true });
-      fullCtx.drawImage(image, 0, 0, fullWidth, fullHeight);
-      const fullImageData = fullCanvas.toDataURL("image/jpeg", 0.92);
-
-      try {
-        rawText = await callVisionApi(fullImageData, true);
-      } catch (retryErr) {
-        console.error("전체 이미지 재시도 실패:", retryErr);
-      }
-    }
-
-    if (!rawText.trim()) {
-      throw new Error("사진에서 텍스트를 인식하지 못했습니다. 다시 촬영해 주세요.");
+      throw new Error("사진에서 텍스트를 인식하지 못했습니다.");
     }
 
     setOcrText(rawText);
@@ -6256,6 +6205,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
     const codePrefix = materialType === "raw" ? "1-" : "2-";
 
+    // 원본 OCR 줄 보존: 한 단어만 있는 줄도 절대 버리지 않는다.
     const rawLines = rawText
       .replace(/\r/g, "")
       .split("\n")
@@ -6268,6 +6218,8 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       if (key && key.startsWith(codePrefix)) masterMap.set(key, item);
     });
 
+    // 코드가 두 줄로 분리된 경우를 먼저 재구성한다.
+    // 예: 2-STOCK-ACCY- + 863 => 2-STOCK-ACCY-863
     const logicalRows = [];
     for (let i = 0; i < rawLines.length; i++) {
       const current = rawLines[i];
@@ -6294,6 +6246,8 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         consumed = true;
       }
 
+      // OCR이 "2-STOCK-ACCY-"와 "863"을 완전히 별도 줄로 낸 경우
+      // 현재 행 + 다음 행을 코드 후보로 항상 한 번 검사할 수 있게 후보 배열 보존
       const candidates = [text];
       if (next && startsAsCode) {
         candidates.push(`${current.text}${next.text}`);
@@ -6315,6 +6269,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         const normalized = normalizeCode(source);
         if (masterMap.has(normalized)) return normalized;
 
+        // 문서 행 안에서만 정확한 등록 코드 검색
         for (const key of masterMap.keys()) {
           if (normalized === key) return key;
           if (normalized.includes(key)) return key;
@@ -6347,6 +6302,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     };
 
     const findQtyForBlock = (row) => {
+      // 해당 품목 행 + 바로 뒤 몇 줄만 검사. 다음 품목 코드가 나오면 중단.
       const block = [];
       for (let i = row.sourceStart; i <= Math.min(rawLines.length - 1, row.sourceEnd + 4); i++) {
         if (i > row.sourceEnd) {
@@ -6356,6 +6312,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
         block.push(rawLines[i].text);
       }
 
+      // 한 줄에 여러 숫자가 있으면 마지막 숫자를 우선 사용
       const nums = block
         .flatMap((line) => [...String(line).matchAll(/(?<![A-Z0-9])(\d{1,6})(?![A-Z0-9])/gi)])
         .map((m) => Number(m[1]))
@@ -6397,6 +6354,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
       return;
     }
 
+    // 실제 품목을 하나 이상 찾은 경우에만 성공 처리
     addOcrUsage(true);
 
     setInvoiceData({

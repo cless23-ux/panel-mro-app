@@ -31,8 +31,8 @@ export default async function handler(req, res) {
 
     // Vercel 환경변수에서 Google 서비스 계정 정보 읽기
     const credentials = JSON.parse(
-      process.env.GOOGLE_VISION_CREDENTIALS
-    );
+  process.env.GOOGLE_VISION_CREDENTIALS
+);
 
     // Google 인증 토큰 생성
     const jwt = await getAccessToken(credentials);
@@ -67,24 +67,11 @@ export default async function handler(req, res) {
     const result = await visionResponse.json();
 
     if (!visionResponse.ok) {
-      console.error("Vision HTTP 오류:", result);
+      console.error(result);
+
       return res.status(500).json({
-        success: false,
         error: "Google Vision OCR 오류",
         details: result,
-      });
-    }
-
-    // HTTP 상태는 200이지만 Vision이 내부적으로 에러를 반환하는 경우
-    // (예: code 4 = DEADLINE_EXCEEDED, 타임아웃)
-    const innerError = result?.responses?.[0]?.error;
-    if (innerError) {
-      console.error("Vision 내부 오류:", innerError);
-      return res.status(502).json({
-        success: false,
-        error: innerError.message || "Vision API 내부 오류",
-        code: innerError.code,
-        raw: result,
       });
     }
 
@@ -101,7 +88,6 @@ export default async function handler(req, res) {
     console.error("Vision API Error:", error);
 
     return res.status(500).json({
-      success: false,
       error: error.message || "OCR 처리 중 오류가 발생했습니다.",
     });
   }

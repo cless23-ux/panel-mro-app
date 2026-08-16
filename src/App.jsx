@@ -6130,23 +6130,6 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     return window.Tesseract;
   };
 
- /**
- * 기존 InboundView 컴포넌트 안의
- *   const runInvoiceOcr = async (file) => { ... };
- * 함수 전체를 아래 내용으로 통째로 교체하세요.
- *
- * [수정 요약]
- * 1) 누락돼 있던 parseNumber 헬퍼 추가
- *    -> 이전에는 "ReferenceError: parseNumber is not defined" 로
- *       분석 단계에서 매번 크래시가 나서 OCR이 아예 동작하지 않았습니다.
- * 2) 자재코드 매칭을 line-match -> wrapped-match(셀 줄바꿈) -> document-match
- *    3단계로 정리해서, 표 셀 안에서 코드가 두 줄로 잘려도 인식되게 함.
- * 3) 수량은 "수량" 헤더 컬럼의 x좌표를 찾아 그 열의 숫자를 우선 사용
- *    -> 프로젝트코드/계약번호(PO)/단가 등 다른 숫자를 잘못 집는 문제 완화.
- * 4) 확신도(ocrConfident)를 같이 반환해서, 수량을 못 찾은 항목은
- *    화면에서 바로 알아볼 수 있게 함(기본값 1로 채워짐).
- */
-
 const runInvoiceOcr = async (file) => {
   if (!file || ocrLoading) return;
 
@@ -6165,8 +6148,6 @@ const runInvoiceOcr = async (file) => {
     }));
   };
 
-  // 콤마·공백·단위 문자가 섞여도 숫자만 안전하게 뽑아내는 헬퍼
-  // (기존 코드에 이 정의가 빠져 있어서 OCR 분석이 항상 실패했습니다)
   const parseNumber = (raw) => {
     if (raw === null || raw === undefined) return null;
     const cleaned = String(raw).trim().replace(/[,\s]/g, "");
@@ -6219,7 +6200,7 @@ const runInvoiceOcr = async (file) => {
     if (!rawText.trim()) throw new Error("사진에서 텍스트를 인식하지 못했습니다.");
     setOcrText(rawText);
 
-    /* ===== 1) 자재마스터 코드 정규화 ===== */
+    /* ===== 자재마스터 코드 정규화 ===== */
     const normalizeCode = (value) =>
       String(value || "")
         .toUpperCase()
@@ -6235,12 +6216,11 @@ const runInvoiceOcr = async (file) => {
       if (!code || flat.length < 6) return; // 너무 짧은 코드는 오탐 방지를 위해 제외
       masterList.push({ code, flat, item });
     });
-
     if (masterList.length === 0) {
       throw new Error("비교할 자재마스터 코드가 없습니다. 자재마스터를 먼저 등록해 주세요.");
     }
 
-    /* ===== 2) Vision 좌표 -> 표의 "행" 단위로 재구성 ===== */
+    /* ===== Vision 좌표 → 행(줄) 단위 재구성 ===== */
     const getVertices = (box) => {
       const vertices = box?.vertices || [];
       if (!vertices.length) return null;
@@ -6302,32 +6282,54 @@ const runInvoiceOcr = async (file) => {
       });
     }
 
-    /* ===== 3) "수량" 헤더 컬럼 위치 탐지 ===== */
-    const findHeaderColumn = (keyword) => {
-      for (const line of layoutLines) {
-        for (let i = 0; i < line.words.length; i++) {
-          let combined = "";
-          let left = line.words[i].left;
-          let right = line.words[i].right;
-          for (let j = i; j < line.words.length && combined.length < keyword.length + 4; j++) {
-            combined += line.words[j].text.replace(/\s+/g, "");
-            right = line.words[j].right;
-            if (combined.includes(keyword)) {
-              return { left, right, center: (left + right) / 2, y: line.y };
+    /* ===== 헤더 컬럼(수량 / 단가 / 계약번호) 위치 탐지 ===== */
+    const findHeaderColumn = (keywords) => {
+      for (const keyword of keywords) {
+        for (const line of layoutLines) {
+          for (let i = 0; i < line.words.length; i++) {
+            let combined = "";
+            let left = line.words[i].left;
+            let right = line.words[i].right;
+            for (let j = i; j < line.words.length && combined.length < keyword.length + 4; j++) {
+              combined += line.words[j].text.replace(/\s+/g, "");
+              right = line.words[j].right;
+              if (combined.includes(keyword)) {
+                return { left, right, center: (left + right) / 2, y: line.y };
+              }
             }
           }
         }
       }
       return null;
     };
-    const qtyHeader = hasLayout ? findHeaderColumn("수량") : null;
-    const priceHeader = hasLayout ? findHeaderColumn("단가") : null;
-    const qtyColLeft = qtyHeader ? qtyHeader.left - 60 : null;
-    const qtyColRight = qtyHeader
-      ? (priceHeader && priceHeader.left > qtyHeader.center ? priceHeader.left : qtyHeader.center + 120)
-      : null;
 
-    /* ===== 4) 같은 줄 안에서 코드가 온전히 읽힌 경우 (1차 매칭) ===== */
+    const qtyHeader = hasLayout ? findHeaderColumn(["수량"]) : null;
+    const priceHeader = hasLayout ? findHeaderColumn(["단가"]) : null;
+    const contractHeader = hasLayout ? findHeaderColumn(["계약번호", "(PO)"]) : null;
+
+    // 옆 컬럼 헤더를 못 찾았을 때 쓸 대략적인 컬럼 폭(과도하게 넓히지 않기 위함)
+    const avgColGap =
+      priceHeader && qtyHeader
+        ? Math.max(60, Math.abs(priceHeader.center - qtyHeader.center))
+        : contractHeader && qtyHeader
+        ? Math.max(60, Math.abs(qtyHeader.center - contractHeader.center))
+        : 150;
+
+    // "수량" 열의 좌/우 경계: 인접 헤더(계약번호/단가)의 중간 지점을 우선 사용
+    // -> 이래야 계약번호(PO) 칸 숫자가 수량으로 잘못 섞이지 않습니다.
+    const qtyColLeft = !qtyHeader
+      ? null
+      : contractHeader && contractHeader.center < qtyHeader.center
+      ? (contractHeader.right + qtyHeader.left) / 2
+      : qtyHeader.left - avgColGap * 0.6;
+
+    const qtyColRight = !qtyHeader
+      ? null
+      : priceHeader && priceHeader.center > qtyHeader.center
+      ? (qtyHeader.right + priceHeader.left) / 2
+      : qtyHeader.right + avgColGap * 0.6;
+
+    /* ===== 1차 매칭: 같은 줄 안에서 코드가 온전히 읽힌 경우 ===== */
     const detected = new Map();
 
     if (hasLayout) {
@@ -6335,7 +6337,14 @@ const runInvoiceOcr = async (file) => {
         masterList.forEach((m) => {
           if (detected.has(m.code)) return;
           if (line.flat.includes(m.flat)) {
-            detected.set(m.code, { code: m.code, item: m.item, y: line.y, line, source: "line-match" });
+            detected.set(m.code, {
+              code: m.code,
+              item: m.item,
+              y: line.y,
+              yMin: line.y - line.avgHeight,
+              yMax: line.y + line.avgHeight,
+              source: "line-match",
+            });
           }
         });
       });
@@ -6345,13 +6354,17 @@ const runInvoiceOcr = async (file) => {
         masterList.forEach((m) => {
           if (detected.has(m.code)) return;
           if (flat.includes(m.flat)) {
-            detected.set(m.code, { code: m.code, item: m.item, y: idx, line: null, source: "line-match" });
+            detected.set(m.code, { code: m.code, item: m.item, y: idx, yMin: idx, yMax: idx, source: "line-match" });
           }
         });
       });
     }
 
-    /* ===== 5) 표 셀 줄바꿈으로 코드가 여러 줄에 걸쳐 찍힌 경우 (2차 매칭) ===== */
+    /* ===== 2차 매칭: 표 셀 줄바꿈으로 코드가 여러 줄에 걸쳐 찍힌 경우 =====
+       전체 문서를 좌표 순서대로 훑으며 코드 글자를 순서대로 이어붙여 확인합니다.
+       다른 열의 글자가 중간에 끼어도 건너뛰되, 세로로 너무 멀어지면 중단합니다.
+       (여기까지가 전부입니다 — 이전 버전에 있던 "문서 전체 대조" 3차 안전망은
+        유령 품목을 만들어내서 완전히 제거했습니다) */
     if (hasLayout) {
       const stream = [...visionWords].sort((a, b) => a.y - b.y || a.x - b.x);
       masterList.forEach((m) => {
@@ -6363,34 +6376,36 @@ const runInvoiceOcr = async (file) => {
           let cursor = firstFlat.length;
           let lastWord = stream[start];
           let used = 1;
+          let yMin = stream[start].y;
+          let yMax = stream[start].y;
 
           for (let j = start + 1; j < stream.length && used < 8 && cursor < m.flat.length; j++) {
-            if (stream[j].y - lastWord.y > lastWord.height * 3.5) break; // 너무 먼 줄은 이어붙이지 않음
+            if (stream[j].y - lastWord.y > lastWord.height * 3.5) break;
             const candFlat = stream[j].text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
             if (!candFlat) continue;
             if (m.flat.slice(cursor).startsWith(candFlat)) {
               cursor += candFlat.length;
               lastWord = stream[j];
               used += 1;
+              yMin = Math.min(yMin, stream[j].y);
+              yMax = Math.max(yMax, stream[j].y);
             }
           }
 
           if (cursor === m.flat.length) {
-            detected.set(m.code, { code: m.code, item: m.item, y: stream[start].y, line: null, source: "wrapped-match" });
+            detected.set(m.code, {
+              code: m.code,
+              item: m.item,
+              y: (yMin + yMax) / 2,
+              yMin,
+              yMax,
+              source: "wrapped-match",
+            });
             break;
           }
         }
       });
     }
-
-    /* ===== 6) 최후 안전망: 문서 전체 원문에 그대로 존재하는지 확인 ===== */
-    const wholeFlat = rawText.replace(/\s+/g, "").toUpperCase();
-    masterList.forEach((m) => {
-      if (detected.has(m.code)) return;
-      if (wholeFlat.includes(m.flat)) {
-        detected.set(m.code, { code: m.code, item: m.item, y: 999999, line: null, source: "document-match" });
-      }
-    });
 
     if (detected.size === 0) {
       addOcrUsage(false);
@@ -6401,59 +6416,49 @@ const runInvoiceOcr = async (file) => {
       return;
     }
 
-    /* ===== 7) 행별 수량 판독 ===== */
+    /* ===== 행별 수량 판독 =====
+       "수량" 헤더와 같은 x열(계약번호~단가 사이)에 있는 숫자 조각들을
+       위→아래 순서로 모아 이어붙인 뒤 하나의 숫자로 변환합니다.
+       예: "1,00" + "0" → "1,000" → 1000
+       옆 칸(계약번호/단가/금액)의 숫자는 x범위 밖이라 애초에 섞이지 않습니다. */
     const findQtyForRow = (row) => {
-      const candidates = [];
+      if (!hasLayout) return { qty: 1, confident: false };
 
-      if (hasLayout) {
-        const rowTolerance = Math.max(30, (row.line?.avgHeight || 24) * 1.6);
-        const nearbyLines = layoutLines.filter((line) => Math.abs(line.y - row.y) <= rowTolerance);
+      const rowTolerance = Math.max(30, (row.yMax - row.yMin) / 2 + 24);
+      const nearbyLines = layoutLines.filter((line) => {
+        const lineTop = line.y - line.avgHeight / 2;
+        const lineBottom = line.y + line.avgHeight / 2;
+        return lineBottom >= row.yMin - rowTolerance && lineTop <= row.yMax + rowTolerance;
+      });
 
-        // 1순위: "수량" 헤더와 같은 x열에 있는 숫자
-        if (qtyHeader) {
-          nearbyLines.forEach((line) => {
-            line.words.forEach((word) => {
-              if (word.x < qtyColLeft || word.x > qtyColRight) return;
-              const val = parseNumber(word.text);
-              if (val !== null) {
-                candidates.push({ val, dist: Math.abs(word.x - qtyHeader.center) + Math.abs(line.y - row.y) });
-              }
-            });
+      // 1순위: 수량 컬럼 x범위 안의 숫자 조각을 이어붙여 복원
+      if (qtyHeader && qtyColLeft !== null && qtyColRight !== null) {
+        const wordsInCol = [];
+        nearbyLines.forEach((line) => {
+          line.words.forEach((word) => {
+            if (word.x >= qtyColLeft && word.x <= qtyColRight) wordsInCol.push(word);
           });
-        }
-
-        // 2순위: "숫자 + 단위(EA/PCS/SET 등)" 패턴
-        if (candidates.length === 0) {
-          nearbyLines.forEach((line) => {
-            const unitMatch = line.text.match(/(\d[\d,]*)\s*(?:EA|PCS?|SET|BAG|ROLL|BOX|M|KG)\b/i);
-            if (unitMatch) {
-              const val = parseNumber(unitMatch[1]);
-              if (val !== null) candidates.push({ val, dist: 0 });
-            }
-          });
-        }
-
-        // 3순위: 코드 오른쪽에 있는 가장 가까운 숫자
-        if (candidates.length === 0 && row.line) {
-          nearbyLines.forEach((line) => {
-            line.words.forEach((word) => {
-              if (word.left < row.line.right) return;
-              const val = parseNumber(word.text);
-              if (val !== null) candidates.push({ val, dist: word.left - row.line.right });
-            });
-          });
-        }
-      } else if (row.line?.text) {
-        const unitMatch = row.line.text.match(/(\d[\d,]*)\s*(?:EA|PCS?|SET|BAG|ROLL|BOX|M|KG)\b/i);
-        if (unitMatch) {
-          const val = parseNumber(unitMatch[1]);
-          if (val !== null) candidates.push({ val, dist: 0 });
+        });
+        if (wordsInCol.length > 0) {
+          wordsInCol.sort((a, b) => a.y - b.y || a.x - b.x);
+          const combined = wordsInCol.map((w) => w.text).join("");
+          const val = parseNumber(combined);
+          if (val !== null && val > 0) return { qty: val, confident: true };
         }
       }
 
-      if (candidates.length === 0) return { qty: 1, confident: false };
-      candidates.sort((a, b) => a.dist - b.dist);
-      return { qty: candidates[0].val, confident: true };
+      // 2순위: "수량" 헤더를 아예 못 찾았을 때만 "숫자+단위(EA 등)" 패턴 사용
+      if (!qtyHeader) {
+        for (const line of nearbyLines) {
+          const unitMatch = line.text.match(/(\d[\d,]*)\s*(?:EA|PCS?|SET|BAG|ROLL|BOX|KG)\b/i);
+          if (unitMatch) {
+            const val = parseNumber(unitMatch[1]);
+            if (val !== null) return { qty: val, confident: false };
+          }
+        }
+      }
+
+      return { qty: 1, confident: false };
     };
 
     const resultList = [];

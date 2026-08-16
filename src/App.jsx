@@ -7245,8 +7245,8 @@ keyCode = String(keyCode)
 
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontSize: 11, color: ocrConfident === false ? "#f59e0b" : "#94a3b8" }}>
-+   명세: {docQty} EA{ocrConfident === false ? " ⚠︎ 확인필요" : ""}
-+ </div>
+   명세: {docQty} EA{ocrConfident === false ? " ⚠︎ 확인필요" : ""}
+ </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
                           <span style={{ fontSize: 11, color: "#38bdf8" }}>실입고:</span>
                           <input

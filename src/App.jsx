@@ -6389,49 +6389,79 @@ console.log(rawText);
     }
 
     // =====================================================
-    // OCR 코드 탐지 - 분리 코드 전용 정확 매칭
+    // OCR 코드 탐지 - 범용형
     //
-    // 중요:
-    // - 자재마스터와 "정확히 같은 코드"만 인정
-    // - 단, OCR이 한 코드를 여러 줄/여러 단어로 나눈 경우
-    //   실제 OCR 조각을 순서대로 연결해서 정확히 비교
-    // - 유사 코드 / 포함 관계 / 추측 매칭은 사용하지 않음
+    // 핵심:
+    // 1) OCR 문서에서 실제로 읽힌 문자 조각만 사용
+    // 2) 자재마스터 코드의 문자 순서를 그대로 따라가야 확정
+    // 3) 코드 조각 사이에 품명/규격/수량/프로젝트 텍스트가 끼어 있어도 건너뜀
+    // 4) 유사코드/부분코드/레벤슈타인 추측은 사용하지 않음
+    //
+    // 예:
+    // 2-STOCK-A
+    // 1000EA=1B
+    // 1
+    // T/L:2.5SQX4Y
+    // CCY-621
+    //
+    // → 2STOCKA + CCY621
+    // → 마스터 2-STOCK-ACCY-621 정확 일치
     // =====================================================
 
-    const flatExact = (value) =>
-      String(value || "")
+    // normalizeCode / flatCode / masterMap / masterFlatMap은
+    // OCR 함수 앞에서 한 번만 선언되어 있으며 여기서는 그대로 재사용한다.
+
+    // -----------------------------------------------------
+    // OCR 단어/행을 "순서가 보존된 토큰 스트림"으로 만든다.
+    // -----------------------------------------------------
+    const tokenFromText = (textValue) => {
+      const original = String(textValue || "").trim();
+      const flat = original
         .toUpperCase()
-        .replace(/[‐-‒–—―]/g, "-")
+        .replace(/[‐-‒–—―]/g, "")
         .replace(/[^A-Z0-9]/g, "");
 
-    // OCR에서 자주 발생하는 문자 혼동만 제한적으로 보정한다.
-    // 유사 코드 추측은 하지 않고, 보정 후에도 마스터 코드와 전체 일치해야 한다.
-    const ocrExactVariants = (value) => {
-      const original = flatExact(value);
-      const variants = new Set([original]);
-
-      if (original) {
-        variants.add(original.replace(/O/g, "0"));
-        variants.add(original.replace(/Q/g, "0"));
-        variants.add(original.replace(/[IL]/g, "1"));
-        variants.add(
-          original
-            .replace(/O/g, "0")
-            .replace(/Q/g, "0")
-            .replace(/[IL]/g, "1")
-        );
-      }
-
-      return [...variants].filter(Boolean);
+      return {
+        original,
+        flat,
+      };
     };
+
+    const visionTokenStream = hasLayout
+      ? [...visionWords]
+          .sort((a, b) => a.y - b.y || a.x - b.x)
+          .map((word) => ({
+            ...tokenFromText(word.text),
+            y: word.y,
+            x: word.x,
+            left: word.left,
+            right: word.right,
+            height: word.height,
+          }))
+          .filter((item) => item.flat)
+      : [];
+
+    const rawTokenStream = rawLines
+      .map((row) => ({
+        ...tokenFromText(row.text),
+        index: row.index,
+      }))
+      .filter((item) => item.flat);
 
     const detectedRows = [];
     const detectedCodes = new Set();
 
     const pushDetected = (code, payload = {}) => {
-      if (!code || detectedCodes.has(code) || !masterMap.has(code)) return;
+      if (
+        !code ||
+        detectedCodes.has(code) ||
+        !masterMap.has(code)
+      ) {
+        return;
+      }
 
       detectedCodes.add(code);
+
       detectedRows.push({
         code,
         start: payload.start ?? -1,
@@ -6441,307 +6471,183 @@ console.log(rawText);
         x: payload.x ?? 0,
         left: payload.left ?? payload.x ?? 0,
         right: payload.right ?? payload.x ?? 0,
-        lineIndex: payload.lineIndex ?? -1,
-        source: payload.source || "exact",
+        source: payload.source || "ordered-subsequence",
       });
     };
 
-    // 여러 OCR 조각을 붙인 결과가 마스터 코드와 정확히 일치할 때만 등록
-    const tryExact = (value, payload) => {
-      const variants = ocrExactVariants(value);
-
-      for (const flat of variants) {
-        if (!flat || flat.length < 6) continue;
-
-        const code = masterFlatMap.get(flat);
-        if (!code) continue;
-
-        pushDetected(code, payload);
-        return code;
-      }
-
-      return null;
-    };
-
     // -----------------------------------------------------
-    // 공통: 순서가 유지된 OCR 조각의 모든 연속 조합 검사
-    // 예:
-    //   2-STOCK-A
-    //   CCY-621
-    // 또는
-    //   2 / -STOCK / -A / CCY / -621
+    // 핵심 탐색
+    //
+    // 마스터 코드를 여러 OCR 토큰에 걸쳐 순서대로 맞춘다.
+    //
+    // "선택된 토큰들"을 이어 붙였을 때
+    // 마스터 코드 전체와 정확히 같아야 한다.
+    //
+    // 중간의 unrelated token은 건너뛸 수 있다.
     // -----------------------------------------------------
-    const scanExactWindows = (
-      parts,
-      getText,
-      makePayload,
-      maxWindow = 12
+    const findMasterByOrderedTokens = (
+      tokens,
+      tokenIndexToPayload
     ) => {
-      for (let i = 0; i < parts.length; i++) {
-        let joined = "";
+      const results = [];
 
-        for (
-          let j = i;
-          j < Math.min(parts.length, i + maxWindow);
-          j++
-        ) {
-          const piece = String(getText(parts[j]) || "");
-          if (!piece) continue;
+      if (!tokens.length) return results;
 
-          joined += piece;
+      for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
+        if (masterFlat.length < 6) continue;
 
-          const matched = tryExact(
-            joined,
-            makePayload(i, j, joined)
-          );
+        // 이미 찾았으면 중복 탐색하지 않는다.
+        if (detectedCodes.has(masterCode)) continue;
 
-          // 정확히 하나를 찾았어도 계속 검사해서
-          // 문서 안의 다른 코드도 누락되지 않게 한다.
-        }
-      }
-    };
+        // 코드의 첫 문자를 포함하는 토큰부터 시작한다.
+        for (let start = 0; start < tokens.length; start++) {
+          const first = tokens[start].flat;
 
-    // -----------------------------------------------------
-    // 0차: 실제 거래명세서 분리 코드 전용 매칭
-    //
-    // 실제 OCR 예:
-    //   2-STOCK-A
-    //   1000EA=1B
-    //   1
-    //   T/L:2.5SQX4Y
-    //   CCY-621
-    //
-    // 코드 조각 사이에 수량/규격이 끼어 있으므로 "인접 줄 연결"이 아니라
-    // 마스터 코드의 앞부분과 정확히 이어지는 OCR 조각만 선택한다.
-    // -----------------------------------------------------
-    const findSplitMasterCodes = () => {
-      const rows = rawLines.map((row) => ({
-        ...row,
-        flat: flatExact(row.text),
-      }));
+          if (!first) continue;
 
-      for (let start = 0; start < rows.length; start++) {
-        const startFlat = rows[start].flat;
-
-        // 코드 시작 후보는 실제 마스터 코드의 시작 부분이어야 한다.
-        if (!startFlat || startFlat.length < 3) continue;
-
-        for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
-          if (
-            masterFlat.length < 6 ||
-            !masterFlat.startsWith(startFlat)
-          ) {
+          // 반드시 코드 시작 부분과 일치해야 한다.
+          if (!masterFlat.startsWith(first)) {
             continue;
           }
 
-          let assembled = startFlat;
-          const usedRows = [rows[start]];
-          const maxSearch = Math.min(rows.length, start + 14);
+          let cursor = first.length;
 
-          for (let i = start + 1; i < maxSearch; i++) {
-            if (assembled === masterFlat) break;
+          if (cursor === masterFlat.length) {
+            results.push({
+              code: masterCode,
+              tokenIndexes: [start],
+            });
+            break;
+          }
 
-            const piece = rows[i].flat;
-            if (!piece) continue;
+          const tokenIndexes = [start];
 
-            const remaining = masterFlat.slice(assembled.length);
+          // start 이후에서 masterFlat의 남은 문자열을 순서대로 찾는다.
+          for (
+            let j = start + 1;
+            j < tokens.length &&
+            tokenIndexes.length < 12;
+            j++
+          ) {
+            const candidate = tokens[j].flat;
+            if (!candidate) continue;
 
-            // 다음 OCR 줄이 남은 코드의 정확한 앞부분일 때만 채택.
-            // 수량/규격/프로젝트 번호 등은 자동으로 건너뛴다.
-            if (
-              remaining.startsWith(piece) &&
-              piece.length >= 1
-            ) {
-              assembled += piece;
-              usedRows.push(rows[i]);
+            const remaining =
+              masterFlat.slice(cursor);
 
-              if (assembled === masterFlat) {
-                pushDetected(masterCode, {
-                  start: rows[start].index,
-                  end: rows[i].index,
-                  lines: usedRows.map((row) => row.text),
-                  y: rows[start].index,
-                  x: 0,
-                  left: 0,
-                  right: 0,
-                  lineIndex: rows[start].index,
-                  source: "split-master-prefix",
+            // 현재 토큰이 남은 코드의 정확한 앞부분일 때만 채택.
+            if (remaining.startsWith(candidate)) {
+              cursor += candidate.length;
+              tokenIndexes.push(j);
+
+              if (cursor === masterFlat.length) {
+                results.push({
+                  code: masterCode,
+                  tokenIndexes,
                 });
                 break;
               }
+
+              // 남은 문자열이 아직 있는데
+              // 코드 중간에서 현재 토큰이 완전히 소비되지 않았다면
+              // 이 경로는 잘못된 조합이므로 중단.
+              continue;
             }
+
+            // 코드 시작 조각 이후에 다른 토큰이 끼는 것은 허용.
+            // 단, 현재 후보가 남은 코드의 일부를 "부분적으로"
+            // 맞추면서 틀리는 경우에는 선택하지 않는다.
+          }
+
+          if (
+            results.some(
+              (result) =>
+                result.code === masterCode
+            )
+          ) {
+            break;
           }
         }
+      }
+
+      for (const result of results) {
+        const indexes = result.tokenIndexes;
+        const first = tokens[indexes[0]];
+        const last = tokens[indexes[indexes.length - 1]];
+
+        const payload =
+          tokenIndexToPayload(indexes);
+
+        pushDetected(result.code, {
+          start: payload.start,
+          end: payload.end,
+          lines: payload.lines,
+          y: first.y ?? payload.y ?? 0,
+          x: first.x ?? payload.x ?? 0,
+          left: first.left ?? 0,
+          right: last.right ?? payload.right ?? 0,
+          source: "ordered-subsequence",
+        });
       }
     };
 
-    findSplitMasterCodes();
-
-    // 1차: Google Vision 원본 단어 순서
-    // 같은 줄에서 잘린 코드에 가장 강함
-    if (hasLayout && visionWords.length) {
-      const readingWords = [...visionWords].sort(
-        (a, b) => a.y - b.y || a.x - b.x
-      );
-
-      scanExactWindows(
-        readingWords,
-        (word) => word.text,
-        (i, j) => {
-          const first = readingWords[i];
-          const last = readingWords[j];
-
-          return {
-            start: i,
-            end: j,
-            lines: readingWords
-              .slice(i, j + 1)
-              .map((word) => word.text),
-            y: first.y,
-            x: first.left,
-            left: first.left,
-            right: last.right,
-            lineIndex: i,
-            source: "vision-word-window",
-          };
-        },
-        12
-      );
-    }
-
-    // 2차: OCR 텍스트 줄 순서
-    // 코드가 정확히 두 줄/세 줄로 나뉜 경우
-    scanExactWindows(
-      rawLines,
-      (row) => row.text,
-      (i, j) => {
-        const first = rawLines[i];
-        const last = rawLines[j];
+    // 1차: Vision word stream
+    findMasterByOrderedTokens(
+      visionTokenStream,
+      (indexes) => {
+        const selected = indexes
+          .map((i) => visionTokenStream[i])
+          .filter(Boolean);
 
         return {
-          start: first.index,
-          end: last.index,
-          lines: rawLines
-            .slice(i, j + 1)
-            .map((row) => row.text),
-          y: first.index,
-          x: 0,
-          left: 0,
-          right: 0,
-          lineIndex: first.index,
-          source: "raw-line-window",
+          start: indexes[0],
+          end: indexes[indexes.length - 1],
+          lines: selected.map(
+            (item) => item.original
+          ),
+          y: selected[0]?.y ?? 0,
+          x: selected[0]?.x ?? 0,
+          right:
+            selected[selected.length - 1]?.right ?? 0,
         };
-      },
-      6
+      }
     );
 
-    // 3차: 좌표 기반 세로 코드 블록
-    // 시작 조각과 같은 열 근처의 다음 조각만 연결한다.
-    // 중간에 다른 열의 품명/규격/수량이 끼는 문제를 방지한다.
-    if (hasLayout) {
-      for (const startLine of layoutLines) {
-        for (const startWord of startLine.words) {
-          const chain = [startWord];
-          let prev = startWord;
+    // 2차: Raw OCR line stream
+    findMasterByOrderedTokens(
+      rawTokenStream,
+      (indexes) => {
+        const selected = indexes
+          .map((i) => rawTokenStream[i])
+          .filter(Boolean);
 
-          // 시작 조각부터 정확 일치 여부 검사
-          tryExact(startWord.text, {
-            start: startLine.index,
-            end: startLine.index,
-            lines: [startWord.text],
-            y: startWord.y,
-            x: startWord.left,
-            left: startWord.left,
-            right: startWord.right,
-            lineIndex: startLine.index,
-            source: "column-chain",
-          });
-
-          for (
-            let li = startLine.index + 1;
-            li < Math.min(layoutLines.length, startLine.index + 8);
-            li++
-          ) {
-            const nextLine = layoutLines[li];
-
-            const verticalGap = nextLine.y - prev.y;
-            const maxGap = Math.max(
-              180,
-              Math.max(prev.height || 0, startWord.height || 0) * 10
-            );
-
-            if (verticalGap > maxGap) break;
-
-            // X 중심뿐 아니라 왼쪽 경계도 고려
-            // 두 줄 코드가 약간 들여쓰기 되어도 허용
-            const candidates = nextLine.words
-              .map((word) => {
-                const centerDistance = Math.abs(word.x - prev.x);
-                const leftDistance = Math.abs(
-                  word.left - prev.left
-                );
-
-                return {
-                  word,
-                  distance: Math.min(
-                    centerDistance,
-                    leftDistance
-                  ),
-                };
-              })
-              .filter(
-                ({ distance }) =>
-                  distance <= Math.max(
-                    260,
-                    startWord.width * 4
-                  )
-              )
-              .sort((a, b) => a.distance - b.distance);
-
-            if (!candidates.length) continue;
-
-            const next = candidates[0].word;
-
-            chain.push(next);
-
-            const joined = chain
-              .map((word) => word.text)
-              .join("");
-
-            tryExact(joined, {
-              start: startLine.index,
-              end: nextLine.index,
-              lines: chain.map((word) => word.text),
-              y: startWord.y,
-              x: startWord.left,
-              left: Math.min(
-                ...chain.map((word) => word.left)
-              ),
-              right: Math.max(
-                ...chain.map((word) => word.right)
-              ),
-              lineIndex: startLine.index,
-              source: "same-column-chain",
-            });
-
-            prev = next;
-          }
-        }
+        return {
+          start:
+            selected[0]?.index ?? -1,
+          end:
+            selected[selected.length - 1]?.index ?? -1,
+          lines:
+            selected.map(
+              (item) => item.original
+            ),
+          y:
+            selected[0]?.index ?? 0,
+          x: 0,
+          right: 0,
+        };
       }
-    }
+    );
 
-    // 4차: OCR 원문 전체에서 "실제 문자 순서가 연속된" 코드만 검사
-    // 하이픈/공백/줄바꿈만 제거한 정확 비교
-    const rawFlatVariants = ocrExactVariants(rawText);
+    // 3차: 마스터 코드 전체가 OCR 원문에 문자 순서대로
+    // 그대로 존재하는 경우 마지막 안전망
+    const rawFlatAll = flatCode(rawText);
 
     for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
-      const found = rawFlatVariants.some(
-        (rawFlat) =>
-          masterFlat.length >= 6 &&
-          rawFlat.includes(masterFlat)
-      );
-
-      if (found) {
+      if (
+        masterFlat.length >= 6 &&
+        rawFlatAll.includes(masterFlat) &&
+        !detectedCodes.has(masterCode)
+      ) {
         pushDetected(masterCode, {
           start: -1,
           end: -1,

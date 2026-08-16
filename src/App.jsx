@@ -6282,6 +6282,11 @@ const runInvoiceOcr = async (file) => {
       });
     }
 
+    console.log(
+      "=== OCR 줄 단위 인식 ===",
+      layoutLines.map((l) => l.text)
+    );
+
     /* ===== "수량" 관련 헤더 위치 탐지 (실패해도 안전하게 폴백되므로 유지) ===== */
     const findHeaderColumn = (keywords) => {
       for (const keyword of keywords) {
@@ -6358,12 +6363,12 @@ const runInvoiceOcr = async (file) => {
     }
 
     /* ===== 2차 매칭: 표 셀 줄바꿈으로 코드가 여러 줄에 걸쳐 찍힌 경우 =====
-       좌표 임계값을 전혀 쓰지 않습니다. "줄바꿈은 항상 바로 다음 물리적
-       줄로 이어진다"는 사실만 이용해서, 어떤 줄의 글자 조각(코드 앞부분과
-       일치)을 바로 다음 줄(필요하면 그 다음 줄까지)의 글자 조각과
-       이어붙였을 때 코드 전체와 "완전히 정확하게" 일치하는 경우만
-       인정합니다. 사진이 기울어져 있어도 영향을 받지 않고, 정확히
-       일치해야 하므로 유령 품목이 생길 여지가 거의 없습니다. */
+       "바로 다음 줄"만 보지 않고, 다음 몇 줄(최대 5줄) 안에서 정확히
+       이어붙는 조합을 찾습니다. 좌표 임계값(픽셀 거리)은 쓰지 않고,
+       "완전히 정확하게 일치"해야만 인정하므로 유령 품목 위험은 낮게
+       유지됩니다. */
+    const LOOKAHEAD = 5;
+
     const tryWrappedMatch = (m) => {
       for (let i = 0; i < layoutLines.length; i++) {
         const line1 = layoutLines[i];
@@ -6371,35 +6376,38 @@ const runInvoiceOcr = async (file) => {
           const f1 = w1.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
           if (!f1 || f1.length < 3 || f1.length >= m.flat.length || !m.flat.startsWith(f1)) continue;
 
-          const line2 = layoutLines[i + 1];
-          if (!line2) continue;
+          const jEnd = Math.min(layoutLines.length, i + 1 + LOOKAHEAD);
+          for (let j = i + 1; j < jEnd; j++) {
+            const line2 = layoutLines[j];
+            for (const w2 of line2.words) {
+              const f2 = w2.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+              if (!f2) continue;
+              const twoLine = f1 + f2;
 
-          for (const w2 of line2.words) {
-            const f2 = w2.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-            if (!f2) continue;
-            const twoLine = f1 + f2;
+              if (twoLine === m.flat) {
+                return {
+                  y: (line1.y + line2.y) / 2,
+                  yMin: line1.y - line1.avgHeight,
+                  yMax: line2.y + line2.avgHeight,
+                };
+              }
 
-            if (twoLine === m.flat) {
-              return {
-                y: (line1.y + line2.y) / 2,
-                yMin: line1.y - line1.avgHeight,
-                yMax: line2.y + line2.avgHeight,
-              };
-            }
-
-            // 3줄에 걸쳐 잘린 경우까지 대비 (드문 케이스)
-            if (twoLine.length < m.flat.length && m.flat.startsWith(twoLine)) {
-              const line3 = layoutLines[i + 2];
-              if (!line3) continue;
-              for (const w3 of line3.words) {
-                const f3 = w3.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-                if (!f3) continue;
-                if (twoLine + f3 === m.flat) {
-                  return {
-                    y: (line1.y + line3.y) / 2,
-                    yMin: line1.y - line1.avgHeight,
-                    yMax: line3.y + line3.avgHeight,
-                  };
+              // 3줄에 걸쳐 잘린 경우까지 대비
+              if (twoLine.length < m.flat.length && m.flat.startsWith(twoLine)) {
+                const kEnd = Math.min(layoutLines.length, j + 1 + LOOKAHEAD);
+                for (let k = j + 1; k < kEnd; k++) {
+                  const line3 = layoutLines[k];
+                  for (const w3 of line3.words) {
+                    const f3 = w3.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+                    if (!f3) continue;
+                    if (twoLine + f3 === m.flat) {
+                      return {
+                        y: (line1.y + line3.y) / 2,
+                        yMin: line1.y - line1.avgHeight,
+                        yMax: line3.y + line3.avgHeight,
+                      };
+                    }
+                  }
                 }
               }
             }

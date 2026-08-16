@@ -6331,40 +6331,10 @@ const runInvoiceOcr = async (file) => {
       ? (qtyHeader.right + priceHeader.left) / 2
       : qtyHeader.right + avgColGap * 0.6;
 
-    /* ===== 코드 매칭 =====
-       1) 빠른 경로: 같은 줄 안에 코드가 순서대로 온전히 있으면 즉시 인정.
-       2) 느린 경로(줄 순서가 뒤섞였거나 여러 줄에 걸친 경우): 후보 지점
-          주변 몇 줄의 글자 조각을 모아 놓고, "순서 상관없이" 그 조각들을
-          재조합해서 코드 전체와 정확히 같아지는 조합이 있는지 직접
-          탐색합니다. 조각은 항상 통째로만 사용합니다(쪼개서 일부만
-          쓰지 않음) — 그래서 다른 칸 숫자의 일부만 잘라 붙여 엉뚱한
-          코드를 만들어내는 유령 품목 문제를 방지합니다. */
-    const buildCodeFromPool = (tokens, target) => {
-      const n = tokens.length;
-      const used = new Array(n).fill(false);
-      const dfs = (built) => {
-        if (built === target) return true;
-        if (built.length >= target.length) return false;
-        for (let i = 0; i < n; i++) {
-          if (used[i]) continue;
-          const next = built + tokens[i];
-          if (target.startsWith(next)) {
-            used[i] = true;
-            if (dfs(next)) return true;
-            used[i] = false;
-          }
-        }
-        return false;
-      };
-      return dfs("");
-    };
-
-    const WINDOW = 4; // 몇 개의 줄을 하나의 창으로 묶어 재조합을 시도할지
-
     const detected = new Map();
 
+    /* ===== 1단계: 같은 줄 안에서 코드가 순서대로 온전히 읽힌 경우 ===== */
     if (hasLayout) {
-      // 1) 빠른 경로: 같은 줄 그대로 매칭
       layoutLines.forEach((line) => {
         masterList.forEach((m) => {
           if (detected.has(m.code)) return;
@@ -6380,40 +6350,6 @@ const runInvoiceOcr = async (file) => {
           }
         });
       });
-
-      // 2) 느린 경로: 순서 무관 재조합
-      masterList.forEach((m) => {
-        if (detected.has(m.code)) return;
-        for (let i = 0; i < layoutLines.length; i++) {
-          const windowLines = layoutLines.slice(i, i + WINDOW);
-          if (windowLines.length === 0) break;
-
-          const pool = [];
-          windowLines.forEach((line) => {
-            line.words.forEach((w) => {
-              const f = w.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-              if (f) pool.push(f);
-            });
-          });
-
-          const poolTotalLen = pool.reduce((s, t) => s + t.length, 0);
-          if (poolTotalLen < m.flat.length) continue;
-
-          if (buildCodeFromPool(pool, m.flat)) {
-            const firstLine = windowLines[0];
-            const lastLine = windowLines[windowLines.length - 1];
-            detected.set(m.code, {
-              code: m.code,
-              item: m.item,
-              y: (firstLine.y + lastLine.y) / 2,
-              yMin: firstLine.y - firstLine.avgHeight,
-              yMax: lastLine.y + lastLine.avgHeight,
-              source: "window-match",
-            });
-            break;
-          }
-        }
-      });
     } else {
       rawText.split("\n").forEach((text, idx) => {
         const flat = text.replace(/\s+/g, "").toUpperCase();
@@ -6424,6 +6360,118 @@ const runInvoiceOcr = async (file) => {
           }
         });
       });
+    }
+
+    /* ===== 2단계: 줄 순서가 정상인 경우 - 인접한 몇 줄에서 순서대로
+       정확히 이어붙는 조합을 찾음 (여전히 안전한 방식) ===== */
+    if (hasLayout) {
+      const LOOKAHEAD = 5;
+      const tryOrderedWrappedMatch = (m) => {
+        for (let i = 0; i < layoutLines.length; i++) {
+          const line1 = layoutLines[i];
+          for (const w1 of line1.words) {
+            const f1 = w1.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+            if (!f1 || f1.length < 3 || f1.length >= m.flat.length || !m.flat.startsWith(f1)) continue;
+
+            const jEnd = Math.min(layoutLines.length, i + 1 + LOOKAHEAD);
+            for (let j = i + 1; j < jEnd; j++) {
+              const line2 = layoutLines[j];
+              for (const w2 of line2.words) {
+                const f2 = w2.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+                if (!f2) continue;
+                const twoLine = f1 + f2;
+                if (twoLine === m.flat) {
+                  return { y: (line1.y + line2.y) / 2, yMin: line1.y - line1.avgHeight, yMax: line2.y + line2.avgHeight };
+                }
+                if (twoLine.length < m.flat.length && m.flat.startsWith(twoLine)) {
+                  const kEnd = Math.min(layoutLines.length, j + 1 + LOOKAHEAD);
+                  for (let k = j + 1; k < kEnd; k++) {
+                    const line3 = layoutLines[k];
+                    for (const w3 of line3.words) {
+                      const f3 = w3.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+                      if (!f3) continue;
+                      if (twoLine + f3 === m.flat) {
+                        return { y: (line1.y + line3.y) / 2, yMin: line1.y - line1.avgHeight, yMax: line3.y + line3.avgHeight };
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        return null;
+      };
+
+      masterList.forEach((m) => {
+        if (detected.has(m.code)) return;
+        const hit = tryOrderedWrappedMatch(m);
+        if (hit) detected.set(m.code, { code: m.code, item: m.item, ...hit, source: "wrapped-match" });
+      });
+    }
+
+    /* ===== 3단계(최후의 수단): 줄 순서가 뒤섞인 드문 경우 - 순서 무관
+       재조합. 단, 같은 글자 조각 묶음에서 동시에 여러 개의 서로 다른
+       코드가 만들어질 수 있으면 애매하다고 보고 전부 무시합니다. ===== */
+    if (hasLayout) {
+      const buildCodeFromPool = (tokens, target) => {
+        const n = tokens.length;
+        const used = new Array(n).fill(false);
+        const dfs = (built) => {
+          if (built === target) return true;
+          if (built.length >= target.length) return false;
+          for (let i = 0; i < n; i++) {
+            if (used[i]) continue;
+            const next = built + tokens[i];
+            if (target.startsWith(next)) {
+              used[i] = true;
+              if (dfs(next)) return true;
+              used[i] = false;
+            }
+          }
+          return false;
+        };
+        return dfs("");
+      };
+
+      const WINDOW = 2; // 창을 좁게 유지해 서로 다른 행의 숫자가 섞여 애매해지는 것을 최소화
+      const remaining = masterList.filter((m) => !detected.has(m.code));
+
+      for (let i = 0; i < layoutLines.length && remaining.length; i++) {
+        const windowLines = layoutLines.slice(i, i + WINDOW);
+        if (!windowLines.length) break;
+
+        const pool = [];
+        windowLines.forEach((line) => {
+          line.words.forEach((w) => {
+            const f = w.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+            if (f) pool.push(f);
+          });
+        });
+        const poolTotalLen = pool.reduce((s, t) => s + t.length, 0);
+
+        const candidates = [];
+        remaining.forEach((m) => {
+          if (detected.has(m.code)) return;
+          if (poolTotalLen < m.flat.length) return;
+          if (buildCodeFromPool(pool, m.flat)) candidates.push(m);
+        });
+
+        // 이 조각 묶음에서 정확히 하나의 코드만 만들어질 때만 신뢰합니다.
+        if (candidates.length === 1) {
+          const m = candidates[0];
+          const firstLine = windowLines[0];
+          const lastLine = windowLines[windowLines.length - 1];
+          detected.set(m.code, {
+            code: m.code,
+            item: m.item,
+            y: (firstLine.y + lastLine.y) / 2,
+            yMin: firstLine.y - firstLine.avgHeight,
+            yMax: lastLine.y + lastLine.avgHeight,
+            source: "pool-match",
+          });
+        }
+      }
     }
 
     if (detected.size === 0) {

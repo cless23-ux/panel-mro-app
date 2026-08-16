@@ -6130,7 +6130,24 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     return window.Tesseract;
   };
 
- const runInvoiceOcr = async (file) => {
+ /**
+ * 기존 InboundView 컴포넌트 안의
+ *   const runInvoiceOcr = async (file) => { ... };
+ * 함수 전체를 아래 내용으로 통째로 교체하세요.
+ *
+ * [수정 요약]
+ * 1) 누락돼 있던 parseNumber 헬퍼 추가
+ *    -> 이전에는 "ReferenceError: parseNumber is not defined" 로
+ *       분석 단계에서 매번 크래시가 나서 OCR이 아예 동작하지 않았습니다.
+ * 2) 자재코드 매칭을 line-match -> wrapped-match(셀 줄바꿈) -> document-match
+ *    3단계로 정리해서, 표 셀 안에서 코드가 두 줄로 잘려도 인식되게 함.
+ * 3) 수량은 "수량" 헤더 컬럼의 x좌표를 찾아 그 열의 숫자를 우선 사용
+ *    -> 프로젝트코드/계약번호(PO)/단가 등 다른 숫자를 잘못 집는 문제 완화.
+ * 4) 확신도(ocrConfident)를 같이 반환해서, 수량을 못 찾은 항목은
+ *    화면에서 바로 알아볼 수 있게 함(기본값 1로 채워짐).
+ */
+
+const runInvoiceOcr = async (file) => {
   if (!file || ocrLoading) return;
 
   const previewUrl = URL.createObjectURL(file);
@@ -6148,155 +6165,93 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     }));
   };
 
+  // 콤마·공백·단위 문자가 섞여도 숫자만 안전하게 뽑아내는 헬퍼
+  // (기존 코드에 이 정의가 빠져 있어서 OCR 분석이 항상 실패했습니다)
+  const parseNumber = (raw) => {
+    if (raw === null || raw === undefined) return null;
+    const cleaned = String(raw).trim().replace(/[,\s]/g, "");
+    if (!cleaned) return null;
+    const match = cleaned.match(/-?\d+(?:\.\d+)?/);
+    if (!match) return null;
+    const num = Number(match[0]);
+    return Number.isFinite(num) ? num : null;
+  };
+
   try {
-   const imageData = await new Promise((resolve, reject) => {
-  const img = new Image();
-  const reader = new FileReader();
-
-  reader.onload = () => {
-    img.onload = () => {
-      try {
-        const maxSize = 1600;
-
-        let width = img.naturalWidth;
-        let height = img.naturalHeight;
-
-        const scale = Math.min(
-          1,
-          maxSize / Math.max(width, height)
-        );
-
-        width = Math.max(1, Math.round(width * scale));
-        height = Math.max(1, Math.round(height * scale));
-
-        const canvas = document.createElement("canvas");
-
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext("2d");
-
-        // 전체 이미지를 그대로 축소
-        ctx.drawImage(img, 0, 0, width, height);
-
-        resolve(
-          canvas.toDataURL("image/jpeg", 0.85)
-        );
-      } catch (error) {
-        reject(error);
-      }
-    };
-
-    img.onerror = () => {
-      reject(
-        new Error("이미지를 처리하지 못했습니다.")
-      );
-    };
-
-    img.src = reader.result;
-  };
-
-  reader.onerror = () => {
-    reject(
-      new Error("이미지 파일을 읽지 못했습니다.")
-    );
-  };
-
-  reader.readAsDataURL(file);
-});
+    const imageData = await new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = () => {
+        img.onload = () => {
+          try {
+            const maxSize = 1600;
+            let width = img.naturalWidth;
+            let height = img.naturalHeight;
+            const scale = Math.min(1, maxSize / Math.max(width, height));
+            width = Math.max(1, Math.round(width * scale));
+            height = Math.max(1, Math.round(height * scale));
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL("image/jpeg", 0.85));
+          } catch (error) {
+            reject(error);
+          }
+        };
+        img.onerror = () => reject(new Error("이미지를 처리하지 못했습니다."));
+        img.src = reader.result;
+      };
+      reader.onerror = () => reject(new Error("이미지 파일을 읽지 못했습니다."));
+      reader.readAsDataURL(file);
+    });
 
     const response = await fetch("/api/vision", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ image: imageData }),
     });
-
     const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result?.error || "Google Vision OCR 요청 실패");
-    }
+    if (!response.ok) throw new Error(result?.error || "Google Vision OCR 요청 실패");
 
     const rawText = String(result?.text || "");
-    console.log("=== GOOGLE VISION OCR RESULT ===");
-console.log(result);
-console.log("=== OCR TEXT ===");
-console.log(rawText);
-    if (!rawText.trim()) {
-      throw new Error("사진에서 텍스트를 인식하지 못했습니다.");
-    }
-
+    if (!rawText.trim()) throw new Error("사진에서 텍스트를 인식하지 못했습니다.");
     setOcrText(rawText);
 
-    // =====================================================
-    // OCR 자재코드 + 수량 분석 (표 행 기준 안정화 버전)
-    //
-    // 핵심 원칙
-    // 1. 자재마스터에 존재하는 코드만 인정한다.
-    // 2. 코드와 수량은 "주변 텍스트"가 아니라 OCR 좌표의 같은 행/인접 행으로 연결한다.
-    // 3. 다른 품목 코드 안의 숫자(예: ACCY-621)를 수량으로 절대 사용하지 않는다.
-    // 4. 수량을 확신할 수 없으면 기본값 1로 두고 사용자가 확인한다.
-    // =====================================================
-    // =====================================================
-    // OCR 자재코드 탐지
-    //
-    // 원칙:
-    // - "마스터 코드 후보를 OCR에 억지로 맞추지 않는다"
-    // - 대신 OCR에서 실제로 연속/분리되어 읽힌 문자열을 여러 방식으로
-    //   재조합한 뒤, 마스터 코드와 충분한 길이의 일치/포함 관계만 인정한다.
-    // - 이전 버전에서 실제 품목 탐지에 성공했던 넓은 탐지 범위를 유지하되
-    //   최종 등록 대상은 반드시 현재 자재마스터 코드로 제한한다.
-    // =====================================================
+    /* ===== 1) 자재마스터 코드 정규화 ===== */
     const normalizeCode = (value) =>
       String(value || "")
         .toUpperCase()
         .replace(/[‐-‒–—―]/g, "-")
         .replace(/\s+/g, "")
         .replace(/[^A-Z0-9_-]/g, "");
+    const flatCode = (value) => normalizeCode(value).replace(/[-_]/g, "");
 
-    const flatCode = (value) =>
-      normalizeCode(value).replace(/[-_]/g, "");
-
-    // OCR 스캔에서는 materialType 값의 표기 차이 때문에
-    // 마스터 코드가 비어 버리는 일을 막기 위해 현재 materialItems 전체를 사용한다.
-    // 최종적으로는 반드시 실제 마스터 코드와 정확 비교한다.
-    const masterMap = new Map();
-    const masterFlatMap = new Map();
-
+    const masterList = [];
     materialItems.forEach((item) => {
       const code = normalizeCode(item?.code);
-      if (!code) return;
-
-      masterMap.set(code, item);
-      masterFlatMap.set(flatCode(code), code);
+      const flat = flatCode(code);
+      if (!code || flat.length < 6) return; // 너무 짧은 코드는 오탐 방지를 위해 제외
+      masterList.push({ code, flat, item });
     });
 
-    const rawLines = rawText
-      .replace(/\r/g, "")
-      .split("\n")
-      .map((text, index) => ({
-        text: String(text || "").trim(),
-        index,
-      }))
-      .filter((row) => row.text);
+    if (masterList.length === 0) {
+      throw new Error("비교할 자재마스터 코드가 없습니다. 자재마스터를 먼저 등록해 주세요.");
+    }
 
+    /* ===== 2) Vision 좌표 -> 표의 "행" 단위로 재구성 ===== */
     const getVertices = (box) => {
       const vertices = box?.vertices || [];
       if (!vertices.length) return null;
-
       const xs = vertices.map((v) => Number(v?.x || 0));
       const ys = vertices.map((v) => Number(v?.y || 0));
-
       const left = Math.min(...xs);
       const right = Math.max(...xs);
       const top = Math.min(...ys);
       const bottom = Math.max(...ys);
-
       return {
-        left,
-        right,
-        top,
-        bottom,
+        left, right, top, bottom,
         x: (left + right) / 2,
         y: (top + bottom) / 2,
         width: Math.max(1, right - left),
@@ -6304,28 +6259,15 @@ console.log(rawText);
       };
     };
 
-    // Google Vision 원본 단어 + 좌표
     const visionWords = [];
-    const pages =
-      result?.raw?.responses?.[0]?.fullTextAnnotation?.pages || [];
-
+    const pages = result?.raw?.responses?.[0]?.fullTextAnnotation?.pages || [];
     pages.forEach((page) => {
       (page.blocks || []).forEach((block) => {
         (block.paragraphs || []).forEach((paragraph) => {
-          (paragraph.words || []).forEach((word, wordIndex) => {
-            const text = (word.symbols || [])
-              .map((symbol) => symbol.text || "")
-              .join("");
-
+          (paragraph.words || []).forEach((word) => {
+            const text = (word.symbols || []).map((s) => s.text || "").join("");
             const box = getVertices(word.boundingBox);
-
-            if (text && box) {
-              visionWords.push({
-                text,
-                ...box,
-                wordIndex,
-              });
-            }
+            if (text && box) visionWords.push({ text, ...box });
           });
         });
       });
@@ -6333,473 +6275,218 @@ console.log(rawText);
 
     const hasLayout = visionWords.length > 0;
     const layoutLines = [];
-
-    // 실제 표의 같은 Y축 단어를 하나의 행으로 묶는다.
     if (hasLayout) {
       [...visionWords]
         .sort((a, b) => a.y - b.y || a.x - b.x)
         .forEach((word) => {
           const tolerance = Math.max(12, word.height * 0.9);
-
           let target = layoutLines.find(
-            (line) =>
-              Math.abs(line.y - word.y) <=
-              Math.max(tolerance, line.avgHeight * 0.9)
+            (line) => Math.abs(line.y - word.y) <= Math.max(tolerance, line.avgHeight * 0.9)
           );
-
           if (!target) {
-            target = {
-              words: [],
-              y: word.y,
-              avgHeight: word.height,
-            };
+            target = { words: [], y: word.y, avgHeight: word.height };
             layoutLines.push(target);
           }
-
           target.words.push(word);
-
-          target.y =
-            target.words.reduce(
-              (sum, item) => sum + item.y,
-              0
-            ) / target.words.length;
-
-          target.avgHeight =
-            target.words.reduce(
-              (sum, item) => sum + item.height,
-              0
-            ) / target.words.length;
+          target.y = target.words.reduce((s, w) => s + w.y, 0) / target.words.length;
+          target.avgHeight = target.words.reduce((s, w) => s + w.height, 0) / target.words.length;
         });
-
       layoutLines.sort((a, b) => a.y - b.y);
-
-      layoutLines.forEach((line, index) => {
-        line.index = index;
+      layoutLines.forEach((line, idx) => {
+        line.index = idx;
         line.words.sort((a, b) => a.x - b.x);
-        line.text = line.words
-          .map((word) => word.text)
-          .join(" ");
-        line.left = Math.min(
-          ...line.words.map((word) => word.left)
-        );
-        line.right = Math.max(
-          ...line.words.map((word) => word.right)
-        );
+        line.text = line.words.map((w) => w.text).join(" ");
+        line.flat = line.text.replace(/\s+/g, "").toUpperCase();
+        line.left = Math.min(...line.words.map((w) => w.left));
+        line.right = Math.max(...line.words.map((w) => w.right));
       });
     }
 
-    // =====================================================
-    // OCR 코드 탐지 - 범용형
-    //
-    // 핵심:
-    // 1) OCR 문서에서 실제로 읽힌 문자 조각만 사용
-    // 2) 자재마스터 코드의 문자 순서를 그대로 따라가야 확정
-    // 3) 코드 조각 사이에 품명/규격/수량/프로젝트 텍스트가 끼어 있어도 건너뜀
-    // 4) 유사코드/부분코드/레벤슈타인 추측은 사용하지 않음
-    //
-    // 예:
-    // 2-STOCK-A
-    // 1000EA=1B
-    // 1
-    // T/L:2.5SQX4Y
-    // CCY-621
-    //
-    // → 2STOCKA + CCY621
-    // → 마스터 2-STOCK-ACCY-621 정확 일치
-    // =====================================================
-
-    // normalizeCode / flatCode / masterMap / masterFlatMap은
-    // OCR 함수 앞에서 한 번만 선언되어 있으며 여기서는 그대로 재사용한다.
-
-    // -----------------------------------------------------
-    // OCR 단어/행을 "순서가 보존된 토큰 스트림"으로 만든다.
-    // -----------------------------------------------------
-    const tokenFromText = (textValue) => {
-      const original = String(textValue || "").trim();
-      const flat = original
-        .toUpperCase()
-        .replace(/[‐-‒–—―]/g, "")
-        .replace(/[^A-Z0-9]/g, "");
-
-      return {
-        original,
-        flat,
-      };
-    };
-
-    const visionTokenStream = hasLayout
-      ? [...visionWords]
-          .sort((a, b) => a.y - b.y || a.x - b.x)
-          .map((word) => ({
-            ...tokenFromText(word.text),
-            y: word.y,
-            x: word.x,
-            left: word.left,
-            right: word.right,
-            height: word.height,
-          }))
-          .filter((item) => item.flat)
-      : [];
-
-    const rawTokenStream = rawLines
-      .map((row) => ({
-        ...tokenFromText(row.text),
-        index: row.index,
-      }))
-      .filter((item) => item.flat);
-
-    const detectedRows = [];
-    const detectedCodes = new Set();
-
-    const pushDetected = (code, payload = {}) => {
-      if (
-        !code ||
-        detectedCodes.has(code) ||
-        !masterMap.has(code)
-      ) {
-        return;
-      }
-
-      detectedCodes.add(code);
-
-      detectedRows.push({
-        code,
-        start: payload.start ?? -1,
-        end: payload.end ?? payload.start ?? -1,
-        lines: payload.lines || [],
-        y: payload.y ?? 0,
-        x: payload.x ?? 0,
-        left: payload.left ?? payload.x ?? 0,
-        right: payload.right ?? payload.x ?? 0,
-        source: payload.source || "ordered-subsequence",
-      });
-    };
-
-    // -----------------------------------------------------
-    // 핵심 탐색
-    //
-    // 마스터 코드를 여러 OCR 토큰에 걸쳐 순서대로 맞춘다.
-    //
-    // "선택된 토큰들"을 이어 붙였을 때
-    // 마스터 코드 전체와 정확히 같아야 한다.
-    //
-    // 중간의 unrelated token은 건너뛸 수 있다.
-    // -----------------------------------------------------
-    const findMasterByOrderedTokens = (
-      tokens,
-      tokenIndexToPayload
-    ) => {
-      const results = [];
-
-      if (!tokens.length) return results;
-
-      for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
-        if (masterFlat.length < 6) continue;
-
-        // 이미 찾았으면 중복 탐색하지 않는다.
-        if (detectedCodes.has(masterCode)) continue;
-
-        // 코드의 첫 문자를 포함하는 토큰부터 시작한다.
-        for (let start = 0; start < tokens.length; start++) {
-          const first = tokens[start].flat;
-
-          if (!first) continue;
-
-          // 반드시 코드 시작 부분과 일치해야 한다.
-          if (!masterFlat.startsWith(first)) {
-            continue;
-          }
-
-          let cursor = first.length;
-
-          if (cursor === masterFlat.length) {
-            results.push({
-              code: masterCode,
-              tokenIndexes: [start],
-            });
-            break;
-          }
-
-          const tokenIndexes = [start];
-
-          // start 이후에서 masterFlat의 남은 문자열을 순서대로 찾는다.
-          for (
-            let j = start + 1;
-            j < tokens.length &&
-            tokenIndexes.length < 12;
-            j++
-          ) {
-            const candidate = tokens[j].flat;
-            if (!candidate) continue;
-
-            const remaining =
-              masterFlat.slice(cursor);
-
-            // 현재 토큰이 남은 코드의 정확한 앞부분일 때만 채택.
-            if (remaining.startsWith(candidate)) {
-              cursor += candidate.length;
-              tokenIndexes.push(j);
-
-              if (cursor === masterFlat.length) {
-                results.push({
-                  code: masterCode,
-                  tokenIndexes,
-                });
-                break;
-              }
-
-              // 남은 문자열이 아직 있는데
-              // 코드 중간에서 현재 토큰이 완전히 소비되지 않았다면
-              // 이 경로는 잘못된 조합이므로 중단.
-              continue;
+    /* ===== 3) "수량" 헤더 컬럼 위치 탐지 ===== */
+    const findHeaderColumn = (keyword) => {
+      for (const line of layoutLines) {
+        for (let i = 0; i < line.words.length; i++) {
+          let combined = "";
+          let left = line.words[i].left;
+          let right = line.words[i].right;
+          for (let j = i; j < line.words.length && combined.length < keyword.length + 4; j++) {
+            combined += line.words[j].text.replace(/\s+/g, "");
+            right = line.words[j].right;
+            if (combined.includes(keyword)) {
+              return { left, right, center: (left + right) / 2, y: line.y };
             }
+          }
+        }
+      }
+      return null;
+    };
+    const qtyHeader = hasLayout ? findHeaderColumn("수량") : null;
+    const priceHeader = hasLayout ? findHeaderColumn("단가") : null;
+    const qtyColLeft = qtyHeader ? qtyHeader.left - 60 : null;
+    const qtyColRight = qtyHeader
+      ? (priceHeader && priceHeader.left > qtyHeader.center ? priceHeader.left : qtyHeader.center + 120)
+      : null;
 
-            // 코드 시작 조각 이후에 다른 토큰이 끼는 것은 허용.
-            // 단, 현재 후보가 남은 코드의 일부를 "부분적으로"
-            // 맞추면서 틀리는 경우에는 선택하지 않는다.
+    /* ===== 4) 같은 줄 안에서 코드가 온전히 읽힌 경우 (1차 매칭) ===== */
+    const detected = new Map();
+
+    if (hasLayout) {
+      layoutLines.forEach((line) => {
+        masterList.forEach((m) => {
+          if (detected.has(m.code)) return;
+          if (line.flat.includes(m.flat)) {
+            detected.set(m.code, { code: m.code, item: m.item, y: line.y, line, source: "line-match" });
+          }
+        });
+      });
+    } else {
+      rawText.split("\n").forEach((text, idx) => {
+        const flat = text.replace(/\s+/g, "").toUpperCase();
+        masterList.forEach((m) => {
+          if (detected.has(m.code)) return;
+          if (flat.includes(m.flat)) {
+            detected.set(m.code, { code: m.code, item: m.item, y: idx, line: null, source: "line-match" });
+          }
+        });
+      });
+    }
+
+    /* ===== 5) 표 셀 줄바꿈으로 코드가 여러 줄에 걸쳐 찍힌 경우 (2차 매칭) ===== */
+    if (hasLayout) {
+      const stream = [...visionWords].sort((a, b) => a.y - b.y || a.x - b.x);
+      masterList.forEach((m) => {
+        if (detected.has(m.code)) return;
+        for (let start = 0; start < stream.length; start++) {
+          const firstFlat = stream[start].text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+          if (!firstFlat || !m.flat.startsWith(firstFlat)) continue;
+
+          let cursor = firstFlat.length;
+          let lastWord = stream[start];
+          let used = 1;
+
+          for (let j = start + 1; j < stream.length && used < 8 && cursor < m.flat.length; j++) {
+            if (stream[j].y - lastWord.y > lastWord.height * 3.5) break; // 너무 먼 줄은 이어붙이지 않음
+            const candFlat = stream[j].text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+            if (!candFlat) continue;
+            if (m.flat.slice(cursor).startsWith(candFlat)) {
+              cursor += candFlat.length;
+              lastWord = stream[j];
+              used += 1;
+            }
           }
 
-          if (
-            results.some(
-              (result) =>
-                result.code === masterCode
-            )
-          ) {
+          if (cursor === m.flat.length) {
+            detected.set(m.code, { code: m.code, item: m.item, y: stream[start].y, line: null, source: "wrapped-match" });
             break;
           }
         }
-      }
-
-      for (const result of results) {
-        const indexes = result.tokenIndexes;
-        const first = tokens[indexes[0]];
-        const last = tokens[indexes[indexes.length - 1]];
-
-        const payload =
-          tokenIndexToPayload(indexes);
-
-        pushDetected(result.code, {
-          start: payload.start,
-          end: payload.end,
-          lines: payload.lines,
-          y: first.y ?? payload.y ?? 0,
-          x: first.x ?? payload.x ?? 0,
-          left: first.left ?? 0,
-          right: last.right ?? payload.right ?? 0,
-          source: "ordered-subsequence",
-        });
-      }
-    };
-
-    // 1차: Vision word stream
-    findMasterByOrderedTokens(
-      visionTokenStream,
-      (indexes) => {
-        const selected = indexes
-          .map((i) => visionTokenStream[i])
-          .filter(Boolean);
-
-        return {
-          start: indexes[0],
-          end: indexes[indexes.length - 1],
-          lines: selected.map(
-            (item) => item.original
-          ),
-          y: selected[0]?.y ?? 0,
-          x: selected[0]?.x ?? 0,
-          right:
-            selected[selected.length - 1]?.right ?? 0,
-        };
-      }
-    );
-
-    // 2차: Raw OCR line stream
-    findMasterByOrderedTokens(
-      rawTokenStream,
-      (indexes) => {
-        const selected = indexes
-          .map((i) => rawTokenStream[i])
-          .filter(Boolean);
-
-        return {
-          start:
-            selected[0]?.index ?? -1,
-          end:
-            selected[selected.length - 1]?.index ?? -1,
-          lines:
-            selected.map(
-              (item) => item.original
-            ),
-          y:
-            selected[0]?.index ?? 0,
-          x: 0,
-          right: 0,
-        };
-      }
-    );
-
-    // 3차: 마스터 코드 전체가 OCR 원문에 문자 순서대로
-    // 그대로 존재하는 경우 마지막 안전망
-    const rawFlatAll = flatCode(rawText);
-
-    for (const [masterFlat, masterCode] of masterFlatMap.entries()) {
-      if (
-        masterFlat.length >= 6 &&
-        rawFlatAll.includes(masterFlat) &&
-        !detectedCodes.has(masterCode)
-      ) {
-        pushDetected(masterCode, {
-          start: -1,
-          end: -1,
-          lines: [masterCode],
-          y: 999999 + detectedRows.length,
-          x: 0,
-          source: "full-document-exact",
-        });
-      }
+      });
     }
 
-    detectedRows.sort(
-      (a, b) =>
-        a.y - b.y ||
-        a.x - b.x ||
-        a.start - b.start
-    );
-
-    const findQtyForItem = (current) => {
-      if (
-        hasLayout &&
-        Number.isFinite(current.y)
-      ) {
-        const sameRowTolerance =
-          Math.max(
-            18,
-            layoutLines
-              .reduce(
-                (best, line) =>
-                  Math.abs(line.y - current.y) <
-                  Math.abs((best?.y ?? Infinity) - current.y)
-                    ? line
-                    : best,
-                null
-              )
-              ?.avgHeight || 20
-          ) * 1.4;
-
-        const candidateLines = layoutLines
-          .filter(
-            (line) =>
-              Math.abs(line.y - current.y) <=
-              sameRowTolerance
-          )
-          .sort(
-            (a, b) =>
-              Math.abs(a.y - current.y) -
-              Math.abs(b.y - current.y)
-          );
-
-        // 1순위: 코드 오른쪽의 독립 숫자
-        for (const line of candidateLines) {
-          const numbers = line.words
-            .map((word) => ({
-              word,
-              value: parseNumber(word.text),
-            }))
-            .filter(
-              (item) =>
-                item.value !== null &&
-                item.word.left >=
-                  (current.right || current.x) + 8
-            )
-            .sort(
-              (a, b) =>
-                a.word.left - b.word.left
-            );
-
-          if (numbers.length) {
-            return numbers[0].value;
-          }
-        }
-
-        // 2순위: 같은 행의 "숫자 + 단위"
-        for (const line of candidateLines) {
-          const match = String(line.text).match(
-            /(?:^|\s)(\d{1,6}(?:\.\d+)?)\s*(?:EA|PCS?|SET|BAG|ROLL|BOX|M|KG)(?:\s|$)/i
-          );
-
-          if (match) {
-            const value = parseNumber(match[1]);
-            if (value !== null) return value;
-          }
-        }
+    /* ===== 6) 최후 안전망: 문서 전체 원문에 그대로 존재하는지 확인 ===== */
+    const wholeFlat = rawText.replace(/\s+/g, "").toUpperCase();
+    masterList.forEach((m) => {
+      if (detected.has(m.code)) return;
+      if (wholeFlat.includes(m.flat)) {
+        detected.set(m.code, { code: m.code, item: m.item, y: 999999, line: null, source: "document-match" });
       }
-
-      // 좌표를 신뢰할 수 없는 경우 명시적 단위만 허용
-      const text =
-        (current.lines || []).join(" ");
-
-      const explicit = text.match(
-        /(?:^|\s)(\d{1,6}(?:\.\d+)?)\s*(?:EA|PCS?|SET|BAG|ROLL|BOX|M|KG)(?:\s|$)/i
-      );
-
-      if (explicit) {
-        const value = parseNumber(explicit[1]);
-        if (value !== null) return value;
-      }
-
-      return 1;
-    };
-
-    // =====================================================
-    // 최종 OCR 품목
-    // - 마스터에 실제 존재하는 품목만 생성
-    // =====================================================
-    const resultList = [];
-
-    detectedRows.forEach((row) => {
-      const masterItem =
-        masterMap.get(row.code);
-
-      if (!masterItem) return;
-
-      const qty = findQtyForItem(row);
-
-      resultList.push({
-        code: masterItem.code,
-        masterItem,
-        docQty: qty,
-        inputQty: qty,
-        checked: true,
-        ocrScore: 100,
-        unregistered: false,
-        ocrRowText:
-          (row.lines || []).join(" | "),
-      });
     });
 
-    console.log("=== OCR LAYOUT WORDS ===", visionWords);
-    console.log("=== OCR DETECTED ROWS ===", detectedRows);
-    console.log("=== OCR FINAL ITEMS ===", resultList);
-
-    if (!resultList.length) {
+    if (detected.size === 0) {
       addOcrUsage(false);
       notify(
-        "OCR 텍스트는 읽었지만 자재마스터와 일치하는 코드를 확정하지 못했습니다.",
+        "OCR 텍스트는 읽었지만 자재마스터와 일치하는 코드를 찾지 못했습니다. 사진을 더 밝고 정면으로, 표가 크게 보이도록 다시 촬영해 주세요.",
         "err"
       );
       return;
     }
 
+    /* ===== 7) 행별 수량 판독 ===== */
+    const findQtyForRow = (row) => {
+      const candidates = [];
+
+      if (hasLayout) {
+        const rowTolerance = Math.max(30, (row.line?.avgHeight || 24) * 1.6);
+        const nearbyLines = layoutLines.filter((line) => Math.abs(line.y - row.y) <= rowTolerance);
+
+        // 1순위: "수량" 헤더와 같은 x열에 있는 숫자
+        if (qtyHeader) {
+          nearbyLines.forEach((line) => {
+            line.words.forEach((word) => {
+              if (word.x < qtyColLeft || word.x > qtyColRight) return;
+              const val = parseNumber(word.text);
+              if (val !== null) {
+                candidates.push({ val, dist: Math.abs(word.x - qtyHeader.center) + Math.abs(line.y - row.y) });
+              }
+            });
+          });
+        }
+
+        // 2순위: "숫자 + 단위(EA/PCS/SET 등)" 패턴
+        if (candidates.length === 0) {
+          nearbyLines.forEach((line) => {
+            const unitMatch = line.text.match(/(\d[\d,]*)\s*(?:EA|PCS?|SET|BAG|ROLL|BOX|M|KG)\b/i);
+            if (unitMatch) {
+              const val = parseNumber(unitMatch[1]);
+              if (val !== null) candidates.push({ val, dist: 0 });
+            }
+          });
+        }
+
+        // 3순위: 코드 오른쪽에 있는 가장 가까운 숫자
+        if (candidates.length === 0 && row.line) {
+          nearbyLines.forEach((line) => {
+            line.words.forEach((word) => {
+              if (word.left < row.line.right) return;
+              const val = parseNumber(word.text);
+              if (val !== null) candidates.push({ val, dist: word.left - row.line.right });
+            });
+          });
+        }
+      } else if (row.line?.text) {
+        const unitMatch = row.line.text.match(/(\d[\d,]*)\s*(?:EA|PCS?|SET|BAG|ROLL|BOX|M|KG)\b/i);
+        if (unitMatch) {
+          const val = parseNumber(unitMatch[1]);
+          if (val !== null) candidates.push({ val, dist: 0 });
+        }
+      }
+
+      if (candidates.length === 0) return { qty: 1, confident: false };
+      candidates.sort((a, b) => a.dist - b.dist);
+      return { qty: candidates[0].val, confident: true };
+    };
+
+    const resultList = [];
+    detected.forEach((row) => {
+      const { qty, confident } = findQtyForRow(row);
+      resultList.push({
+        code: row.item.code,
+        masterItem: row.item,
+        docQty: qty,
+        inputQty: qty,
+        checked: true,
+        unregistered: false,
+        ocrConfident: confident,
+        ocrSource: row.source,
+      });
+    });
+    resultList.sort((a, b) => a.code.localeCompare(b.code));
+
+    console.log("=== OCR 인식 결과 ===", resultList);
     addOcrUsage(true);
 
     setInvoiceData({
       key_code: `OCR-${new Date().toISOString().slice(0, 10)}`,
-      supplier: "Google Vision OCR · 표 행 기반 코드/수량 분석",
+      supplier: "Google Vision OCR · 표 열(수량) 좌표 기반 분석",
       list: resultList,
       ocr: true,
     });
 
-    notify(`OCR 완료: 자재마스터 일치 ${resultList.length}개 품목`, "ok");
+    const unsureCount = resultList.filter((r) => !r.ocrConfident).length;
+    notify(
+      `OCR 완료: 자재마스터 일치 ${resultList.length}개 품목${unsureCount ? ` · 수량 미확인 ${unsureCount}건은 1로 채워졌어요, 확인해 주세요` : ""}`,
+      unsureCount ? "info" : "ok"
+    );
   } catch (err) {
     console.error("Google Vision OCR 오류:", err);
     addOcrUsage(false);
@@ -6808,6 +6495,7 @@ console.log(rawText);
     setOcrLoading(false);
   }
 };
+
 
   const fetchInvoiceData = async (rawVal) => {
     if (!rawVal) return;
@@ -7376,7 +7064,7 @@ keyCode = String(keyCode)
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto", marginBottom: 14 }}>
-              {invoiceData.list.map(({ code, masterItem, docQty, inputQty, checked }, idx) => {
+              {invoiceData.list.map(({ code, masterItem, docQty, inputQty, checked, ocrConfident }, idx) => {
                 return (
                   <div 
                     key={idx} 
@@ -7412,7 +7100,9 @@ keyCode = String(keyCode)
                       </div>
 
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontSize: 11, color: "#94a3b8" }}>명세: {docQty} EA</div>
+                        <div style={{ fontSize: 11, color: ocrConfident === false ? "#f59e0b" : "#94a3b8" }}>
++   명세: {docQty} EA{ocrConfident === false ? " ⚠︎ 확인필요" : ""}
++ </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
                           <span style={{ fontSize: 11, color: "#38bdf8" }}>실입고:</span>
                           <input

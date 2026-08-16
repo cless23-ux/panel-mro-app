@@ -6464,7 +6464,7 @@ const runInvoiceOcr = async (file) => {
         masterList.forEach((m) => {
           if (poolTotalLen < m.flat.length) return;
           const path = buildCodePath(pool, m.flat);
-          if (path && path.some((t) => t.length >= 4)) {
+          if (path) {
             candidates.push(m);
           }
         });

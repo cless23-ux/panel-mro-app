@@ -402,6 +402,79 @@ function useOutFormSettings() {
 
   return [settings, saveCategory, loaded];
 }
+const OCR_USAGE_CACHE_KEY = "panel:ocrUsageLogs";
+
+function useOcrUsageStats() {
+  const [logs, setLogs] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async (silent = false) => {
+    try {
+      if (supabase) {
+        // 최근 90일치만 가져와서 집계 (전체를 다 불러오지 않도록)
+        const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+        const { data, error } = await supabase
+          .from("ocr_usage_logs")
+          .select("id, success, created_at")
+          .gte("created_at", since)
+          .order("created_at", { ascending: false });
+        if (!error && data) {
+          setLogs(data);
+          try { localStorage.setItem(OCR_USAGE_CACHE_KEY, JSON.stringify(data)); } catch {}
+          if (!silent) setLoaded(true);
+          return;
+        }
+      }
+      const cached = localStorage.getItem(OCR_USAGE_CACHE_KEY);
+      if (cached) setLogs(JSON.parse(cached));
+    } catch (e) {
+      console.error("OCR 사용량 로드 오류:", e);
+    } finally {
+      if (!silent) setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(() => load(true), POLL_MS);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const addUsage = useCallback(async (success) => {
+    const entry = { id: uid("OCRLOG"), success, created_at: new Date().toISOString() };
+    // 낙관적 업데이트: 내 화면엔 바로 반영, 다른 사람 화면은 다음 폴링 때 반영됩니다.
+    setLogs((prev) => {
+      const next = [entry, ...prev];
+      try { localStorage.setItem(OCR_USAGE_CACHE_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+    try {
+      if (supabase) {
+        const { error } = await supabase.from("ocr_usage_logs").insert(entry);
+        if (error) console.error("OCR 사용량 저장 오류:", error);
+      }
+    } catch (e) {
+      console.error("OCR 사용량 저장 오류:", e);
+    }
+  }, []);
+
+  const stats = useMemo(() => {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const monthStr = now.toISOString().slice(0, 7);
+    let today = 0, month = 0, total = 0, success = 0, failed = 0;
+    logs.forEach((l) => {
+      total += 1;
+      if (l.success) success += 1; else failed += 1;
+      const d = String(l.created_at || "");
+      if (d.slice(0, 10) === todayStr) today += 1;
+      if (d.slice(0, 7) === monthStr) month += 1;
+    });
+    return { today, month, total, success, failed };
+  }, [logs]);
+
+  return { stats, addUsage, loaded };
+}
 
 function statusOf(item) {
   const safety = Number(item.safety) || 0;
@@ -5899,13 +5972,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrText, setOcrText] = useState("");
   const [ocrPreview, setOcrPreview] = useState("");
-  const [ocrUsage, setOcrUsage] = useState({
-  today: 0,
-  month: 0,
-  total: 0,
-  success: 0,
-  failed: 0,
-});
+ const { stats: ocrUsage, addUsage: addOcrUsageToSupabase } = useOcrUsageStats();
   const ocrFileRef = useRef(null);
   const [invoicePerson, setInvoicePerson] = useState("");
   const [invoiceShip, setInvoiceShip] = useState("");
@@ -6139,14 +6206,8 @@ const runInvoiceOcr = async (file) => {
   setOcrText("");
 
   const addOcrUsage = (success) => {
-    setOcrUsage((prev) => ({
-      today: prev.today + 1,
-      month: prev.month + 1,
-      total: prev.total + 1,
-      success: prev.success + (success ? 1 : 0),
-      failed: prev.failed + (success ? 0 : 1),
-    }));
-  };
+  addOcrUsageToSupabase(success);
+};
 
   const parseNumber = (raw) => {
     if (raw === null || raw === undefined) return null;

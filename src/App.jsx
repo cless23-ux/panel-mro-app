@@ -6358,55 +6358,63 @@ const runInvoiceOcr = async (file) => {
     }
 
     /* ===== 2차 매칭: 표 셀 줄바꿈으로 코드가 여러 줄에 걸쳐 찍힌 경우 =====
-       헤더 글자 인식에는 의존하지 않고, 좌표만 이용합니다:
-       - 코드를 시작한 첫 글자 조각의 왼쪽(x) 위치를 기준(anchor)으로 삼고
-       - 다음 이어붙일 후보 글자 조각이 그 기준과 비슷한 x위치(같은 칸)에
-         있을 때만 이어붙입니다. (전화번호/PO번호 등 다른 칸은 x가 많이
-         떨어져 있으므로 자동으로 걸러집니다)
-       - 세로로도 너무 멀어지면(다음 품목 행으로 넘어가면) 중단합니다. */
-    if (hasLayout) {
-      const stream = [...visionWords].sort((a, b) => a.y - b.y || a.x - b.x);
-      masterList.forEach((m) => {
-        if (detected.has(m.code)) return;
-        for (let start = 0; start < stream.length; start++) {
-          const firstFlat = stream[start].text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-          if (!firstFlat || !m.flat.startsWith(firstFlat)) continue;
+       좌표 임계값을 전혀 쓰지 않습니다. "줄바꿈은 항상 바로 다음 물리적
+       줄로 이어진다"는 사실만 이용해서, 어떤 줄의 글자 조각(코드 앞부분과
+       일치)을 바로 다음 줄(필요하면 그 다음 줄까지)의 글자 조각과
+       이어붙였을 때 코드 전체와 "완전히 정확하게" 일치하는 경우만
+       인정합니다. 사진이 기울어져 있어도 영향을 받지 않고, 정확히
+       일치해야 하므로 유령 품목이 생길 여지가 거의 없습니다. */
+    const tryWrappedMatch = (m) => {
+      for (let i = 0; i < layoutLines.length; i++) {
+        const line1 = layoutLines[i];
+        for (const w1 of line1.words) {
+          const f1 = w1.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+          if (!f1 || f1.length < 3 || f1.length >= m.flat.length || !m.flat.startsWith(f1)) continue;
 
-          const anchorLeft = stream[start].left;
-          const anchorHeight = stream[start].height;
-          const maxColumnDrift = Math.max(60, anchorHeight * 4); // 같은 칸으로 인정할 x 허용 오차
+          const line2 = layoutLines[i + 1];
+          if (!line2) continue;
 
-          let cursor = firstFlat.length;
-          let lastWord = stream[start];
-          let used = 1;
-          let yMin = stream[start].y;
-          let yMax = stream[start].y;
+          for (const w2 of line2.words) {
+            const f2 = w2.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+            if (!f2) continue;
+            const twoLine = f1 + f2;
 
-          for (let j = start + 1; j < stream.length && used < 6 && cursor < m.flat.length; j++) {
-            if (stream[j].y - lastWord.y > lastWord.height * 2.5) break; // 다음 품목 행으로 넘어가면 중단
-            if (Math.abs(stream[j].left - anchorLeft) > maxColumnDrift) continue; // 다른 칸이면 후보에서 제외(건너뜀)
-            const candFlat = stream[j].text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-            if (!candFlat) continue;
-            if (m.flat.slice(cursor).startsWith(candFlat)) {
-              cursor += candFlat.length;
-              lastWord = stream[j];
-              used += 1;
-              yMin = Math.min(yMin, stream[j].y);
-              yMax = Math.max(yMax, stream[j].y);
+            if (twoLine === m.flat) {
+              return {
+                y: (line1.y + line2.y) / 2,
+                yMin: line1.y - line1.avgHeight,
+                yMax: line2.y + line2.avgHeight,
+              };
+            }
+
+            // 3줄에 걸쳐 잘린 경우까지 대비 (드문 케이스)
+            if (twoLine.length < m.flat.length && m.flat.startsWith(twoLine)) {
+              const line3 = layoutLines[i + 2];
+              if (!line3) continue;
+              for (const w3 of line3.words) {
+                const f3 = w3.text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+                if (!f3) continue;
+                if (twoLine + f3 === m.flat) {
+                  return {
+                    y: (line1.y + line3.y) / 2,
+                    yMin: line1.y - line1.avgHeight,
+                    yMax: line3.y + line3.avgHeight,
+                  };
+                }
+              }
             }
           }
+        }
+      }
+      return null;
+    };
 
-          if (cursor === m.flat.length) {
-            detected.set(m.code, {
-              code: m.code,
-              item: m.item,
-              y: (yMin + yMax) / 2,
-              yMin,
-              yMax,
-              source: "wrapped-match",
-            });
-            break;
-          }
+    if (hasLayout) {
+      masterList.forEach((m) => {
+        if (detected.has(m.code)) return;
+        const hit = tryWrappedMatch(m);
+        if (hit) {
+          detected.set(m.code, { code: m.code, item: m.item, ...hit, source: "wrapped-match" });
         }
       });
     }

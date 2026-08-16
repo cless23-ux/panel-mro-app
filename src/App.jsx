@@ -6282,7 +6282,7 @@ const runInvoiceOcr = async (file) => {
       });
     }
 
-    /* ===== 헤더 컬럼(수량 / 단가 / 계약번호) 위치 탐지 ===== */
+    /* ===== 헤더 컬럼 위치 탐지 (자재코드 / 품명 / 수량 / 단가 / 계약번호) ===== */
     const findHeaderColumn = (keywords) => {
       for (const keyword of keywords) {
         for (const line of layoutLines) {
@@ -6303,6 +6303,8 @@ const runInvoiceOcr = async (file) => {
       return null;
     };
 
+    const codeHeader = hasLayout ? findHeaderColumn(["자재코드"]) : null;
+    const nameHeader = hasLayout ? findHeaderColumn(["품명"]) : null;
     const qtyHeader = hasLayout ? findHeaderColumn(["수량"]) : null;
     const priceHeader = hasLayout ? findHeaderColumn(["단가"]) : null;
     const contractHeader = hasLayout ? findHeaderColumn(["계약번호", "(PO)"]) : null;
@@ -6315,8 +6317,13 @@ const runInvoiceOcr = async (file) => {
         ? Math.max(60, Math.abs(qtyHeader.center - contractHeader.center))
         : 150;
 
+    // "자재코드" 열의 좌/우 경계 -> 2차(줄바꿈) 매칭을 이 범위 안으로만 제한
+    const codeColLeft = codeHeader ? codeHeader.left - 15 : null;
+    const codeColRight = codeHeader
+      ? (nameHeader && nameHeader.center > codeHeader.center ? (codeHeader.right + nameHeader.left) / 2 : codeHeader.right + avgColGap)
+      : null;
+
     // "수량" 열의 좌/우 경계: 인접 헤더(계약번호/단가)의 중간 지점을 우선 사용
-    // -> 이래야 계약번호(PO) 칸 숫자가 수량으로 잘못 섞이지 않습니다.
     const qtyColLeft = !qtyHeader
       ? null
       : contractHeader && contractHeader.center < qtyHeader.center
@@ -6361,34 +6368,37 @@ const runInvoiceOcr = async (file) => {
     }
 
     /* ===== 2차 매칭: 표 셀 줄바꿈으로 코드가 여러 줄에 걸쳐 찍힌 경우 =====
-       전체 문서를 좌표 순서대로 훑으며 코드 글자를 순서대로 이어붙여 확인합니다.
-       다른 열의 글자가 중간에 끼어도 건너뛰되, 세로로 너무 멀어지면 중단합니다.
-       (여기까지가 전부입니다 — 이전 버전에 있던 "문서 전체 대조" 3차 안전망은
-        유령 품목을 만들어내서 완전히 제거했습니다) */
-    if (hasLayout) {
-      const stream = [...visionWords].sort((a, b) => a.y - b.y || a.x - b.x);
+       "자재코드" 열의 가로 범위를 찾은 경우에만 시도합니다. 그 열 안에 있는
+       글자 조각끼리만 좌표 순서(위→아래)대로 이어붙여서 확인하기 때문에,
+       옆 칸(전화번호/사업자번호/PO번호 등)의 숫자가 섞여 들어올 수 없습니다.
+       열을 못 찾으면 이 단계는 건너뛰고 1차(같은 줄) 매칭 결과만 사용합니다. */
+    if (hasLayout && codeColLeft !== null && codeColRight !== null) {
+      const codeStream = visionWords
+        .filter((w) => w.x >= codeColLeft && w.x <= codeColRight)
+        .sort((a, b) => a.y - b.y || a.x - b.x);
+
       masterList.forEach((m) => {
         if (detected.has(m.code)) return;
-        for (let start = 0; start < stream.length; start++) {
-          const firstFlat = stream[start].text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+        for (let start = 0; start < codeStream.length; start++) {
+          const firstFlat = codeStream[start].text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
           if (!firstFlat || !m.flat.startsWith(firstFlat)) continue;
 
           let cursor = firstFlat.length;
-          let lastWord = stream[start];
+          let lastWord = codeStream[start];
           let used = 1;
-          let yMin = stream[start].y;
-          let yMax = stream[start].y;
+          let yMin = codeStream[start].y;
+          let yMax = codeStream[start].y;
 
-          for (let j = start + 1; j < stream.length && used < 8 && cursor < m.flat.length; j++) {
-            if (stream[j].y - lastWord.y > lastWord.height * 3.5) break;
-            const candFlat = stream[j].text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+          for (let j = start + 1; j < codeStream.length && used < 5 && cursor < m.flat.length; j++) {
+            if (codeStream[j].y - lastWord.y > lastWord.height * 2.2) break; // 다음 품목 행으로 넘어가면 중단
+            const candFlat = codeStream[j].text.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
             if (!candFlat) continue;
             if (m.flat.slice(cursor).startsWith(candFlat)) {
               cursor += candFlat.length;
-              lastWord = stream[j];
+              lastWord = codeStream[j];
               used += 1;
-              yMin = Math.min(yMin, stream[j].y);
-              yMax = Math.max(yMax, stream[j].y);
+              yMin = Math.min(yMin, codeStream[j].y);
+              yMax = Math.max(yMax, codeStream[j].y);
             }
           }
 
@@ -6419,8 +6429,7 @@ const runInvoiceOcr = async (file) => {
     /* ===== 행별 수량 판독 =====
        "수량" 헤더와 같은 x열(계약번호~단가 사이)에 있는 숫자 조각들을
        위→아래 순서로 모아 이어붙인 뒤 하나의 숫자로 변환합니다.
-       예: "1,00" + "0" → "1,000" → 1000
-       옆 칸(계약번호/단가/금액)의 숫자는 x범위 밖이라 애초에 섞이지 않습니다. */
+       예: "1,00" + "0" → "1,000" → 1000 */
     const findQtyForRow = (row) => {
       if (!hasLayout) return { qty: 1, confident: false };
 

@@ -6411,33 +6411,40 @@ const runInvoiceOcr = async (file) => {
     }
 
     /* ===== 3단계(최후의 수단): 줄 순서가 뒤섞인 드문 경우 - 순서 무관
-       재조합. 단, 같은 글자 조각 묶음에서 동시에 여러 개의 서로 다른
-       코드가 만들어질 수 있으면 애매하다고 보고 전부 무시합니다. ===== */
+       재조합. 안전장치 두 가지:
+       (a) 재조합에 쓰인 조각 중 최소 하나는 길이 4자 이상이어야 함
+       (b) 같은 조각 묶음에서 (이미 확정 여부와 무관하게) 자재마스터
+           전체 기준으로 두 개 이상의 코드가 동시에 만들어질 수 있으면
+           이 창에서는 아무 것도 새로 확정하지 않음 ===== */
     if (hasLayout) {
-      const buildCodeFromPool = (tokens, target) => {
+      const buildCodePath = (tokens, target) => {
         const n = tokens.length;
         const used = new Array(n).fill(false);
-        const dfs = (built) => {
-          if (built === target) return true;
+        let foundPath = null;
+        const dfs = (built, path) => {
+          if (built === target) {
+            foundPath = path;
+            return true;
+          }
           if (built.length >= target.length) return false;
           for (let i = 0; i < n; i++) {
             if (used[i]) continue;
             const next = built + tokens[i];
             if (target.startsWith(next)) {
               used[i] = true;
-              if (dfs(next)) return true;
+              if (dfs(next, [...path, tokens[i]])) return true;
               used[i] = false;
             }
           }
           return false;
         };
-        return dfs("");
+        dfs("", []);
+        return foundPath; // null 또는 사용된 조각 문자열 배열
       };
 
       const WINDOW = 2; // 창을 좁게 유지해 서로 다른 행의 숫자가 섞여 애매해지는 것을 최소화
-      const remaining = masterList.filter((m) => !detected.has(m.code));
 
-      for (let i = 0; i < layoutLines.length && remaining.length; i++) {
+      for (let i = 0; i < layoutLines.length; i++) {
         const windowLines = layoutLines.slice(i, i + WINDOW);
         if (!windowLines.length) break;
 
@@ -6450,27 +6457,34 @@ const runInvoiceOcr = async (file) => {
         });
         const poolTotalLen = pool.reduce((s, t) => s + t.length, 0);
 
+        // 자재마스터 전체를 기준으로 이 창에서 만들 수 있는 코드를 모두 센다
+        // (이미 다른 곳에서 확정됐는지는 여기서 고려하지 않음 - 애매함을
+        //  숨기지 않기 위함)
         const candidates = [];
-        remaining.forEach((m) => {
-          if (detected.has(m.code)) return;
+        masterList.forEach((m) => {
           if (poolTotalLen < m.flat.length) return;
-          if (buildCodeFromPool(pool, m.flat)) candidates.push(m);
+          const path = buildCodePath(pool, m.flat);
+          if (path && path.some((t) => t.length >= 4)) {
+            candidates.push(m);
+          }
         });
 
-        // 이 조각 묶음에서 정확히 하나의 코드만 만들어질 때만 신뢰합니다.
         if (candidates.length === 1) {
           const m = candidates[0];
-          const firstLine = windowLines[0];
-          const lastLine = windowLines[windowLines.length - 1];
-          detected.set(m.code, {
-            code: m.code,
-            item: m.item,
-            y: (firstLine.y + lastLine.y) / 2,
-            yMin: firstLine.y - firstLine.avgHeight,
-            yMax: lastLine.y + lastLine.avgHeight,
-            source: "pool-match",
-          });
+          if (!detected.has(m.code)) {
+            const firstLine = windowLines[0];
+            const lastLine = windowLines[windowLines.length - 1];
+            detected.set(m.code, {
+              code: m.code,
+              item: m.item,
+              y: (firstLine.y + lastLine.y) / 2,
+              yMin: firstLine.y - firstLine.avgHeight,
+              yMax: lastLine.y + lastLine.avgHeight,
+              source: "pool-match",
+            });
+          }
         }
+        // candidates.length > 1 이면 이 창에서는 아무 것도 확정하지 않음(애매함)
       }
     }
 

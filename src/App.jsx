@@ -1737,7 +1737,7 @@ function AppInner() {
 
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
-    { id: "in", label: "입고등록", icon: ArrowDownToLine },
+    { id: "in", label: "부자재입고", icon: ArrowDownToLine },
     { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode },

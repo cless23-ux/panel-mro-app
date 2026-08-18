@@ -122,52 +122,94 @@ function useStorage(key, initial) {
   const [loaded, setLoaded] = useState(false);
   const tableName = key === "panel:items" ? "items" : "transactions";
 
+  // Supabase 기본 조회 제한(약 1000건)을 피하기 위해 전체 데이터를 페이지 단위로 조회
+  const fetchAllRows = useCallback(async () => {
+    if (!supabase) return [];
+
+    const PAGE_SIZE = 1000;
+    const allRows = [];
+    let from = 0;
+
+    while (true) {
+      let query = supabase
+        .from(tableName)
+        .select("*");
+
+      if (tableName === "items") {
+        query = query
+          .eq("deleted", false)
+          .order("code", { ascending: true, nullsFirst: false });
+      } else {
+        query = query.eq("deleted", false);
+      }
+
+      const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
+
+      if (error) throw error;
+
+      const rows = data || [];
+      allRows.push(...rows);
+
+      if (rows.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+
+    return allRows;
+  }, [tableName]);
+
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
-        const { data, error } = await supabase.from(tableName).select("*").eq("deleted", false);
-        if (!error && data) {
-          if (tableName === "transactions") {
-            setValue(prev => {
-              const map = new Map();
-              [...prev, ...data].forEach(item => {
-                if (item && item.id) map.set(item.id, item);
-              });
-              const merged = Array.from(map.values());
-              localStorage.setItem(key, JSON.stringify(merged));
-              return merged;
+        const data = await fetchAllRows();
+
+        if (tableName === "transactions") {
+          setValue(prev => {
+            const map = new Map();
+            [...prev, ...data].forEach(item => {
+              if (item && item.id) map.set(item.id, item);
             });
-          } else {
-            // 자재마스터는 수정/새로고침/동기화 시 기존 화면 순서를 유지합니다.
-            // 기존 목록에 없는 신규 자재만 마지막에 추가합니다.
-            const cached = (() => {
-              try {
-                const raw = localStorage.getItem(key);
-                return raw ? JSON.parse(raw) : [];
-              } catch { return []; }
-            })();
-            const previous = Array.isArray(cached) && cached.length ? cached : [];
-            const byCode = new Map((data || []).map(item => [String(item.code), item]));
-            const ordered = [];
-            const seen = new Set();
-            previous.forEach(item => {
-              const code = String(item?.code || "");
-              if (code && byCode.has(code)) {
-                ordered.push(byCode.get(code));
-                seen.add(code);
-              }
-            });
-            (data || []).forEach(item => {
-              const code = String(item?.code || "");
-              if (!seen.has(code)) ordered.push(item);
-            });
-            setValue(ordered);
-            localStorage.setItem(key, JSON.stringify(ordered));
-          }
-          if (!silent) setLoaded(true);
-          return;
+            const merged = Array.from(map.values());
+            try { localStorage.setItem(key, JSON.stringify(merged)); } catch {}
+            return merged;
+          });
+        } else {
+          // 자재마스터는 기존 화면 순서를 최대한 유지하고,
+          // 서버에 새로 생긴 자재만 마지막에 추가
+          const cached = (() => {
+            try {
+              const raw = localStorage.getItem(key);
+              return raw ? JSON.parse(raw) : [];
+            } catch {
+              return [];
+            }
+          })();
+
+          const previous = Array.isArray(cached) && cached.length ? cached : [];
+          const byCode = new Map((data || []).map(item => [String(item.code), item]));
+          const ordered = [];
+          const seen = new Set();
+
+          previous.forEach(item => {
+            const code = String(item?.code || "");
+            if (code && byCode.has(code)) {
+              ordered.push(byCode.get(code));
+              seen.add(code);
+            }
+          });
+
+          (data || []).forEach(item => {
+            const code = String(item?.code || "");
+            if (!seen.has(code)) ordered.push(item);
+          });
+
+          setValue(ordered);
+          try { localStorage.setItem(key, JSON.stringify(ordered)); } catch {}
         }
+
+        if (!silent) setLoaded(true);
+        return;
       }
+
       const res = localStorage.getItem(key);
       if (res !== null) {
         setValue(JSON.parse(res));
@@ -177,7 +219,7 @@ function useStorage(key, initial) {
     } finally {
       if (!silent) setLoaded(true);
     }
-  }, [key, tableName]);
+  }, [key, tableName, fetchAllRows]);
 
   useEffect(() => {
     load();
@@ -187,17 +229,36 @@ function useStorage(key, initial) {
 
   const save = useCallback(async (next) => {
     setValue(next);
+
     try {
-      localStorage.setItem(key, JSON.stringify(next));
-      if (supabase) {
-        if (tableName === "items") {
-          await supabase.from("items").upsert(next, { onConflict: "code" });
-        } else if (tableName === "transactions") {
-          await supabase.from("transactions").upsert(next, { onConflict: "id" });
+      try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+
+      if (!supabase) return;
+
+      const CHUNK_SIZE = 500;
+
+      if (tableName === "items") {
+        for (let i = 0; i < next.length; i += CHUNK_SIZE) {
+          const chunk = next.slice(i, i + CHUNK_SIZE);
+          const { error } = await supabase
+            .from("items")
+            .upsert(chunk, { onConflict: "code" });
+
+          if (error) throw error;
+        }
+      } else if (tableName === "transactions") {
+        for (let i = 0; i < next.length; i += CHUNK_SIZE) {
+          const chunk = next.slice(i, i + CHUNK_SIZE);
+          const { error } = await supabase
+            .from("transactions")
+            .upsert(chunk, { onConflict: "id" });
+
+          if (error) throw error;
         }
       }
     } catch (e) {
       console.error("Storage save error:", e);
+      throw e;
     }
   }, [key, tableName]);
 
@@ -5042,75 +5103,182 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     }
   };
 
-  const importExcelFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+ const importExcelFile = (e, mode = "merge") => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-    const reader = new FileReader();
+  const reader = new FileReader();
 
-    if (window.XLSX) {
-      reader.onload = (evt) => {
-        try {
-          const data = new Uint8Array(evt.target.result);
-          const workbook = window.XLSX.read(data, { type: 'array' });
-          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-          const rawData = window.XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+  const fetchAllServerItems = async () => {
+    if (!supabase) return Array.isArray(items) ? items : [];
 
-          const parsed = rawData.map(row => {
-            const getCol = (...keys) => {
-              for (let k of keys) {
-                const foundKey = Object.keys(row).find(rk => rk.trim().toLowerCase() === k.toLowerCase());
-                if (foundKey && row[foundKey] !== undefined) return String(row[foundKey]).trim();
-              }
-              return "";
-            };
+    const PAGE_SIZE = 1000;
+    const allItems = [];
+    let from = 0;
 
-            const code = getCol('코드', 'code', '자재코드');
-            const fullName = getCol('품명 / 규격', '품명/규격', '품명', 'name');
-            const spec = getCol('규격', 'spec');
-            const manufacturer = getCol('거래처', '생산업체', '제조사', 'manufacturer');
-            const category = getCol('카테고리', 'category', '구분');
-            const memo = getCol('비고', '메모', '명칭 / 메모', '명칭/메모', 'memo');
-            const unit = getCol('단위', 'unit') || 'EA';
-            const stock = Number(getCol('현재고', '재고', '수량', '입고수량', '재고수량', 'stock', 'qty')) || 0;
-            const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
-            const location = getCol('위치', 'location');
-            const imageUrl = getCol('이미지', 'image_url', '사진');
+    while (true) {
+      const { data, error } = await supabase
+        .from("items")
+        .select("*")
+        .eq("deleted", false)
+        .order("code", { ascending: true, nullsFirst: false })
+        .range(from, from + PAGE_SIZE - 1);
 
-            if (!code && !fullName) return null;
+      if (error) throw error;
 
-            return {
-              code: code || uid("ITEM"),
-              name: fullName || "미지정 품명",
-              spec: spec || "",
-              category: category || "",
-              unit: unit,
-              stock: stock,
-              safety: safety,
-              location: location,
-              manufacturer: manufacturer,
-              memo: memo || "",
-              image_url: imageUrl || "",
-              deleted: false,
-            };
-          }).filter(Boolean);
+      const rows = data || [];
+      allItems.push(...rows);
 
-          if (parsed.length > 0) {
-            saveItems(parsed);
-            notify(`총 ${parsed.length}개의 자재 목록을 성공적으로 불러왔습니다!`, "ok");
-          } else {
-            notify("엑셀 파일에서 유효한 자재 데이터를 찾을 수 없습니다.", "err");
-          }
-        } catch (err) {
-          console.error(err);
-          notify("엑셀 파일을 처리하는 중 오류가 발생했습니다.", "err");
-        } finally {
-          e.target.value = "";
-        }
-      };
-      reader.readAsArrayBuffer(file);
+      if (rows.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
     }
+
+    return allItems;
   };
+
+  if (window.XLSX) {
+    reader.onload = async (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = window.XLSX.read(data, { type: "array" });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rawData = window.XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+        const parsed = rawData.map(row => {
+          const getCol = (...keys) => {
+            for (const k of keys) {
+              const foundKey = Object.keys(row).find(
+                rk => rk.trim().toLowerCase() === k.toLowerCase()
+              );
+              if (foundKey && row[foundKey] !== undefined) {
+                return String(row[foundKey]).trim();
+              }
+            }
+            return "";
+          };
+
+          const code = getCol("코드", "code", "자재코드");
+          const fullName = getCol("품명 / 규격", "품명/규격", "품명", "name");
+          const spec = getCol("규격", "spec");
+          const manufacturer = getCol("거래처", "생산업체", "제조사", "manufacturer");
+          const category = getCol("카테고리", "category", "구분");
+          const memo = getCol("비고", "메모", "명칭 / 메모", "명칭/메모", "memo");
+          const unit = getCol("단위", "unit") || "EA";
+          const stock = Number(getCol("현재고", "재고", "수량", "입고수량", "재고수량", "stock", "qty")) || 0;
+          const safety = Number(getCol("안전재고", "안전재고기준", "safety")) || 0;
+          const location = getCol("위치", "location");
+          const imageUrl = getCol("이미지", "image_url", "사진");
+
+          if (!code && !fullName) return null;
+
+          return {
+            code: code || uid("ITEM"),
+            name: fullName || "미지정 품명",
+            spec: spec || "",
+            category: category || "",
+            unit,
+            stock,
+            safety,
+            location,
+            manufacturer,
+            memo: memo || "",
+            image_url: imageUrl || "",
+            deleted: false,
+          };
+        }).filter(Boolean);
+
+        if (parsed.length === 0) {
+          notify("엑셀 파일에서 유효한 자재 데이터를 찾을 수 없습니다.", "err");
+          return;
+        }
+
+        if (mode === "replace") {
+          // 전체교체는 기존 활성 자재를 숨김 처리하고 엑셀 목록을 새 기준으로 저장
+          const serverItems = await fetchAllServerItems();
+          const excelCodes = new Set(parsed.map(item => String(item.code).trim()));
+
+          const deleteTargets = serverItems
+            .filter(item => !excelCodes.has(String(item.code).trim()))
+            .map(item => ({ ...item, deleted: true }));
+
+          const CHUNK_SIZE = 500;
+
+          for (let i = 0; i < deleteTargets.length; i += CHUNK_SIZE) {
+            const chunk = deleteTargets.slice(i, i + CHUNK_SIZE);
+            const { error } = await supabase
+              .from("items")
+              .upsert(chunk, { onConflict: "code" });
+
+            if (error) throw error;
+          }
+
+          await saveItems(parsed);
+          await reloadItems();
+
+          notify(`전체교체 완료: ${parsed.length}개 자재 반영`, "ok");
+        } else {
+          // 병합은 반드시 화면에 현재 보이는 items가 아니라
+          // Supabase에 저장된 전체 자재를 기준으로 처리
+          notify("기존 자재 전체 목록을 확인 중...", "info");
+
+          const serverItems = await fetchAllServerItems();
+          const byCode = new Map(
+            serverItems.map(item => [String(item.code).trim(), item])
+          );
+
+          let updatedCount = 0;
+          let addedCount = 0;
+
+          parsed.forEach(p => {
+            const itemCode = String(p.code).trim();
+            const existing = byCode.get(itemCode);
+
+            if (existing) {
+              updatedCount++;
+              byCode.set(itemCode, {
+                ...existing,
+                ...p,
+                id: existing.id,
+                deleted: false,
+              });
+            } else {
+              addedCount++;
+              byCode.set(itemCode, p);
+            }
+          });
+
+          const merged = Array.from(byCode.values());
+
+          await saveItems(merged);
+          await reloadItems();
+
+          notify(
+            `병합 완료: 신규 ${addedCount}개 추가 · 기존 ${updatedCount}개 수정 · 전체 ${merged.length}개`,
+            "ok"
+          );
+        }
+      } catch (err) {
+        console.error(err);
+        notify(
+          `엑셀 파일을 처리하는 중 오류가 발생했습니다: ${err?.message || err}`,
+          "err"
+        );
+      } finally {
+        e.target.value = "";
+      }
+    };
+
+    reader.onerror = () => {
+      notify("엑셀 파일을 읽는 중 오류가 발생했습니다.", "err");
+      e.target.value = "";
+    };
+
+    reader.readAsArrayBuffer(file);
+  } else {
+    notify("엑셀 처리 모듈(XLSX)을 불러오지 못했습니다.", "err");
+    e.target.value = "";
+  }
+};
 
   const triggerPhotoUpload = (code) => {
     setTargetItemForPhoto(code);
@@ -5219,15 +5387,44 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
             <QrCode size={15} />{qrExporting ? "생성 중..." : `QR 라벨${selectedQrCodes.length ? ` (${selectedQrCodes.length}개 선택)` : ""}`}
           </Btn>
           <label style={{ display: "inline-block" }}>
-            <input type="file" accept=".xlsx, .xls, .csv" onChange={importExcelFile} style={{ display: "none" }} />
-            <span style={{
-              background: "#16324A", color: "#C9DAE8", border: "1px solid #274460",
-              fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 13.5,
-              padding: "10px 16px", borderRadius: 8, cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center"
-            }}>
-              <Upload size={15} />불러오기
-            </span>
-          </label>
+  <input
+    type="file"
+    accept=".xlsx, .xls, .csv"
+    onChange={(e) => importExcelFile(e, "merge")}
+    style={{ display: "none" }}
+  />
+  <span style={{
+    background: "#16324A", color: "#C9DAE8", border: "1px solid #274460",
+    fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 13.5,
+    padding: "10px 16px", borderRadius: 8, cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center"
+  }}>
+    <Upload size={15} />병합 불러오기
+  </span>
+</label>
+
+<label style={{ display: "inline-block" }}>
+  <input
+    type="file"
+    accept=".xlsx, .xls, .csv"
+    onChange={(e) => {
+      if (!window.confirm(
+        "전체교체를 선택하면 현재 등록된 자재 목록이 모두 삭제되고\n엑셀 파일의 목록으로 완전히 교체됩니다.\n\n정말 진행하시겠습니까?"
+      )) {
+        e.target.value = "";
+        return;
+      }
+      importExcelFile(e, "replace");
+    }}
+    style={{ display: "none" }}
+  />
+  <span style={{
+    background: "#3A1C1C", color: "#FFAFAF", border: "1px solid #EF5350",
+    fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 13.5,
+    padding: "10px 16px", borderRadius: 8, cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center"
+  }}>
+    <Upload size={15} />전체교체 불러오기
+  </span>
+</label>
         </div>
       </div>
 

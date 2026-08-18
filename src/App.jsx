@@ -122,92 +122,100 @@ function useStorage(key, initial) {
   const [loaded, setLoaded] = useState(false);
   const tableName = key === "panel:items" ? "items" : "transactions";
 
-  // Supabase 기본 조회 제한(약 1000건)을 피하기 위해 전체 데이터를 페이지 단위로 조회
-  const fetchAllRows = useCallback(async () => {
-    if (!supabase) return [];
-
+  // items만 Supabase 1000건 제한을 피해서 전체 조회
+  const fetchAllItems = useCallback(async () => {
     const PAGE_SIZE = 1000;
-    const allRows = [];
+    const all = [];
     let from = 0;
 
     while (true) {
-      let query = supabase
-        .from(tableName)
-        .select("*");
-
-      if (tableName === "items") {
-        query = query
-          .eq("deleted", false)
-          .order("code", { ascending: true, nullsFirst: false });
-      } else {
-        query = query.eq("deleted", false);
-      }
-
-      const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
+      const { data, error } = await supabase
+        .from("items")
+        .select("*")
+        .eq("deleted", false)
+        .range(from, from + PAGE_SIZE - 1);
 
       if (error) throw error;
 
       const rows = data || [];
-      allRows.push(...rows);
+      all.push(...rows);
 
       if (rows.length < PAGE_SIZE) break;
       from += PAGE_SIZE;
     }
 
-    return allRows;
-  }, [tableName]);
+    return all;
+  }, []);
 
   const load = useCallback(async (silent = false) => {
     try {
       if (supabase) {
-        const data = await fetchAllRows();
+        let data;
+        let error;
 
-        if (tableName === "transactions") {
-          setValue(prev => {
-            const map = new Map();
-            [...prev, ...data].forEach(item => {
-              if (item && item.id) map.set(item.id, item);
-            });
-            const merged = Array.from(map.values());
-            try { localStorage.setItem(key, JSON.stringify(merged)); } catch {}
-            return merged;
-          });
+        if (tableName === "items") {
+          data = await fetchAllItems();
         } else {
-          // 자재마스터는 기존 화면 순서를 최대한 유지하고,
-          // 서버에 새로 생긴 자재만 마지막에 추가
-          const cached = (() => {
-            try {
-              const raw = localStorage.getItem(key);
-              return raw ? JSON.parse(raw) : [];
-            } catch {
-              return [];
-            }
-          })();
-
-          const previous = Array.isArray(cached) && cached.length ? cached : [];
-          const byCode = new Map((data || []).map(item => [String(item.code), item]));
-          const ordered = [];
-          const seen = new Set();
-
-          previous.forEach(item => {
-            const code = String(item?.code || "");
-            if (code && byCode.has(code)) {
-              ordered.push(byCode.get(code));
-              seen.add(code);
-            }
-          });
-
-          (data || []).forEach(item => {
-            const code = String(item?.code || "");
-            if (!seen.has(code)) ordered.push(item);
-          });
-
-          setValue(ordered);
-          try { localStorage.setItem(key, JSON.stringify(ordered)); } catch {}
+          const result = await supabase
+            .from(tableName)
+            .select("*")
+            .eq("deleted", false);
+          data = result.data;
+          error = result.error;
         }
 
-        if (!silent) setLoaded(true);
-        return;
+        if (!error && data) {
+          if (tableName === "transactions") {
+            setValue(prev => {
+              const map = new Map();
+              [...prev, ...data].forEach(item => {
+                if (item && item.id) map.set(item.id, item);
+              });
+              const merged = Array.from(map.values());
+              try { localStorage.setItem(key, JSON.stringify(merged)); } catch {}
+              return merged;
+            });
+          } else {
+            // 기존 화면 순서 유지 + 서버의 전체 자재를 사용
+            const cached = (() => {
+              try {
+                const raw = localStorage.getItem(key);
+                return raw ? JSON.parse(raw) : [];
+              } catch { return []; }
+            })();
+
+            const previous = Array.isArray(cached) && cached.length ? cached : [];
+            const byCode = new Map((data || []).map(item => [String(item.code), item]));
+            const ordered = [];
+            const seen = new Set();
+
+            previous.forEach(item => {
+              const code = String(item?.code || "");
+              if (code && byCode.has(code)) {
+                ordered.push(byCode.get(code));
+                seen.add(code);
+              }
+            });
+
+            (data || []).forEach(item => {
+              const code = String(item?.code || "");
+              if (!seen.has(code)) ordered.push(item);
+            });
+
+            setValue(ordered);
+
+            // 1만 건 이상은 localStorage 용량 초과 가능성이 있으므로
+            // 실패해도 화면/자재 기능에는 영향을 주지 않게 처리
+            try {
+              localStorage.setItem(key, JSON.stringify(ordered));
+            } catch (storageError) {
+              console.warn("자재 로컬 캐시 저장 생략:", storageError);
+            }
+          }
+
+          if (!silent) setLoaded(true);
+          return;
+        }
       }
 
       const res = localStorage.getItem(key);
@@ -219,13 +227,18 @@ function useStorage(key, initial) {
     } finally {
       if (!silent) setLoaded(true);
     }
-  }, [key, tableName, fetchAllRows]);
+  }, [key, tableName, fetchAllItems]);
 
   useEffect(() => {
     load();
+
+    // 1만 건 이상의 자재를 8초마다 전체 재조회하면 화면이 지속적으로 버벅이므로
+    // items는 최초 로드 + 기존 reloadItems() 호출 시에만 새로 불러옵니다.
+    if (tableName === "items") return undefined;
+
     const t = setInterval(() => load(true), POLL_MS);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, tableName]);
 
   const save = useCallback(async (next) => {
     setValue(next);
@@ -233,25 +246,23 @@ function useStorage(key, initial) {
     try {
       try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
 
-      if (!supabase) return;
+      if (supabase) {
+        if (tableName === "items") {
+          const CHUNK_SIZE = 500;
 
-      const CHUNK_SIZE = 500;
+          for (let i = 0; i < next.length; i += CHUNK_SIZE) {
+            const chunk = next.slice(i, i + CHUNK_SIZE);
+            const { error } = await supabase
+              .from("items")
+              .upsert(chunk, { onConflict: "code" });
 
-      if (tableName === "items") {
-        for (let i = 0; i < next.length; i += CHUNK_SIZE) {
-          const chunk = next.slice(i, i + CHUNK_SIZE);
-          const { error } = await supabase
-            .from("items")
-            .upsert(chunk, { onConflict: "code" });
-
-          if (error) throw error;
-        }
-      } else if (tableName === "transactions") {
-        for (let i = 0; i < next.length; i += CHUNK_SIZE) {
-          const chunk = next.slice(i, i + CHUNK_SIZE);
+            if (error) throw error;
+          }
+        } else if (tableName === "transactions") {
+          // 기존 거래 저장 방식 유지
           const { error } = await supabase
             .from("transactions")
-            .upsert(chunk, { onConflict: "id" });
+            .upsert(next, { onConflict: "id" });
 
           if (error) throw error;
         }
@@ -4245,6 +4256,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
   const [memoDrafts, setMemoDrafts] = useState({});
   const [editingMemos, setEditingMemos] = useState({});
   const [zoomedImage, setZoomedImage] = useState(null);
+  const [stockRenderLimit, setStockRenderLimit] = useState(200);
   const { isFavorite, toggleFavorite } = useFavoriteItems(notify);
 
   // 자재마스터에 실제 지정된 카테고리만 자동으로 필터 버튼으로 표시합니다.
@@ -4279,6 +4291,16 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
       return matchSearch && matchCategory;
     });
   }, [items, search, categoryFilter]);
+
+  // 전체 1만 건을 한 번에 DOM에 그리지 않고 200개씩 표시
+  const visibleStockItems = useMemo(
+    () => filteredItems.slice(0, stockRenderLimit),
+    [filteredItems, stockRenderLimit]
+  );
+
+  useEffect(() => {
+    setStockRenderLimit(200);
+  }, [search, categoryFilter]);
 
   const handleCardClick = (item) => {
     if (onSelectItem) {
@@ -4373,7 +4395,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
         </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filteredItems.map((item) => {
+          {visibleStockItems.map((item) => {
             const st = statusOf(item);
             return (
               <Card
@@ -4742,6 +4764,14 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
         }
       `}</style>
 
+      {filteredItems.length > visibleStockItems.length && (
+        <div style={{ display: "flex", justifyContent: "center", padding: 10 }}>
+          <Btn variant="subtle" onClick={() => setStockRenderLimit((prev) => prev + 200)}>
+            더 보기 ({visibleStockItems.length} / {filteredItems.length})
+          </Btn>
+        </div>
+      )}
+
       {zoomedImage && (
         <div
           onClick={() => setZoomedImage(null)}
@@ -4856,6 +4886,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
   const [selectedQrCodes, setSelectedQrCodes] = useState([]);
+  const [masterRenderLimit, setMasterRenderLimit] = useState(200);
 
   const toggleQrSelection = (code) => {
     setSelectedQrCodes((prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]);
@@ -4891,6 +4922,16 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       return true;
     });
   }, [items, materialFilter, columnFilters]);
+
+  // 전체 1만 행을 한 번에 렌더링하지 않고 200행씩 표시
+  const visibleMasterItems = useMemo(
+    () => displayedItems.slice(0, masterRenderLimit),
+    [displayedItems, masterRenderLimit]
+  );
+
+  useEffect(() => {
+    setMasterRenderLimit(200);
+  }, [materialFilter, columnFilters]);
 
   /* 경고 및 정보창(모달), 장바구니 모달 상태 */
   const [selectedUrgent, setSelectedUrgent] = useState(null);
@@ -5109,65 +5150,34 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
 
   const reader = new FileReader();
 
-  const fetchAllServerItems = async () => {
-    if (!supabase) return Array.isArray(items) ? items : [];
-
-    const PAGE_SIZE = 1000;
-    const allItems = [];
-    let from = 0;
-
-    while (true) {
-      const { data, error } = await supabase
-        .from("items")
-        .select("*")
-        .eq("deleted", false)
-        .order("code", { ascending: true, nullsFirst: false })
-        .range(from, from + PAGE_SIZE - 1);
-
-      if (error) throw error;
-
-      const rows = data || [];
-      allItems.push(...rows);
-
-      if (rows.length < PAGE_SIZE) break;
-      from += PAGE_SIZE;
-    }
-
-    return allItems;
-  };
-
   if (window.XLSX) {
-    reader.onload = async (evt) => {
+    reader.onload = (evt) => {
       try {
         const data = new Uint8Array(evt.target.result);
-        const workbook = window.XLSX.read(data, { type: "array" });
+        const workbook = window.XLSX.read(data, { type: 'array' });
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const rawData = window.XLSX.utils.sheet_to_json(worksheet, { defval: "" });
 
         const parsed = rawData.map(row => {
           const getCol = (...keys) => {
-            for (const k of keys) {
-              const foundKey = Object.keys(row).find(
-                rk => rk.trim().toLowerCase() === k.toLowerCase()
-              );
-              if (foundKey && row[foundKey] !== undefined) {
-                return String(row[foundKey]).trim();
-              }
+            for (let k of keys) {
+              const foundKey = Object.keys(row).find(rk => rk.trim().toLowerCase() === k.toLowerCase());
+              if (foundKey && row[foundKey] !== undefined) return String(row[foundKey]).trim();
             }
             return "";
           };
 
-          const code = getCol("코드", "code", "자재코드");
-          const fullName = getCol("품명 / 규격", "품명/규격", "품명", "name");
-          const spec = getCol("규격", "spec");
-          const manufacturer = getCol("거래처", "생산업체", "제조사", "manufacturer");
-          const category = getCol("카테고리", "category", "구분");
-          const memo = getCol("비고", "메모", "명칭 / 메모", "명칭/메모", "memo");
-          const unit = getCol("단위", "unit") || "EA";
-          const stock = Number(getCol("현재고", "재고", "수량", "입고수량", "재고수량", "stock", "qty")) || 0;
-          const safety = Number(getCol("안전재고", "안전재고기준", "safety")) || 0;
-          const location = getCol("위치", "location");
-          const imageUrl = getCol("이미지", "image_url", "사진");
+          const code = getCol('코드', 'code', '자재코드');
+          const fullName = getCol('품명 / 규격', '품명/규격', '품명', 'name');
+          const spec = getCol('규격', 'spec');
+          const manufacturer = getCol('거래처', '생산업체', '제조사', 'manufacturer');
+          const category = getCol('카테고리', 'category', '구분');
+          const memo = getCol('비고', '메모', '명칭 / 메모', '명칭/메모', 'memo');
+          const unit = getCol('단위', 'unit') || 'EA';
+          const stock = Number(getCol('현재고', '재고', '수량', '입고수량', '재고수량', 'stock', 'qty')) || 0;
+          const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
+          const location = getCol('위치', 'location');
+          const imageUrl = getCol('이미지', 'image_url', '사진');
 
           if (!code && !fullName) return null;
 
@@ -5176,11 +5186,11 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
             name: fullName || "미지정 품명",
             spec: spec || "",
             category: category || "",
-            unit,
-            stock,
-            safety,
-            location,
-            manufacturer,
+            unit: unit,
+            stock: stock,
+            safety: safety,
+            location: location,
+            manufacturer: manufacturer,
             memo: memo || "",
             image_url: imageUrl || "",
             deleted: false,
@@ -5193,90 +5203,27 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
         }
 
         if (mode === "replace") {
-          // 전체교체는 기존 활성 자재를 숨김 처리하고 엑셀 목록을 새 기준으로 저장
-          const serverItems = await fetchAllServerItems();
-          const excelCodes = new Set(parsed.map(item => String(item.code).trim()));
-
-          const deleteTargets = serverItems
-            .filter(item => !excelCodes.has(String(item.code).trim()))
-            .map(item => ({ ...item, deleted: true }));
-
-          const CHUNK_SIZE = 500;
-
-          for (let i = 0; i < deleteTargets.length; i += CHUNK_SIZE) {
-            const chunk = deleteTargets.slice(i, i + CHUNK_SIZE);
-            const { error } = await supabase
-              .from("items")
-              .upsert(chunk, { onConflict: "code" });
-
-            if (error) throw error;
-          }
-
-          await saveItems(parsed);
-          await reloadItems();
-
-          notify(`전체교체 완료: ${parsed.length}개 자재 반영`, "ok");
+          saveItems(parsed);
+          notify(`전체교체 완료: 기존 목록을 지우고 ${parsed.length}개 자재로 교체했습니다.`, "ok");
         } else {
-          // 병합은 반드시 화면에 현재 보이는 items가 아니라
-          // Supabase에 저장된 전체 자재를 기준으로 처리
-          notify("기존 자재 전체 목록을 확인 중...", "info");
-
-          const serverItems = await fetchAllServerItems();
-          const byCode = new Map(
-            serverItems.map(item => [String(item.code).trim(), item])
-          );
-
-          let updatedCount = 0;
-          let addedCount = 0;
-
-          parsed.forEach(p => {
-            const itemCode = String(p.code).trim();
-            const existing = byCode.get(itemCode);
-
-            if (existing) {
-              updatedCount++;
-              byCode.set(itemCode, {
-                ...existing,
-                ...p,
-                id: existing.id,
-                deleted: false,
-              });
-            } else {
-              addedCount++;
-              byCode.set(itemCode, p);
-            }
+          // 병합: 기존 자재는 유지하고, 코드가 겹치면 엑셀 값으로 갱신, 새 코드는 추가
+          const byCode = new Map(items.map((i) => [String(i.code).trim(), i]));
+          parsed.forEach((p) => {
+            const key = String(p.code).trim();
+            byCode.set(key, { ...(byCode.get(key) || {}), ...p });
           });
-
           const merged = Array.from(byCode.values());
-
-          await saveItems(merged);
-          await reloadItems();
-
-          notify(
-            `병합 완료: 신규 ${addedCount}개 추가 · 기존 ${updatedCount}개 수정 · 전체 ${merged.length}개`,
-            "ok"
-          );
+          saveItems(merged);
+          notify(`병합 완료: 엑셀 ${parsed.length}개 항목 반영 (전체 ${merged.length}개)`, "ok");
         }
       } catch (err) {
         console.error(err);
-        notify(
-          `엑셀 파일을 처리하는 중 오류가 발생했습니다: ${err?.message || err}`,
-          "err"
-        );
+        notify("엑셀 파일을 처리하는 중 오류가 발생했습니다.", "err");
       } finally {
         e.target.value = "";
       }
     };
-
-    reader.onerror = () => {
-      notify("엑셀 파일을 읽는 중 오류가 발생했습니다.", "err");
-      e.target.value = "";
-    };
-
     reader.readAsArrayBuffer(file);
-  } else {
-    notify("엑셀 처리 모듈(XLSX)을 불러오지 못했습니다.", "err");
-    e.target.value = "";
   }
 };
 
@@ -5629,7 +5576,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
               </tr>
             </thead>
             <tbody>
-              {displayedItems.map((i, index) => {
+              {visibleMasterItems.map((i, index) => {
                 const st = statusOf(i);
                 const mType = getMaterialType(i.code);
                 return (
@@ -5777,7 +5724,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
             <EmptyState icon={Package} text="등록된 자재가 없습니다." color="#5E86A3" />
           </Card>
         ) : (
-          displayedItems.map((i) => {
+          visibleMasterItems.map((i) => {
             const st = statusOf(i);
             const mType = getMaterialType(i.code);
             return (

@@ -665,7 +665,8 @@ function Field({ label, children }) {
 }
 
 /* ---------------- 전체 입고/출고 상세 기록 모달 ---------------- */
-function TxHistoryModal({ type, txs, onClose, showDeleted = false }) {
+function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTransactions }) {
+  const [selectedIds, setSelectedIds] = useState([]);
   const [search, setSearch] = useState("");
   const isOut = type === "out";
   const isReturn = type === "return";
@@ -701,6 +702,20 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false }) {
     link.href = URL.createObjectURL(blob);
     link.download = `MRO_${isOut ? "출고" : "입고"}기록_${nowStr().split(" ")[0]}.csv`;
     link.click();
+  };
+
+  const visibleRows = (txs || []).filter((t) => t.type === type && (showDeleted || t.deleted !== true));
+  const allChecked = visibleRows.length > 0 && selectedIds.length === visibleRows.length;
+  const deleteSelected = async () => {
+    if (!selectedIds.length) return;
+    if (!window.confirm(`선택한 ${selectedIds.length}건의 ${type === "in" ? "입고" : "출고"} 기록만 삭제할까요?\n자재마스터, QR, 자재코드, 현재고는 변경되지 않습니다.`)) return;
+    try {
+      await onDeleteTransactions?.(selectedIds);
+      setSelectedIds([]);
+      window.location.reload();
+    } catch (err) {
+      alert(`삭제 실패: ${err?.message || err}`);
+    }
   };
 
   return (
@@ -765,7 +780,16 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false }) {
           {list.length === 0 ? (
             <EmptyState icon={isOut ? ArrowUpFromLine : ArrowDownToLine} text="해당하는 기록이 없습니다." color="#5E86A3" />
           ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}>
+            <input type="checkbox" checked={allChecked} onChange={(e)=>setSelectedIds(e.target.checked ? visibleRows.map(t=>t.id) : [])}/>
+            전체선택
+          </label>
+          <button onClick={deleteSelected} disabled={!selectedIds.length} style={{padding:"6px 12px",borderRadius:7,border:`1px solid ${selectedIds.length?"#EF5350":"#274460"}`,background:selectedIds.length?"#3A1C1C":"#1a2632",color:selectedIds.length?"#EF5350":"#5E86A3",cursor:selectedIds.length?"pointer":"not-allowed",fontWeight:700}}>
+            선택삭제 {selectedIds.length?`(${selectedIds.length})`:""}
+          </button>
+        </div>
+<table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
               <thead>
                 <tr style={{ position: "sticky", top: 0, background: "#0B1C2C" }}>
                   <th style={thStyle}>날짜</th>
@@ -1535,6 +1559,19 @@ function AppInner() {
       return txs.filter((t) => t.type === "out");
     }
   }, [txs]);
+
+  const deleteTransactionRecords = useCallback(async (ids) => {
+    const targetIds = Array.from(new Set((ids || []).filter(Boolean)));
+    if (!targetIds.length) return;
+    if (supabase) {
+      const { error } = await supabase.from("transactions").delete().in("id", targetIds);
+      if (error) throw error;
+      await reloadTxs();
+    } else {
+      const idSet = new Set(targetIds);
+      await saveTxs((txs || []).filter((t) => !idSet.has(t.id)));
+    }
+  }, [txs, saveTxs, reloadTxs]);
 
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
   const { requests: urgentRequests, addRequest: addUrgentRequest, resolveRequest: resolveUrgentRequest } = useUrgentRequests();
@@ -2359,7 +2396,7 @@ if (showSplash) {
               "--tab-neon-bg": `${TAB_NEON[tab] || "#274460"}0d`,
             }}
           >
-            {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} />}
+            {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} onDeleteTransactions={deleteTransactionRecords} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} materialType="sub" />}
             {tab === "rawInbound" && <RawMaterialInboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} initialShip={rawManagePresetShip} onOpenReturn={(payload) => { const list = Array.isArray(payload?.items) ? payload.items : []; setRawManagePresetShip(payload?.ship || list[0]?.shipNo || ""); setRawManagePresetReturnItems(list); goToTab("return"); }} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
@@ -2434,7 +2471,7 @@ if (showSplash) {
 }
 
 /* ---------------- Dashboard ---------------- */
-function Dashboard({ items, txs, loadCumulativeOutTxs }) {
+function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
   const [cumulativeOutTxs, setCumulativeOutTxs] = useState([]);
   const [recentPage, setRecentPage] = useState(1);
@@ -2766,7 +2803,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs }) {
       </Card>
 
       {historyModal && (
-        <TxHistoryModal type={historyModal} txs={historyModal === "out" ? cumulativeOutTxs : txs} showDeleted={historyModal === "out"} onClose={() => setHistoryModal(null)} />
+        <TxHistoryModal type={historyModal} txs={historyModal === "out" ? cumulativeOutTxs : txs} showDeleted={historyModal === "out"} onDeleteTransactions={onDeleteTransactions} onClose={() => setHistoryModal(null)} />
       )}
     </div>
   );
@@ -6246,38 +6283,23 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
     if (selectedTxIds.length === 0) return;
     const targets = recentInTxs.filter((t) => selectedTxIds.includes(t.id));
     if (targets.length === 0) return;
-
-    if (!window.confirm(`선택한 ${targets.length}건의 입고 내역을 삭제(재고 차감)하시겠습니까?`)) return;
-
-    const deltaByCode = {};
-    targets.forEach((t) => {
-      const key = String(t.itemCode).replace(/[\r\n]+/g, "").trim();
-      deltaByCode[key] = (deltaByCode[key] || 0) + Number(t.qty);
-    });
-
-    const nextItems = items.map((i) => {
-      const key = String(i.code).replace(/[\r\n]+/g, "").trim();
-      if (deltaByCode[key]) {
-        return { ...i, stock: Math.max(0, Number(i.stock) - deltaByCode[key]) };
-      }
-      return i;
-    });
+    if (!window.confirm(`선택한 ${targets.length}건의 입고 기록만 삭제할까요?\n자재마스터, QR, 자재코드, 현재고는 변경되지 않습니다.`)) return;
 
     const targetIds = targets.map((t) => t.id);
-    const nextTxs = (txs || []).filter((t) => !targetIds.includes(t.id));
-
-    if (supabase) {
-      const ops = targets.map((t) => ({ code: t.itemCode, delta: -Number(t.qty), txDeleteId: t.id }));
-      await applyStockTransactionsAtomic(ops);
-      await reloadItems();
-      await reloadTxs();
-    } else {
-      await saveItems(nextItems);
-      if (saveTxs) await saveTxs(nextTxs);
+    try {
+      if (supabase) {
+        const { error } = await supabase.from("transactions").delete().in("id", targetIds);
+        if (error) throw error;
+        await reloadTxs?.();
+      } else {
+        await saveTxs?.((txs || []).filter((t) => !targetIds.includes(t.id)));
+      }
+      notify(`선택한 ${targets.length}건의 입고 기록이 삭제되었습니다.`, "ok");
+      setSelectedTxIds([]);
+    } catch (err) {
+      console.error("입고 기록 삭제 오류:", err);
+      notify(`입고 기록 삭제 실패: ${err?.message || err}`, "err");
     }
-
-    notify(`선택한 ${targets.length}건의 입고 내역이 삭제되었습니다.`, "info");
-    setSelectedTxIds([]);
   };
 
   useEffect(() => {
@@ -7677,7 +7699,7 @@ keyCode = String(keyCode)
 
       <Card neon="#35D08C" style={{ padding: 16, marginTop: 20 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <SectionLabel>최근 등록된 입고 이력 (선택 삭제 시 재고 차감)</SectionLabel>
+          <SectionLabel>최근 등록된 입고 이력 (선택 삭제는 기록만 삭제)</SectionLabel>
           {recentInTxs.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7F97AC", cursor: "pointer" }}>

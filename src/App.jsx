@@ -704,8 +704,8 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
     link.click();
   };
 
-  const visibleRows = (txs || []).filter((t) => t.type === type && (showDeleted || t.deleted !== true));
-  const allChecked = visibleRows.length > 0 && selectedIds.length === visibleRows.length;
+  const visibleRows = list;
+  const allChecked = visibleRows.length > 0 && visibleRows.every((t) => selectedIds.includes(t.id));
   const deleteSelected = async () => {
     if (!selectedIds.length) return;
     if (!window.confirm(`선택한 ${selectedIds.length}건의 ${type === "in" ? "입고" : "출고"} 기록만 삭제할까요?\n자재마스터, QR, 자재코드, 현재고는 변경되지 않습니다.`)) return;
@@ -780,18 +780,38 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
           {list.length === 0 ? (
             <EmptyState icon={isOut ? ArrowUpFromLine : ArrowDownToLine} text="해당하는 기록이 없습니다." color="#5E86A3" />
           ) : (
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
-          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,cursor:"pointer"}}>
-            <input type="checkbox" checked={allChecked} onChange={(e)=>setSelectedIds(e.target.checked ? visibleRows.map(t=>t.id) : [])}/>
-            전체선택
-          </label>
-          <button onClick={deleteSelected} disabled={!selectedIds.length} style={{padding:"6px 12px",borderRadius:7,border:`1px solid ${selectedIds.length?"#EF5350":"#274460"}`,background:selectedIds.length?"#3A1C1C":"#1a2632",color:selectedIds.length?"#EF5350":"#5E86A3",cursor:selectedIds.length?"pointer":"not-allowed",fontWeight:700}}>
-            선택삭제 {selectedIds.length?`(${selectedIds.length})`:""}
-          </button>
-        </div>
-<table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10, padding: "0 4px", flexWrap: "wrap" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={allChecked}
+                    onChange={(e) => setSelectedIds(e.target.checked ? visibleRows.map((t) => t.id) : [])}
+                  />
+                  전체선택
+                </label>
+                <button
+                  type="button"
+                  onClick={deleteSelected}
+                  disabled={!selectedIds.length}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 7,
+                    border: `1px solid ${selectedIds.length ? "#EF5350" : "#274460"}`,
+                    background: selectedIds.length ? "#3A1C1C" : "#1a2632",
+                    color: selectedIds.length ? "#EF5350" : "#5E86A3",
+                    cursor: selectedIds.length ? "pointer" : "not-allowed",
+                    fontWeight: 700,
+                  }}
+                >
+                  선택삭제 {selectedIds.length ? `(${selectedIds.length})` : ""}
+                </button>
+              </div>
+
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
               <thead>
                 <tr style={{ position: "sticky", top: 0, background: "#0B1C2C" }}>
+                  <th style={{ ...thStyle, width: 36 }}></th>
                   <th style={thStyle}>날짜</th>
                   <th style={thStyle}>자재명</th>
                   <th style={thStyle}>코드</th>
@@ -810,6 +830,17 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
               <tbody>
                 {list.map((t) => (
                   <tr key={t.id} style={{ borderTop: "1px solid #14283A" }}>
+                    <td style={tdStyle}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(t.id)}
+                        onChange={() => setSelectedIds((prev) =>
+                          prev.includes(t.id)
+                            ? prev.filter((id) => id !== t.id)
+                            : [...prev, t.id]
+                        )}
+                      />
+                    </td>
                     <td style={{ ...tdStyle, color: "#7F97AC", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{t.at}</td>
                     <td style={{ ...tdStyle, color: "#38BDF8", fontWeight: 600 }}>{t.itemName}</td>
                     <td style={{ ...tdStyle, color: "#7F97AC", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{t.itemCode}</td>
@@ -828,7 +859,8 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
                   </tr>
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           )}
         </div>
       </div>

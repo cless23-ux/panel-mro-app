@@ -7591,7 +7591,7 @@ keyCode = String(keyCode)
 
       {rawMode !== "invoice" && (
         <>
-      <Card neon="#35D08C" style={{ maxWidth: 760, margin: "0 auto", padding: 22 }}>
+      <Card neon="#35D08C" style={{padding: 22 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
           <h3 style={{ margin: 0, color: "#94a3b8", fontSize: 14 }}>{materialLabel} 개별 자재 수동 입고</h3>
           {materialType === "raw" && <Btn onClick={() => setManualNewOpen(true)} style={{ whiteSpace: "nowrap" }}><Plus size={16} /> 신규 원자재 등록</Btn>}

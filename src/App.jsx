@@ -6419,33 +6419,54 @@ const runInvoiceOcr = async (file) => {
 
   try {
     const imageData = await new Promise((resolve, reject) => {
-      const img = new Image();
-      const reader = new FileReader();
-      reader.onload = () => {
-        img.onload = () => {
-          try {
-            const maxSize = 1600;
-            let width = img.naturalWidth;
-            let height = img.naturalHeight;
-            const scale = Math.min(1, maxSize / Math.max(width, height));
-            width = Math.max(1, Math.round(width * scale));
-            height = Math.max(1, Math.round(height * scale));
-            const canvas = document.createElement("canvas");
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0, width, height);
-            resolve(canvas.toDataURL("image/jpeg", 0.85));
-          } catch (error) {
-            reject(error);
+  const img = new Image();
+  const reader = new FileReader();
+  reader.onload = () => {
+    img.onload = () => {
+      try {
+        // 멀리서 찍어도 표 안 작은 글자가 뭉개지지 않도록 상한을 크게 올림
+        const MAX_SIZE = 2600;
+        let width = img.naturalWidth;
+        let height = img.naturalHeight;
+        const scale = Math.min(1, MAX_SIZE / Math.max(width, height));
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // 흐릿하게 찍힌 글자의 인식률을 올리기 위한 대비 보정
+        try {
+          const clampByte = (v) => Math.max(0, Math.min(255, v));
+          const imgDataObj = ctx.getImageData(0, 0, width, height);
+          const px = imgDataObj.data;
+          const contrast = 35;
+          const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+          for (let i = 0; i < px.length; i += 4) {
+            px[i] = clampByte(factor * (px[i] - 128) + 128);
+            px[i + 1] = clampByte(factor * (px[i + 1] - 128) + 128);
+            px[i + 2] = clampByte(factor * (px[i + 2] - 128) + 128);
           }
-        };
-        img.onerror = () => reject(new Error("이미지를 처리하지 못했습니다."));
-        img.src = reader.result;
-      };
-      reader.onerror = () => reject(new Error("이미지 파일을 읽지 못했습니다."));
-      reader.readAsDataURL(file);
-    });
+          ctx.putImageData(imgDataObj, 0, 0);
+        } catch (e) {
+          console.warn("대비 보정 실패, 원본으로 진행:", e);
+        }
+
+        // 화질 저하를 줄이기 위해 JPEG 품질도 올림
+        resolve(canvas.toDataURL("image/jpeg", 0.92));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    img.onerror = () => reject(new Error("이미지를 처리하지 못했습니다."));
+    img.src = reader.result;
+  };
+  reader.onerror = () => reject(new Error("이미지 파일을 읽지 못했습니다."));
+  reader.readAsDataURL(file);
+});
 
     const response = await fetch("/api/vision", {
       method: "POST",

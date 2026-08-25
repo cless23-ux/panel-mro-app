@@ -1879,7 +1879,7 @@ function AppInner() {
   const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
     { id: "in", label: "부자재입고", icon: ArrowDownToLine },
-    { id: "out", label: "출고(스캔)", icon: ArrowUpFromLine },
+    { id: "out", label: "출고/반납(스캔)", icon: ArrowUpFromLine },
     { id: "return", label: "원자재반납", icon: RotateCcw },
     { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode },
     { id: "stock", label: "재고조회", icon: Boxes },
@@ -2888,17 +2888,31 @@ function Header({ title, subtitle }) {
   );
 }
 
-/* ---------------- 출고 (스캔) ---------------- */
+/* ---------------- 출고/반납 (스캔) ---------------- */
 function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, presetItem, onConsumePreset, urgentRequests, addUrgentRequest }) {
+  const [txMode, setTxMode] = useState("out"); // "out" | "return"
+
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
+
+  // 출고용 입력값 (기존 그대로)
   const [shipNo, setShipNo] = useState("");
   const [project, setProject] = useState("MSBD/LVSB");
   const [process, setProcess] = useState("배전반 결선");
   const [qty, setQty] = useState("");
   const [worker, setWorker] = useState("울산에이원");
-  const [isScanning, setIsScanning] = useState(false);
   const [outSubmitting, setOutSubmitting] = useState(false);
+
+  // 반납용 입력값 (신규)
+  const [returnQty, setReturnQty] = useState("");
+  const [returnReason, setReturnReason] = useState(RETURN_REASONS[0]);
+  const [returnWorker, setReturnWorker] = useState("");
+  const [returnNote, setReturnNote] = useState("");
+  const [returnShipNo, setReturnShipNo] = useState("");
+  const [returnProject, setReturnProject] = useState("");
+  const [returnSubmitting, setReturnSubmitting] = useState(false);
+
+  const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
   const infoCardRef = useRef(null);
 
@@ -2911,6 +2925,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   useEffect(() => {
     if (presetItem) {
       setFound(presetItem);
+      setTxMode("out");
       notify(`자재 선택됨: ${presetItem.name}`, "ok");
       scrollToInfoCard();
       if (onConsumePreset) onConsumePreset();
@@ -2940,6 +2955,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     }
   }, [workerOptions]);
 
+  useEffect(() => {
+    if (projectOptions.length > 0 && !returnProject) {
+      setReturnProject(projectOptions[0]);
+    }
+  }, [projectOptions]);
+
   // 원복 여부는 원본 거래의 reason에 남긴 감사용 마커로 판단합니다.
   const isReversedOutTx = (tx) =>
     String(tx?.reason || "").includes("MRO_REVERSED_OUT:");
@@ -2951,6 +2972,17 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     };
     return txs
       .filter((t) => t.type === "out" && t.deleted !== true)
+      .sort((a, b) => parseAt(b) - parseAt(a))
+      .slice(0, 15);
+  }, [txs]);
+
+  const recentReturnTxs = useMemo(() => {
+    const parseAt = (t) => {
+      const d = new Date(String(t.at || "").replace(" ", "T"));
+      return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    return txs
+      .filter((t) => t.type === "return" && t.deleted !== true)
       .sort((a, b) => parseAt(b) - parseAt(a))
       .slice(0, 15);
   }, [txs]);
@@ -2985,11 +3017,11 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       const alphaNumItemName = rawItemName.replace(/[^a-z0-9]/g, "");
 
       return (
-        rawItemCode === cleanScan || 
+        rawItemCode === cleanScan ||
         (alphaNumItemCode && alphaNumItemCode === alphaNumScan) ||
-        cleanScan.includes(rawItemCode) || 
+        cleanScan.includes(rawItemCode) ||
         rawItemCode.includes(cleanScan) ||
-        rawItemName === cleanScan || 
+        rawItemName === cleanScan ||
         (alphaNumItemName && alphaNumItemName === alphaNumScan)
       );
     });
@@ -3002,11 +3034,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     else { setFound(null); notify(`등록되지 않은 자재입니다. (인식값: ${String(codeVal).trim()})`, "err"); }
   };
 
-  const startCamera = async () => {
+  const startCamera = async (mode) => {
     if (!window.Html5Qrcode) {
       notify("카메라 모듈을 로딩 중입니다. 잠시 후 다시 시도해주세요.", "err");
       return;
     }
+    setTxMode(mode);
     setIsScanning(true);
   };
 
@@ -3017,8 +3050,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
       html5QrCode.start(
         { facingMode: "environment" },
-        { 
-          fps: 15, 
+        {
+          fps: 15,
           qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
             const qrboxSize = Math.max(160, Math.min(230, Math.floor(minEdge * 0.45)));
@@ -3059,6 +3092,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     }
   };
 
+  /* ---------- 출고 확정 (기존 로직 그대로) ---------- */
   const submit = async () => {
     if (outSubmitting) return;
     if (!found || !qty || Number(qty) <= 0) { notify("자재를 스캔하고 수량을 입력해주세요.", "err"); return; }
@@ -3098,103 +3132,209 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       const remain = found.stock - Number(qty);
       notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
 
-      setQty(""); 
+      setQty("");
       setShipNo("");
       setProject(projectOptions[0] || "MSBD/LVSB");
       setProcess(processOptions[0] || "배전반 결선");
       setWorker(workerOptions[0] || "울산에이원");
-      setFound(null); 
+      setFound(null);
       setScan("");
     } finally {
       setOutSubmitting(false);
     }
   };
 
-  const cancelOutTx = async (targetTx) => {
-  if (isReversedOutTx(targetTx)) {
-    notify("이미 원복 처리된 불출 이력입니다.", "info");
-    return;
-  }
+  /* ---------- 반납 확정 (신규) ---------- */
+  const submitReturn = async () => {
+    if (returnSubmitting) return;
+    if (!found || !returnQty || Number(returnQty) <= 0) { notify("자재를 스캔하고 반납 수량을 입력해주세요.", "err"); return; }
+    if (!returnWorker.trim()) { notify("반납자를 입력해주세요.", "err"); return; }
 
-  if (!window.confirm(
-    `[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 불출을 원복하시겠습니까?\n\n재고는 복구되고, 기존 불출 기록은 삭제되지 않습니다.`
-  )) {
-    return;
-  }
+    setReturnSubmitting(true);
+    try {
+      const qtyNum = Number(returnQty);
+      const nextItems = items.map((i) =>
+        String(i.code).replace(/[\r\n]+/g, "").trim() === String(found.code).replace(/[\r\n]+/g, "").trim()
+          ? { ...i, stock: (Number(i.stock) || 0) + qtyNum }
+          : i
+      );
 
-  try {
-    const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
-    const nextReason = String(targetTx.reason || "").includes(marker)
-      ? targetTx.reason
-      : `${String(targetTx.reason || "").trim()}${String(targetTx.reason || "").trim() ? " | " : ""}${marker}`;
+      const tx = {
+        id: uid("RET"),
+        type: "return",
+        itemCode: found.code,
+        itemName: found.name,
+        unit: found.unit,
+        qty: qtyNum,
+        shipNo: returnShipNo || "",
+        project: returnProject || "",
+        reason: returnReason,
+        worker: returnWorker.trim(),
+        note: returnNote.trim(),
+        linkedOutTxId: null,
+        at: nowStr(),
+        deleted: false,
+      };
 
-    const nextItems = items.map((i) =>
-      String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
-        ? { ...i, stock: Number(i.stock) + Number(targetTx.qty) }
-        : i
-    );
-
-    const nextTxs = txs.map((t) => (t.id === targetTx.id ? { ...t, reason: nextReason } : t));
-
-    if (supabase) {
-      const reverseTx = { ...targetTx, reason: nextReason };
-      await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: Number(targetTx.qty), txUpdate: reverseTx }]);
-      try {
-        await reloadItems();
-        await reloadTxs();
-      } catch (reloadErr) {
-        console.error("원복 후 새로고침 실패(잠시 후 자동으로 갱신됩니다):", reloadErr);
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: found.code, delta: qtyNum, tx }]);
+        try {
+          await reloadItems();
+          await reloadTxs();
+        } catch (reloadErr) {
+          console.error("반납 후 새로고침 실패(잠시 후 자동으로 갱신됩니다):", reloadErr);
+        }
+      } else {
+        await saveItems(nextItems);
+        await saveTxs([...txs, tx]);
       }
-    } else {
-      await saveItems(nextItems);
-      await saveTxs(nextTxs);
+
+      notify(`${found.name} ${qtyNum}${found.unit} 반납 완료 · 재고 반영`, "ok");
+
+      setReturnQty("");
+      setReturnReason(RETURN_REASONS[0]);
+      setReturnWorker("");
+      setReturnNote("");
+      setReturnShipNo("");
+      setReturnProject(projectOptions[0] || "");
+      setFound(null);
+      setScan("");
+    } finally {
+      setReturnSubmitting(false);
+    }
+  };
+
+  const cancelOutTx = async (targetTx) => {
+    if (isReversedOutTx(targetTx)) {
+      notify("이미 원복 처리된 불출 이력입니다.", "info");
+      return;
     }
 
-    notify(
-      `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원복완료로 처리되었습니다.`,
-      "info"
-    );
-  } catch (e) {
-    console.error("원복 처리 오류:", e);
-    notify("이력 원복 중 오류가 발생했습니다.", "err");
-  }
-};
+    if (!window.confirm(
+      `[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 불출을 원복하시겠습니까?\n\n재고는 복구되고, 기존 불출 기록은 삭제되지 않습니다.`
+    )) {
+      return;
+    }
+
+    try {
+      const marker = `MRO_REVERSED_OUT:${String(targetTx.id)}`;
+      const nextReason = String(targetTx.reason || "").includes(marker)
+        ? targetTx.reason
+        : `${String(targetTx.reason || "").trim()}${String(targetTx.reason || "").trim() ? " | " : ""}${marker}`;
+
+      const nextItems = items.map((i) =>
+        String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
+          ? { ...i, stock: Number(i.stock) + Number(targetTx.qty) }
+          : i
+      );
+
+      const nextTxs = txs.map((t) => (t.id === targetTx.id ? { ...t, reason: nextReason } : t));
+
+      if (supabase) {
+        const reverseTx = { ...targetTx, reason: nextReason };
+        await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: Number(targetTx.qty), txUpdate: reverseTx }]);
+        try {
+          await reloadItems();
+          await reloadTxs();
+        } catch (reloadErr) {
+          console.error("원복 후 새로고침 실패(잠시 후 자동으로 갱신됩니다):", reloadErr);
+        }
+      } else {
+        await saveItems(nextItems);
+        await saveTxs(nextTxs);
+      }
+
+      notify(
+        `출고가 원복되었습니다. 재고 ${targetTx.qty}${targetTx.unit}가 복원되었으며 원복완료로 처리되었습니다.`,
+        "info"
+      );
+    } catch (e) {
+      console.error("원복 처리 오류:", e);
+      notify("이력 원복 중 오류가 발생했습니다.", "err");
+    }
+  };
 
   const deleteHistory = async (targetTx) => {
-  if (!window.confirm(
-    `[${targetTx.itemName}] 출고 이력을 목록에서 삭제하시겠습니까?\n\nDB 기록은 보존되며 재고에는 영향이 없습니다.`
-  )) {
-    return;
-  }
-
-  try {
-    if (supabase) {
-      const { error } = await supabase
-        .from("transactions")
-        .update({ deleted: true })
-        .eq("id", targetTx.id);
-
-      if (error) {
-        console.error("출고 이력 삭제 오류:", error);
-        notify("삭제 처리에 실패했습니다.", "err");
-        return;
-      }
+    if (!window.confirm(
+      `[${targetTx.itemName}] 출고 이력을 목록에서 삭제하시겠습니까?\n\nDB 기록은 보존되며 재고에는 영향이 없습니다.`
+    )) {
+      return;
     }
 
-    const nextTxs = txs.filter((t) => t.id !== targetTx.id);
-    await saveTxs(nextTxs);
-    notify("출고 이력이 목록에서 삭제되었습니다. DB 기록과 재고는 유지됩니다.", "info");
-  } catch (e) {
-    console.error("Soft Delete 오류:", e);
-    notify("삭제 처리 중 오류가 발생했습니다.", "err");
-  }
-};
+    try {
+      if (supabase) {
+        const { error } = await supabase
+          .from("transactions")
+          .update({ deleted: true })
+          .eq("id", targetTx.id);
+
+        if (error) {
+          console.error("출고 이력 삭제 오류:", error);
+          notify("삭제 처리에 실패했습니다.", "err");
+          return;
+        }
+      }
+
+      const nextTxs = txs.filter((t) => t.id !== targetTx.id);
+      await saveTxs(nextTxs);
+      notify("출고 이력이 목록에서 삭제되었습니다. DB 기록과 재고는 유지됩니다.", "info");
+    } catch (e) {
+      console.error("Soft Delete 오류:", e);
+      notify("삭제 처리 중 오류가 발생했습니다.", "err");
+    }
+  };
+
+  /* ---------- 반납 취소 (신규) ---------- */
+  const cancelReturnTx = async (targetTx) => {
+    if (!window.confirm(
+      `[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 반납 내역을 취소하시겠습니까? (재고에서 다시 차감됩니다)`
+    )) return;
+
+    try {
+      const nextItems = items.map((i) =>
+        String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()
+          ? { ...i, stock: Math.max(0, Number(i.stock) - Number(targetTx.qty)) }
+          : i
+      );
+      const nextTxs = txs.filter((t) => t.id !== targetTx.id);
+
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: -Number(targetTx.qty), txDeleteId: targetTx.id }]);
+        try {
+          await reloadItems();
+          await reloadTxs();
+        } catch (reloadErr) {
+          console.error("반납취소 후 새로고침 실패:", reloadErr);
+        }
+      } else {
+        await saveItems(nextItems);
+        await saveTxs(nextTxs);
+      }
+      notify(`반납이 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 다시 차감되었습니다.`, "info");
+    } catch (e) {
+      console.error("반납 취소 오류:", e);
+      notify("반납 취소 중 오류가 발생했습니다.", "err");
+    }
+  };
+
+  const modeChipStyle = (active, color) => ({
+    flex: 1,
+    padding: "9px 12px",
+    borderRadius: 8,
+    cursor: "pointer",
+    border: `1px solid ${active ? color : "#274460"}`,
+    background: active ? `${color}1f` : "#0B1C2C",
+    color: active ? color : "#7F97AC",
+    fontFamily: "'IBM Plex Mono', monospace",
+    fontWeight: 700,
+    fontSize: 13,
+  });
 
   return (
     <div>
-      <Header title="출고 (QR / 바코드 스캔)" subtitle="스캔으로 빠르게 불출 처리" />
+      <Header title="출고 / 반납 (QR·바코드 스캔)" subtitle="스캔으로 빠르게 불출 또는 반납 처리" />
       <div className="outform-grid">
-        <Card neon="#F5A623" style={{ padding: 22 }}>
+        <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
           {!isScanning ? (
             <div style={{
@@ -3205,10 +3345,27 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
               <div style={{ fontSize: 13, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
                 버튼을 누르면 스마트폰 카메라가 실행됩니다
               </div>
-              <Btn onClick={startCamera} style={{ marginBottom: 16, width: "100%" }}><Camera size={18} />카메라 즉시 스캔</Btn>
-              
+
+              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                <Btn onClick={() => startCamera("out")} style={{ flex: 1 }}>
+                  <Camera size={18} />출고 스캔
+                </Btn>
+                <Btn
+                  onClick={() => startCamera("return")}
+                  style={{ flex: 1, background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622" }}
+                >
+                  <RotateCcw size={18} />반납 스캔
+                </Btn>
+              </div>
+
               <div style={{ borderTop: "1px solid #1F3B54", paddingTop: 14, marginTop: 10 }}>
-                <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>또는 코드 수동 입력</div>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <button type="button" onClick={() => setTxMode("out")} style={modeChipStyle(txMode === "out", "#F5A623")}>출고</button>
+                  <button type="button" onClick={() => setTxMode("return")} style={modeChipStyle(txMode === "return", "#22D3EE")}>반납</button>
+                </div>
+                <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>
+                  또는 코드 수동 입력 ({txMode === "out" ? "출고" : "반납"} 대상)
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <input
                     style={{ ...inputStyle, flex: 1 }}
@@ -3223,6 +3380,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             </div>
           ) : (
             <div style={{ padding: 10, background: "#0B1C2C", borderRadius: 10, textAlign: "center" }}>
+              <div style={{
+                fontSize: 12.5, fontWeight: 700, marginBottom: 8,
+                color: txMode === "out" ? "#F5A623" : "#22D3EE",
+              }}>
+                {txMode === "out" ? "🔶 출고 스캔 중" : "🔷 반납 스캔 중"}
+              </div>
               <div id="reader" style={{ width: "100%", height: 350, background: "#000", borderRadius: 8, overflow: "hidden" }} />
               <div style={{ fontSize: 11.5, color: "#5E86A3", marginTop: 10 }}>
                 주변에 QR코드가 여러 개 있다면, 인식하려는 코드 하나만 사각 박스 안에 딱 맞춰주세요.
@@ -3284,38 +3447,40 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           </div>
         )}
 
-        <Card ref={infoCardRef} neon="#F5A623" style={{ padding: 22 }}>
-          <SectionLabel>2. 불출 정보 입력</SectionLabel>
+        <Card ref={infoCardRef} neon={txMode === "out" ? "#F5A623" : "#22D3EE"} style={{ padding: 22 }}>
+          <SectionLabel>{txMode === "out" ? "2. 불출 정보 입력" : "2. 반납 정보 입력"}</SectionLabel>
           {!found ? (
             <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 선택해주세요." color="#5E86A3" />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
                 <div className="out-found-summary">
-                <div className="out-found-product">
-                  {found.image_url ? (
-                    <img src={found.image_url} alt={found.name} className="out-found-image" />
-                  ) : (
-                    <div className="out-found-image out-found-image-empty"><Led status={statusOf(found)} size={12} /></div>
-                  )}
-                  <div className="out-found-details">
-                    <div className="out-found-name">{found.name}</div>
-                    <div className="out-found-code">코드: {found.code}</div>
-                    <div className="out-found-spec">규격/사양: {found.spec || "-"}</div>
-                    {found.manufacturer && (
-                      <div className="out-found-manufacturer">제조사: {found.manufacturer}</div>
+                  <div className="out-found-product">
+                    {found.image_url ? (
+                      <img src={found.image_url} alt={found.name} className="out-found-image" />
+                    ) : (
+                      <div className="out-found-image out-found-image-empty"><Led status={statusOf(found)} size={12} /></div>
                     )}
+                    <div className="out-found-details">
+                      <div className="out-found-name">{found.name}</div>
+                      <div className="out-found-code">코드: {found.code}</div>
+                      <div className="out-found-spec">규격/사양: {found.spec || "-"}</div>
+                      {found.manufacturer && (
+                        <div className="out-found-manufacturer">제조사: {found.manufacturer}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="out-found-stock">
+                    <div style={{ fontSize: 16, fontWeight: 700, color: found.stock > 0 ? "#35D08C" : "#EF5350" }}>
+                      {found.stock} <span style={{ fontSize: 12 }}>{found.unit}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
                   </div>
                 </div>
-                <div className="out-found-stock">
-                  <div style={{ fontSize: 16, fontWeight: 700, color: found.stock > 0 ? "#35D08C" : "#EF5350" }}>
-                    {found.stock} <span style={{ fontSize: 12 }}>{found.unit}</span>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
-                </div>
-              </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid #1F3B54", paddingTop: 10 }}>
-                  <UrgentRequestButton item={found} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
+                  {txMode === "out" && (
+                    <UrgentRequestButton item={found} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
+                  )}
                   <button
                     type="button"
                     onClick={() => toggleFavorite(found.code)}
@@ -3334,122 +3499,223 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <Field label="1. 호선">
-                  <AutocompleteInput
-                    value={shipNo}
-                    onChange={setShipNo}
-                    options={shipOptions}
-                    placeholder="예: H-2024 (직접 입력 또는 목록 검색)"
-                  />
-                </Field>
-                <Field label="2. 프로젝트">
-                  <Select value={project} onChange={(e) => setProject(e.target.value)} options={projectOptions} />
-                </Field>
-              </div>
+              {txMode === "out" ? (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <Field label="1. 호선">
+                      <AutocompleteInput
+                        value={shipNo}
+                        onChange={setShipNo}
+                        options={shipOptions}
+                        placeholder="예: H-2024 (직접 입력 또는 목록 검색)"
+                      />
+                    </Field>
+                    <Field label="2. 프로젝트">
+                      <Select value={project} onChange={(e) => setProject(e.target.value)} options={projectOptions} />
+                    </Field>
+                  </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <Field label="3. 공정구분">
-                  <Select value={process} onChange={(e) => setProcess(e.target.value)} options={processOptions} />
-                </Field>
-                <Field label={`4. 불출수량 (${found.unit})`}>
-                  <input 
-                    style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }} 
-                    type="number" min="1" max={found.stock} value={qty} 
-                    onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
-                  />
-                </Field>
-              </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <Field label="3. 공정구분">
+                      <Select value={process} onChange={(e) => setProcess(e.target.value)} options={processOptions} />
+                    </Field>
+                    <Field label={`4. 불출수량 (${found.unit})`}>
+                      <input
+                        style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }}
+                        type="number" min="1" max={found.stock} value={qty}
+                        onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+                      />
+                    </Field>
+                  </div>
 
-              <Field label="5. 불출자">
-                <Select value={worker} onChange={(e) => setWorker(e.target.value)} options={workerOptions} />
-              </Field>
+                  <Field label="5. 불출자">
+                    <Select value={worker} onChange={(e) => setWorker(e.target.value)} options={workerOptions} />
+                  </Field>
 
-              <Btn 
-                onClick={submit} 
-                disabled={outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock} 
-                style={{ 
-                  marginTop: 8, width: "100%", 
-                  background: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#1F3B54" : "#F5A623",
-                  color: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#5E86A3" : "#0A1622",
-                  fontWeight: "bold", fontSize: 15
-                }}
-              >
-                <ArrowUpFromLine size={18} />{outSubmitting ? "처리 중..." : "출고 확정"}
-              </Btn>
+                  <Btn
+                    onClick={submit}
+                    disabled={outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock}
+                    style={{
+                      marginTop: 8, width: "100%",
+                      background: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#1F3B54" : "#F5A623",
+                      color: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#5E86A3" : "#0A1622",
+                      fontWeight: "bold", fontSize: 15
+                    }}
+                  >
+                    <ArrowUpFromLine size={18} />{outSubmitting ? "처리 중..." : "출고 확정"}
+                  </Btn>
+                </>
+              ) : (
+                <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <Field label="호선 (선택)">
+                      <AutocompleteInput value={returnShipNo} onChange={setReturnShipNo} options={shipOptions} placeholder="예: H-2024" />
+                    </Field>
+                    <Field label="프로젝트 (선택)">
+                      <Select value={returnProject || projectOptions[0] || ""} onChange={(e) => setReturnProject(e.target.value)} options={projectOptions.length ? projectOptions : ["-"]} />
+                    </Field>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <Field label="반납 사유">
+                      <Select value={returnReason} onChange={(e) => setReturnReason(e.target.value)} options={RETURN_REASONS} />
+                    </Field>
+                    <Field label={`반납 수량 (${found.unit})`}>
+                      <input
+                        style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
+                        type="number" min="1"
+                        value={returnQty}
+                        onChange={(e) => setReturnQty(e.target.value)}
+                        placeholder="수량 입력"
+                      />
+                    </Field>
+                  </div>
+
+                  <Field label="반납자">
+                    <input style={inputStyle} value={returnWorker} onChange={(e) => setReturnWorker(e.target.value)} placeholder="이름 입력" />
+                  </Field>
+
+                  <Field label="비고 (선택)">
+                    <input style={inputStyle} value={returnNote} onChange={(e) => setReturnNote(e.target.value)} placeholder="예: 규격 상이로 미사용" />
+                  </Field>
+
+                  <Btn
+                    onClick={submitReturn}
+                    disabled={returnSubmitting || !returnQty || Number(returnQty) <= 0 || !returnWorker.trim()}
+                    style={{
+                      marginTop: 8, width: "100%",
+                      background: (returnSubmitting || !returnQty || Number(returnQty) <= 0 || !returnWorker.trim()) ? "#1F3B54" : "#22D3EE",
+                      color: (returnSubmitting || !returnQty || Number(returnQty) <= 0 || !returnWorker.trim()) ? "#5E86A3" : "#0A1622",
+                      fontWeight: "bold", fontSize: 15
+                    }}
+                  >
+                    <RotateCcw size={18} />{returnSubmitting ? "처리 중..." : "반납 확정"}
+                  </Btn>
+                </>
+              )}
             </div>
           )}
         </Card>
 
-        <Card neon="#F5A623" style={{ padding: 16 }}>
-          <SectionLabel>최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)</SectionLabel>
-        {recentOutTxs.length === 0 ? (
-          <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 560, overflowY: "auto" }}>
-            {recentOutTxs.map((t) => (
-              <div
-                key={t.id}
-                style={{
-                  background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
-                  padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-                }}
-              >
-                <div style={{ flex: "1 1 160px", minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {t.itemName}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>{t.at}</div>
-                </div>
+        <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} style={{ padding: 16 }}>
+          <SectionLabel>
+            {txMode === "out" ? "최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)" : "최근 등록된 반납 이력 (잘못 등록 시 취소)"}
+          </SectionLabel>
 
-                <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
-                  <div>
-                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
-                    <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>{t.qty} {t.unit}</span>
-                  </div>
-                  <div>
-                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
-                    <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
-                  </div>
-                  <div>
-                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>프로젝트</span>
-                    <span style={{ color: "#9FB4C7" }}>{t.project || "-"}</span>
-                  </div>
-                  <div>
-                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>불출자</span>
-                    <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: "auto" }}>
-                  <button
-                    onClick={() => cancelOutTx(t)}
-                    disabled={isReversedOutTx(t)}
+          {txMode === "out" ? (
+            recentOutTxs.length === 0 ? (
+              <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 560, overflowY: "auto" }}>
+                {recentOutTxs.map((t) => (
+                  <div
+                    key={t.id}
                     style={{
-                      background: isReversedOutTx(t) ? "#26352D" : "#123626",
-                      border: `1px solid ${isReversedOutTx(t) ? "#607D6B" : "#2ECC71"}`,
-                      color: isReversedOutTx(t) ? "#8FA69A" : "#2ECC71",
-                      padding: "5px 11px",
-                      borderRadius: 6,
-                      cursor: isReversedOutTx(t) ? "not-allowed" : "pointer",
-                      fontSize: 11.5,
-                      fontWeight: 600,
-                      opacity: isReversedOutTx(t) ? 0.8 : 1,
+                      background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+                      padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
                     }}
                   >
-                    {isReversedOutTx(t) ? "원복완료" : "원복"}
-                  </button>
-                  <button
-                    onClick={() => deleteHistory(t)}
-                    style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
-                  >
-                    삭제
-                  </button>
-                </div>
+                    <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {t.itemName}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>{t.at}</div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
+                      <div>
+                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
+                        <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>{t.qty} {t.unit}</span>
+                      </div>
+                      <div>
+                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
+                        <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
+                      </div>
+                      <div>
+                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>프로젝트</span>
+                        <span style={{ color: "#9FB4C7" }}>{t.project || "-"}</span>
+                      </div>
+                      <div>
+                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>불출자</span>
+                        <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: "auto" }}>
+                      <button
+                        onClick={() => cancelOutTx(t)}
+                        disabled={isReversedOutTx(t)}
+                        style={{
+                          background: isReversedOutTx(t) ? "#26352D" : "#123626",
+                          border: `1px solid ${isReversedOutTx(t) ? "#607D6B" : "#2ECC71"}`,
+                          color: isReversedOutTx(t) ? "#8FA69A" : "#2ECC71",
+                          padding: "5px 11px",
+                          borderRadius: 6,
+                          cursor: isReversedOutTx(t) ? "not-allowed" : "pointer",
+                          fontSize: 11.5,
+                          fontWeight: 600,
+                          opacity: isReversedOutTx(t) ? 0.8 : 1,
+                        }}
+                      >
+                        {isReversedOutTx(t) ? "원복완료" : "원복"}
+                      </button>
+                      <button
+                        onClick={() => deleteHistory(t)}
+                        style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )
+          ) : (
+            recentReturnTxs.length === 0 ? (
+              <EmptyState icon={RotateCcw} text="최근 등록된 반납 내역이 없습니다." color="#5E86A3" />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 560, overflowY: "auto" }}>
+                {recentReturnTxs.map((t) => (
+                  <div
+                    key={t.id}
+                    style={{
+                      background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+                      padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {t.itemName}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>{t.reason} · {t.at}</div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
+                      <div>
+                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
+                        <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#22D3EE" }}>{t.qty} {t.unit}</span>
+                      </div>
+                      <div>
+                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
+                        <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
+                      </div>
+                      <div>
+                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>반납자</span>
+                        <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => cancelReturnTx(t)}
+                      style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600, marginLeft: "auto", flexShrink: 0 }}
+                    >
+                      취소
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
         </Card>
       </div>
     </div>

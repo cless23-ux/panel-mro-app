@@ -562,11 +562,13 @@ function getMaterialType(code) {
   const c = String(code || "").trim();
   if (c.startsWith("1")) return "raw";
   if (c.startsWith("2")) return "sub";
+  if (c.startsWith("4")) return "consumable";
   return "etc";
 }
 const MATERIAL_TYPE_META = {
   raw: { label: "원자재", color: "#38BDF8" },
   sub: { label: "부자재", color: "#A78BFA" },
+  consumable: { label: "소모자재", color: "#FBBF24" },
   etc: { label: "미분류", color: "#7F97AC" },
 };
 function isRawMaterial(code) {
@@ -5216,6 +5218,8 @@ async function buildQrLabelWorkbook(items) {
 /* ---------------- 자재 마스터 관리 ---------------- */
 function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", memo: "", image_url: "" };
+  const MATERIAL_PREFIX_BY_TYPE = { raw: "1", sub: "2", consumable: "4" };
+  const MATERIAL_LABEL_BY_TYPE = { raw: "원자재", sub: "부자재", consumable: "소모자재" };
   const [form, setForm] = useState(blank);
   const [formMaterialType, setFormMaterialType] = useState("raw"); // "raw"(원자재) | "sub"(부자재)
   const [showForm, setShowForm] = useState(false);
@@ -5394,10 +5398,10 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       return;
     }
 
-    const expectedPrefix = formMaterialType === "raw" ? "1" : "2";
+        const expectedPrefix = MATERIAL_PREFIX_BY_TYPE[formMaterialType] || "2";
     if (!form.code.trim().startsWith(expectedPrefix)) {
       notify(
-        `${formMaterialType === "raw" ? "원자재" : "부자재"} 코드는 "${expectedPrefix}"로 시작해야 합니다. 예: ${expectedPrefix}-CG-M20-BR`,
+        `${MATERIAL_LABEL_BY_TYPE[formMaterialType]} 코드는 "${expectedPrefix}"로 시작해야 합니다. 예: ${expectedPrefix}-CG-M20-BR`,
         "err"
       );
       return;
@@ -5443,7 +5447,30 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     await saveItems(updated);
     notify("삭제되었습니다.", "ok");
   };
+  const bulkDeleteSelected = async () => {
+    if (selectedQrCodes.length === 0) {
+      notify("삭제할 자재를 먼저 선택해주세요.", "err");
+      return;
+    }
+    if (!window.confirm(`선택한 ${selectedQrCodes.length}개 자재를 삭제하시겠습니까?`)) return;
 
+    if (supabase) {
+      const { error } = await supabase
+        .from("items")
+        .update({ deleted: true, deleted_at: new Date().toISOString() })
+        .in("code", selectedQrCodes);
+
+      if (error) {
+        notify("선택 삭제 실패", "err");
+        return;
+      }
+    }
+
+    const updated = items.filter((i) => !selectedQrCodes.includes(i.code));
+    await saveItems(updated);
+    notify(`${selectedQrCodes.length}개 자재가 삭제되었습니다.`, "ok");
+    setSelectedQrCodes([]);
+  };
   const exportCSV = () => {
     const headers = ["코드,품명,규격,카테고리,단위,현재고,안전재고,거래처,비고,이미지주소\n"];
     const rows = items.map(i => `"${csvSafe(i.code)}","${csvSafe(i.name)}","${csvSafe(i.spec)}","${csvSafe(i.category)}","${i.unit}",${i.stock},${i.safety},"${csvSafe(i.manufacturer)}","${csvSafe(i.memo)}","${csvSafe(i.image_url)}"\n`);
@@ -5664,9 +5691,16 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
             )}
           </button>
 
-          <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업</Btn>
+                    <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업</Btn>
           <Btn onClick={exportQRLabelsExcel} variant="subtle" disabled={qrExporting}>
             <QrCode size={15} />{qrExporting ? "생성 중..." : `QR 라벨${selectedQrCodes.length ? ` (${selectedQrCodes.length}개 선택)` : ""}`}
+          </Btn>
+          <Btn
+            onClick={bulkDeleteSelected}
+            variant="danger"
+            disabled={selectedQrCodes.length === 0}
+          >
+            <Trash2 size={15} />선택삭제{selectedQrCodes.length ? ` (${selectedQrCodes.length}개)` : ""}
           </Btn>
           <label style={{ display: "inline-block" }}>
   <input
@@ -5711,11 +5745,12 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       </div>
 
       {/* 원자재 / 부자재 구분 필터 탭 */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+       <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
         {[
           { id: "all", label: `전체 (${items.length})` },
           { id: "raw", label: `원자재 (${items.filter((i) => getMaterialType(i.code) === "raw").length})` },
           { id: "sub", label: `부자재 (${items.filter((i) => getMaterialType(i.code) === "sub").length})` },
+          { id: "consumable", label: `소모자재 (${items.filter((i) => getMaterialType(i.code) === "consumable").length})` },
         ].map((f) => (
           <button
             key={f.id}
@@ -5802,19 +5837,22 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       {showForm && (
         <Card style={{ padding: 22, marginBottom: 20 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14 }}>
-            <Field label="구분 *">
+             <Field label="구분 *">
               <Select
-                value={formMaterialType === "raw" ? "원자재" : "부자재"}
-                onChange={(e) => setFormMaterialType(e.target.value === "원자재" ? "raw" : "sub")}
-                options={["원자재", "부자재"]}
+                value={MATERIAL_LABEL_BY_TYPE[formMaterialType] || "원자재"}
+                onChange={(e) => {
+                  const found = Object.entries(MATERIAL_LABEL_BY_TYPE).find(([, label]) => label === e.target.value);
+                  setFormMaterialType(found ? found[0] : "raw");
+                }}
+                options={["원자재", "부자재", "소모자재"]}
               />
             </Field>
-            <Field label="자재코드 *">
+                        <Field label="자재코드 *">
               <input
                 style={inputStyle}
                 value={form.code}
                 onChange={(e) => setForm({ ...form, code: e.target.value })}
-                placeholder={formMaterialType === "raw" ? "예: 1-CG-M32-BR" : "예: 2-CG-M32-BR"}
+                placeholder={`예: ${MATERIAL_PREFIX_BY_TYPE[formMaterialType]}-CG-M32-BR`}
               />
             </Field>
             <Field label="품명 *"><input style={inputStyle} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="예: 케이블 글랜드" /></Field>
@@ -5894,9 +5932,9 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
               </tr>
               <tr style={{ background: "#0B1C2C" }}>
                 <th></th><th></th><th></th>
-                <th>
-                  <select value={materialFilter} onChange={(e) => setMaterialFilter(e.target.value)} style={{ ...inputStyle, width: 78, padding: "4px 6px", fontSize: 10.5 }}>
-                    <option value="all">전체</option><option value="raw">원자재</option><option value="sub">부자재</option>
+                <th>              
+                  <select value={materialFilter} onChange={(e) => setMaterialFilter(e.target.value)} style={{ ...inputStyle, width: 84, padding: "4px 6px", fontSize: 10.5 }}>
+                    <option value="all">전체</option><option value="raw">원자재</option><option value="sub">부자재</option><option value="consumable">소모자재</option>
                   </select>
                 </th>
                 <th><input value={columnFilters.code} onChange={(e) => updateColumnFilter("code", e.target.value)} placeholder="코드" style={{ ...inputStyle, width: 105, padding: "4px 6px", fontSize: 10.5 }} /></th>

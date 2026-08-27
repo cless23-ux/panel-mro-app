@@ -4,7 +4,8 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save, Lock
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save, Lock, Anchor,
+  Ship
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 

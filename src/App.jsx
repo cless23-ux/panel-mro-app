@@ -2448,7 +2448,7 @@ if (showSplash) {
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
-            {tab === "consumable" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} materialType="consumable" />}
+            {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
@@ -5157,7 +5157,317 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
     </div>
   );
 }
+/* ---------------- 소모자재 관리 ---------------- */
+function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests, addUrgentRequest, reloadItems, reloadTxs }) {
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [zoomedImage, setZoomedImage] = useState(null);
+  const [renderLimit, setRenderLimit] = useState(200);
 
+  const consumableItems = useMemo(() => items.filter((i) => getMaterialType(i.code) === "consumable"), [items]);
+
+  const categoryOptions = useMemo(() => {
+    const set = new Set();
+    consumableItems.forEach((item) => {
+      const value = String(item.category || "").trim();
+      if (value) set.add(value);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
+  }, [consumableItems]);
+
+  useEffect(() => {
+    if (categoryFilter !== "all" && !categoryOptions.includes(categoryFilter)) {
+      setCategoryFilter("all");
+    }
+  }, [categoryFilter, categoryOptions]);
+
+  const filteredItems = useMemo(() => {
+    return consumableItems.filter((item) => {
+      const matchSearch =
+        !search ||
+        item.name.toLowerCase().includes(search.toLowerCase()) ||
+        item.code.toLowerCase().includes(search.toLowerCase()) ||
+        (item.manufacturer && item.manufacturer.toLowerCase().includes(search.toLowerCase()));
+      const itemCategory = String(item.category || "").trim();
+      const matchCategory = categoryFilter === "all" || itemCategory === categoryFilter;
+      return matchSearch && matchCategory;
+    });
+  }, [consumableItems, search, categoryFilter]);
+
+  const visibleItems = useMemo(() => filteredItems.slice(0, renderLimit), [filteredItems, renderLimit]);
+
+  useEffect(() => { setRenderLimit(200); }, [search, categoryFilter]);
+
+  /* 입고 (관리자/PC 전용) */
+  const [inboundTarget, setInboundTarget] = useState(null);
+  const [inboundQty, setInboundQty] = useState("");
+  const [inboundPerson, setInboundPerson] = useState("");
+  const [inboundSubmitting, setInboundSubmitting] = useState(false);
+
+  const openInbound = (item) => {
+    setInboundTarget(item);
+    setInboundQty("");
+    setInboundPerson("");
+  };
+
+  const submitInbound = async () => {
+    if (inboundSubmitting || !inboundTarget) return;
+    const qtyNum = Number(inboundQty);
+    if (!qtyNum || qtyNum <= 0) { notify("입고 수량을 입력해주세요.", "err"); return; }
+    if (!inboundPerson.trim()) { notify("입고 담당자를 입력해주세요.", "err"); return; }
+
+    setInboundSubmitting(true);
+    try {
+      const tx = {
+        id: uid("IN"),
+        type: "in",
+        itemCode: inboundTarget.code,
+        itemName: inboundTarget.name,
+        unit: inboundTarget.unit,
+        qty: qtyNum,
+        worker: inboundPerson.trim(),
+        at: nowStr(),
+        deleted: false,
+      };
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: inboundTarget.code, delta: qtyNum, tx }]);
+        try { await reloadItems?.(); await reloadTxs?.(); } catch (e) { console.error(e); }
+      } else {
+        const nextItems = items.map((i) => i.code === inboundTarget.code ? { ...i, stock: (Number(i.stock) || 0) + qtyNum } : i);
+        await saveItems(nextItems);
+        await saveTxs([...(txs || []), tx]);
+      }
+      notify(`${inboundTarget.name} ${qtyNum}${inboundTarget.unit} 입고 완료`, "ok");
+      setInboundTarget(null);
+    } finally {
+      setInboundSubmitting(false);
+    }
+  };
+
+  /* 출고 (사용자용, 불출자+수량만) */
+  const [outboundTarget, setOutboundTarget] = useState(null);
+  const [outboundQty, setOutboundQty] = useState("");
+  const [outboundWorker, setOutboundWorker] = useState("");
+  const [outboundSubmitting, setOutboundSubmitting] = useState(false);
+
+  const openOutbound = (item) => {
+    setOutboundTarget(item);
+    setOutboundQty("");
+    setOutboundWorker("");
+  };
+
+  const submitOutbound = async () => {
+    if (outboundSubmitting || !outboundTarget) return;
+    const qtyNum = Number(outboundQty);
+    if (!qtyNum || qtyNum <= 0) { notify("출고 수량을 입력해주세요.", "err"); return; }
+    if (qtyNum > outboundTarget.stock) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
+    if (!outboundWorker.trim()) { notify("불출자를 입력해주세요.", "err"); return; }
+
+    setOutboundSubmitting(true);
+    try {
+      const tx = {
+        id: uid("OUT"),
+        type: "out",
+        itemCode: outboundTarget.code,
+        itemName: outboundTarget.name,
+        unit: outboundTarget.unit,
+        qty: qtyNum,
+        shipNo: "소모자재",
+        project: "",
+        process: "소모자재 출고",
+        worker: outboundWorker.trim(),
+        at: nowStr(),
+        deleted: false,
+      };
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: outboundTarget.code, delta: -qtyNum, tx }]);
+        try { await reloadItems?.(); await reloadTxs?.(); } catch (e) { console.error(e); }
+      } else {
+        const nextItems = items.map((i) => i.code === outboundTarget.code ? { ...i, stock: i.stock - qtyNum } : i);
+        await saveItems(nextItems);
+        await saveTxs([...(txs || []), tx]);
+      }
+      const remain = outboundTarget.stock - qtyNum;
+      notify(`${outboundTarget.name} ${qtyNum}${outboundTarget.unit} 출고 완료 · 잔여 ${remain}${outboundTarget.unit}`, remain < outboundTarget.safety ? "info" : "ok");
+      setOutboundTarget(null);
+    } finally {
+      setOutboundSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <Header title="소모자재 관리" subtitle="소모자재 재고 현황 · 입고(관리자) · 출고 · 부족 시 발주요청" />
+
+      <Card style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              style={{ ...inputStyle, flex: 1 }}
+              placeholder="자재명, 코드, 제조사 검색..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {search && <Btn variant="subtle" onClick={() => setSearch("")}>초기화</Btn>}
+          </div>
+          <div style={{ display: "flex", gap: 6, overflowX: "auto" }}>
+            {[{ id: "all", label: "전체" }, ...categoryOptions.map((c) => ({ id: c, label: c }))].map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setCategoryFilter(f.id)}
+                style={{
+                  padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: "bold",
+                  border: categoryFilter === f.id ? "1px solid #FBBF24" : "1px solid #1F3B54",
+                  background: categoryFilter === f.id ? "#FBBF241f" : "#0B1C2C",
+                  color: categoryFilter === f.id ? "#FBBF24" : "#7F97AC",
+                  cursor: "pointer", whiteSpace: "nowrap",
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {filteredItems.length === 0 ? (
+        <Card style={{ padding: 20 }}>
+          <EmptyState icon={Zap} text="등록된 소모자재가 없습니다." color="#5E86A3" />
+        </Card>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {visibleItems.map((item) => {
+            const st = statusOf(item);
+            return (
+              <Card key={item.code} style={{ padding: 14 }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  {item.image_url ? (
+                    <img
+                      src={item.image_url}
+                      alt={item.name}
+                      onClick={() => setZoomedImage(item.image_url)}
+                      style={{ width: 54, height: 54, borderRadius: 8, objectFit: "cover", flexShrink: 0, cursor: "zoom-in" }}
+                    />
+                  ) : (
+                    <div style={{ width: 54, height: 54, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <ImageIcon size={20} color="#5E86A3" />
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <Led status={st} size={10} />
+                      <span style={{ fontWeight: 700, fontSize: 14.5, color: "#FBBF24", wordBreak: "break-word" }}>{item.name}</span>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>코드: {item.code}</div>
+                    <div style={{ fontSize: 11.5, color: "#9FB4C7", marginTop: 3 }}>규격/사양: {item.spec || "-"}</div>
+                    {item.manufacturer && <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2 }}>거래처: {item.manufacturer}</div>}
+                  </div>
+                  <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flexShrink: 0 }}>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C" }}>
+                      {item.stock} <span style={{ fontSize: 11 }}>{item.unit}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>안전재고: {item.safety} {item.unit}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid #1F3B54", flexWrap: "wrap" }}>
+                  <div className="pc-only-block" style={{ flex: "1 1 100px" }}>
+                    <Btn onClick={() => openInbound(item)} variant="subtle" style={{ width: "100%", fontSize: 12.5 }}>
+                      <ArrowDownToLine size={14} /> 입고 (관리자)
+                    </Btn>
+                  </div>
+                  <Btn
+                    onClick={() => openOutbound(item)}
+                    style={{ flex: "1 1 100px", fontSize: 12.5, background: "#F5A623", border: "1px solid #F5A623", color: "#0A1622" }}
+                  >
+                    <ArrowUpFromLine size={14} /> 출고
+                  </Btn>
+                  {st !== "ok" && (
+                    <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {filteredItems.length > visibleItems.length && (
+        <div style={{ display: "flex", justifyContent: "center", padding: 10 }}>
+          <Btn variant="subtle" onClick={() => setRenderLimit((prev) => prev + 200)}>
+            더 보기 ({visibleItems.length} / {filteredItems.length})
+          </Btn>
+        </div>
+      )}
+
+      {/* 입고 모달 (관리자/PC 전용 버튼에서만 열림) */}
+      {inboundTarget && (
+        <div className="app-modal-overlay" onClick={() => setInboundTarget(null)} style={{ position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 380, background: "#0F2233", border: "1px solid #35D08C55", borderRadius: 14, padding: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <ArrowDownToLine size={18} color="#35D08C" />
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#35D08C" }}>소모자재 입고</span>
+            </div>
+            <div style={{ fontSize: 13, color: "#C9DAE8", marginBottom: 4 }}>{inboundTarget.name}</div>
+            <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
+              코드: {inboundTarget.code} · 현재고 {inboundTarget.stock}{inboundTarget.unit}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+              <Field label={`입고 수량 (${inboundTarget.unit})`}>
+                <input style={inputStyle} type="number" min="1" value={inboundQty} onChange={(e) => setInboundQty(e.target.value)} placeholder="수량 입력" />
+              </Field>
+              <Field label="입고 담당자">
+                <input style={inputStyle} value={inboundPerson} onChange={(e) => setInboundPerson(e.target.value)} placeholder="이름 입력" />
+              </Field>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setInboundTarget(null)}>취소</Btn>
+              <Btn style={{ flex: 2, background: "#35D08C", border: "1px solid #35D08C", color: "#0A1622" }} onClick={submitInbound} disabled={inboundSubmitting}>
+                <ArrowDownToLine size={16} />{inboundSubmitting ? "처리 중..." : "입고 확정"}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 출고 모달 (불출자, 수량만 입력) */}
+      {outboundTarget && (
+        <div className="app-modal-overlay" onClick={() => setOutboundTarget(null)} style={{ position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 380, background: "#0F2233", border: "1px solid #F5A62355", borderRadius: 14, padding: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <ArrowUpFromLine size={18} color="#F5A623" />
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#F5A623" }}>소모자재 출고</span>
+            </div>
+            <div style={{ fontSize: 13, color: "#C9DAE8", marginBottom: 4 }}>{outboundTarget.name}</div>
+            <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
+              코드: {outboundTarget.code} · 현재고 {outboundTarget.stock}{outboundTarget.unit}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+              <Field label="불출자">
+                <input style={inputStyle} value={outboundWorker} onChange={(e) => setOutboundWorker(e.target.value)} placeholder="이름 입력" />
+              </Field>
+              <Field label={`출고 수량 (${outboundTarget.unit})`}>
+                <input style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }} type="number" min="1" max={outboundTarget.stock} value={outboundQty} onChange={(e) => setOutboundQty(e.target.value)} placeholder="수량 입력" />
+              </Field>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setOutboundTarget(null)}>취소</Btn>
+              <Btn style={{ flex: 2, background: "#F5A623", border: "1px solid #F5A623", color: "#0A1622" }} onClick={submitOutbound} disabled={outboundSubmitting}>
+                <ArrowUpFromLine size={16} />{outboundSubmitting ? "처리 중..." : "출고 확정"}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {zoomedImage && (
+        <div onClick={() => setZoomedImage(null)} style={{ position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,0.86)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, cursor: "zoom-out" }}>
+          <img src={zoomedImage} alt="확대 사진" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "94vw", maxHeight: "90vh", objectFit: "contain", borderRadius: 10 }} />
+        </div>
+      )}
+    </div>
+  );
+}
 /* ---------------- QR 라벨 엑셀 내보내기 ---------------- */
 function loadExcelJS() {
   return new Promise((resolve, reject) => {

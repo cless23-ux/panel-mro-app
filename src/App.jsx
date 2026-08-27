@@ -2472,7 +2472,7 @@ if (showSplash) {
 
       {/* 모바일 하단 탭 */}
           <nav className="mobile-bottom-nav">
-        {["stock", "in", "out", "consumable"].map((id) => {
+        {["stock", "in", "out", "consumable", "shipMaterial"].map((id) => {
           const n = NAV.find((item) => item.id === id);
           if (!n) return null;
           const active = tab === n.id;

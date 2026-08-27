@@ -2147,7 +2147,7 @@ if (showSplash) {
           }
           .mobile-bottom-nav {
             height: 68px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
-            grid-template-columns: 1fr 1fr 1.28fr 1fr; flex-shrink: 0; z-index: 10;
+            grid-template-columns: 1fr 1fr 1.28fr 1fr 1fr; flex-shrink: 0; z-index: 10;
             align-items: stretch; gap: 0;
           }
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }

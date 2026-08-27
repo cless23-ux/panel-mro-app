@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
-  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save
+  AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save, Lock
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -1878,12 +1878,12 @@ function AppInner() {
     prevPendingCountRef.current = pendingUrgentCount;
   }, [pendingUrgentCount]);
 
-  const NAV = [
+    const NAV = [
     { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
     { id: "in", label: "부자재입고", icon: ArrowDownToLine },
     { id: "out", label: "출고/반납(스캔)", icon: ArrowUpFromLine },
-    { id: "return", label: "원자재반납", icon: RotateCcw },
-    { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode },
+    { id: "return", label: "원자재반납", icon: RotateCcw, locked: true },
+    { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode, locked: true },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
@@ -1909,8 +1909,13 @@ function AppInner() {
   const [slideDir, setSlideDir] = useState(1);
   const [rawManagePresetShip, setRawManagePresetShip] = useState("");
   const [rawManagePresetReturnItems, setRawManagePresetReturnItems] = useState([]);
-  const goToTab = (next) => {
+ const goToTab = (next) => {
     if (next === tab) return;
+    const targetNav = NAV.find((n) => n.id === next);
+    if (targetNav?.locked) {
+      notify("현재 준비 중인 기능입니다. 나중에 다시 사용할 수 있습니다.", "info");
+      return;
+    }
     const curIdx = NAV_IDS.indexOf(tab);
     const nextIdx = NAV_IDS.indexOf(next);
     setSlideDir(nextIdx >= curIdx ? 1 : -1);
@@ -2284,7 +2289,7 @@ if (showSplash) {
           <span style={{ fontSize: 10, opacity: 0.7 }}>전환</span>
         </button>
 
-        <nav className="sidebar-nav" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <nav className="sidebar-nav" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {NAV.filter((n) => !n.mobileTopOnly).map((n) => {
             const active = tab === n.id;
             const Icon = n.icon;
@@ -2296,13 +2301,17 @@ if (showSplash) {
                   display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderRadius: 8,
                   border: "1px solid " + (active ? "#F5A62355" : "transparent"),
                   background: active ? "linear-gradient(90deg, #F5A62322, transparent)" : "transparent",
-                  color: active ? "#F5A623" : "#9FB4C7", cursor: "pointer", fontSize: 15,
+                  color: n.locked ? "#4A6076" : (active ? "#F5A623" : "#9FB4C7"),
+                  cursor: n.locked ? "not-allowed" : "pointer",
+                  fontSize: 15,
                   fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, textAlign: "left",
                   borderLeft: active ? "3px solid #F5A623" : "3px solid transparent",
+                  opacity: n.locked ? 0.55 : 1,
                 }}
               >
                 <Icon size={18} />
                 {n.label}
+                {n.locked && <Lock size={13} style={{ marginLeft: "auto", flexShrink: 0 }} />}
               </button>
             );
           })}
@@ -2445,7 +2454,7 @@ if (showSplash) {
       </main>
 
       {/* 모바일 하단 탭 */}
-      <nav className="mobile-bottom-nav">
+           <nav className="mobile-bottom-nav">
         {["stock", "in", "out", "rawInbound", "return"].map((id) => {
           const n = NAV.find((item) => item.id === id);
           if (!n) return null;
@@ -2463,21 +2472,26 @@ if (showSplash) {
                 background: isOut ? (active ? `${neon}28` : `${neon}14`) : "transparent",
                 border: isOut ? `1px solid ${neon}${active ? "AA" : "55"}` : "none",
                 borderRadius: isOut ? 12 : 0,
-                color: active ? neon : "#7F97AC",
+                color: n.locked ? "#4A6076" : (active ? neon : "#7F97AC"),
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
                 gap: isOut ? 3 : 3,
-                cursor: "pointer",
+                cursor: n.locked ? "not-allowed" : "pointer",
                 minWidth: 0,
                 padding: isOut ? "4px 3px" : "2px 1px",
                 margin: isOut ? "4px 2px 7px" : 0,
                 transform: isOut ? "translateY(-7px)" : "none",
                 boxShadow: isOut ? (active ? `0 0 22px -7px ${neon}` : `0 0 14px -10px ${neon}`) : "none",
+                opacity: n.locked ? 0.5 : 1,
               }}
             >
-              <Icon size={isOut ? 26 : 17} color={active ? neon : "#7F97AC"} />
+              {n.locked ? (
+                <Lock size={isOut ? 22 : 15} color="#4A6076" />
+              ) : (
+                <Icon size={isOut ? 26 : 17} color={active ? neon : "#7F97AC"} />
+              )}
               <span style={{
                 fontSize: isOut ? 11.5 : 9.5,
                 lineHeight: 1.1,
@@ -5747,8 +5761,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       {/* 원자재 / 부자재 구분 필터 탭 */}
        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
         {[
-          { id: "all", label: `전체 (${items.length})` },
-          { id: "raw", label: `원자재 (${items.filter((i) => getMaterialType(i.code) === "raw").length})` },
+          { id: "all", label: `전체 (${items.length})` },        
           { id: "sub", label: `부자재 (${items.filter((i) => getMaterialType(i.code) === "sub").length})` },
           { id: "consumable", label: `소모자재 (${items.filter((i) => getMaterialType(i.code) === "consumable").length})` },
         ].map((f) => (

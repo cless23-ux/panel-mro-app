@@ -1887,6 +1887,7 @@ function AppInner() {
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
     { id: "consumable", label: "소모자재관리", icon: Zap },
+    { id: "shipMaterial", label: "호선자재", icon: Ship },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
     { id: "chat", label: "실시간 대화", icon: MessageCircle },
@@ -1912,17 +1913,29 @@ function AppInner() {
   const [rawManagePresetShip, setRawManagePresetShip] = useState("");
   const [rawManagePresetReturnItems, setRawManagePresetReturnItems] = useState([]);
  const goToTab = (next) => {
-    if (next === tab) return;
-    const targetNav = NAV.find((n) => n.id === next);
-    if (targetNav?.locked) {
-      notify("현재 준비 중인 기능입니다. 나중에 다시 사용할 수 있습니다.", "info");
-      return;
-    }
-    const curIdx = NAV_IDS.indexOf(tab);
-    const nextIdx = NAV_IDS.indexOf(next);
-    setSlideDir(nextIdx >= curIdx ? 1 : -1);
-    setTab(next);
-  };
+  if (next === "shipMaterial") {
+    window.open(
+      "https://script.google.com/macros/s/AKfycbwE_qtw1v68mY6kteIyrgQ7YIYsn6UjN61uShOfOq8lodE-mCTRl9Xr6xBU2mSVtXjE/exec?view=ship",
+      "_blank"
+    );
+    return;
+  }
+
+  if (next === tab) return;
+
+  const targetNav = NAV.find((n) => n.id === next);
+
+  if (targetNav?.locked) {
+    notify("현재 준비 중인 기능입니다. 나중에 다시 사용할 수 있습니다.", "info");
+    return;
+  }
+
+  const curIdx = NAV_IDS.indexOf(tab);
+  const nextIdx = NAV_IDS.indexOf(next);
+
+  setSlideDir(nextIdx >= curIdx ? 1 : -1);
+  setTab(next);
+};
 
 const [showSplash, setShowSplash] = useState(true);
 

@@ -1886,6 +1886,7 @@ function AppInner() {
     { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode, locked: true },
     { id: "stock", label: "재고조회", icon: Boxes },
     { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
+    { id: "consumable", label: "소모자재관리", icon: Zap },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
     { id: "chat", label: "실시간 대화", icon: MessageCircle },
@@ -1893,7 +1894,7 @@ function AppInner() {
   const NAV_IDS = NAV.map((n) => n.id);
 
   /* 탭(메뉴창)별 네온 포인트 컬러 - 테두리/그로우에 사용 */
-  const TAB_NEON = {
+    const TAB_NEON = {
     dashboard: "#38BDF8",
     in: "#35D08C",
     out: "#F5A623",
@@ -1901,6 +1902,7 @@ function AppInner() {
     rawInbound: "#38BDF8",
     stock: "#A78BFA",
     master: "#F472B6",
+    consumable: "#FBBF24",
     settings: "#2DD4BF",
     trash: "#EF5350",
     chat: "#22D3EE",
@@ -2145,7 +2147,7 @@ if (showSplash) {
           }
           .mobile-bottom-nav {
             height: 68px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
-            grid-template-columns: 1fr 1fr 1.28fr 1fr 1fr; flex-shrink: 0; z-index: 10;
+            grid-template-columns: 1fr 1fr 1.28fr 1fr; flex-shrink: 0; z-index: 10;
             align-items: stretch; gap: 0;
           }
           .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
@@ -2446,6 +2448,7 @@ if (showSplash) {
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
             {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
+            {tab === "consumable" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} materialType="consumable" />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
@@ -2454,8 +2457,8 @@ if (showSplash) {
       </main>
 
       {/* 모바일 하단 탭 */}
-           <nav className="mobile-bottom-nav">
-        {["stock", "in", "out", "rawInbound", "return"].map((id) => {
+          <nav className="mobile-bottom-nav">
+        {["stock", "in", "out", "consumable"].map((id) => {
           const n = NAV.find((item) => item.id === id);
           if (!n) return null;
           const active = tab === n.id;

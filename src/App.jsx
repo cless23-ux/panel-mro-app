@@ -5170,6 +5170,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
     </div>
   );
 }
+
 /* ---------------- 소모자재 관리 ---------------- */
 function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests, addUrgentRequest, reloadItems, reloadTxs }) {
   const [search, setSearch] = useState("");
@@ -5308,6 +5309,79 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
     }
   };
 
+  /* ---------- 소모자재 출고 이력 ---------- */
+  const parseAtDate = (t) => {
+    const d = new Date(String(t?.at || "").replace(" ", "T"));
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
+  const consumableOutTxs = useMemo(() => {
+    return (txs || [])
+      .filter((t) => t.type === "out" && t.deleted !== true && getMaterialType(t.itemCode) === "consumable")
+      .sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+  }, [txs]);
+
+  const recentOutTxs = useMemo(() => consumableOutTxs.slice(0, 20), [consumableOutTxs]);
+
+  const cancelOutboundHistory = async (targetTx) => {
+    if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 출고 이력을 취소하시겠습니까?\n재고가 다시 증가합니다.`)) return;
+    try {
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: Number(targetTx.qty), txDeleteId: targetTx.id }]);
+        try { await reloadItems?.(); await reloadTxs?.(); } catch (e) { console.error(e); }
+      } else {
+        const nextItems = items.map((i) =>
+          i.code === targetTx.itemCode ? { ...i, stock: (Number(i.stock) || 0) + Number(targetTx.qty) } : i
+        );
+        const nextTxs = (txs || []).filter((t) => t.id !== targetTx.id);
+        await saveItems(nextItems);
+        await saveTxs(nextTxs);
+      }
+      notify(`출고가 취소되어 재고 ${targetTx.qty}${targetTx.unit}가 복원되었습니다.`, "info");
+    } catch (e) {
+      console.error(e);
+      notify("출고 취소 중 오류가 발생했습니다.", "err");
+    }
+  };
+
+  /* ---------- 주간/월간 소모량 집계 ---------- */
+  const [periodType, setPeriodType] = useState("week"); // "week" | "month"
+
+  const periodStart = useMemo(() => {
+    const now = new Date();
+    if (periodType === "week") {
+      const day = now.getDay(); // 0(일)~6(토)
+      const diffToMonday = day === 0 ? 6 : day - 1;
+      const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday);
+      monday.setHours(0, 0, 0, 0);
+      return monday;
+    }
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    first.setHours(0, 0, 0, 0);
+    return first;
+  }, [periodType]);
+
+  const periodTxs = useMemo(() => {
+    return consumableOutTxs.filter((t) => {
+      const d = parseAtDate(t);
+      return d && d >= periodStart;
+    });
+  }, [consumableOutTxs, periodStart]);
+
+  const consumptionSummary = useMemo(() => {
+    const map = {};
+    periodTxs.forEach((t) => {
+      const key = t.itemCode;
+      if (!map[key]) {
+        map[key] = { code: t.itemCode, name: t.itemName, unit: t.unit || "EA", qty: 0 };
+      }
+      map[key].qty += Number(t.qty) || 0;
+    });
+    return Object.values(map).sort((a, b) => b.qty - a.qty);
+  }, [periodTxs]);
+
+  const totalPeriodQty = useMemo(() => consumptionSummary.reduce((s, i) => s + i.qty, 0), [consumptionSummary]);
+
   return (
     <div>
       <Header title="소모자재 관리" subtitle="소모자재 재고 현황 · 입고(관리자) · 출고 · 부족 시 발주요청" />
@@ -5344,11 +5418,11 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
       </Card>
 
       {filteredItems.length === 0 ? (
-        <Card style={{ padding: 20 }}>
+        <Card style={{ padding: 20, marginBottom: 20 }}>
           <EmptyState icon={Zap} text="등록된 소모자재가 없습니다." color="#5E86A3" />
         </Card>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
           {visibleItems.map((item) => {
             const st = statusOf(item);
             return (
@@ -5402,16 +5476,132 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
               </Card>
             );
           })}
+
+          {filteredItems.length > visibleItems.length && (
+            <div style={{ display: "flex", justifyContent: "center", padding: 10 }}>
+              <Btn variant="subtle" onClick={() => setRenderLimit((prev) => prev + 200)}>
+                더 보기 ({visibleItems.length} / {filteredItems.length})
+              </Btn>
+            </div>
+          )}
         </div>
       )}
 
-      {filteredItems.length > visibleItems.length && (
-        <div style={{ display: "flex", justifyContent: "center", padding: 10 }}>
-          <Btn variant="subtle" onClick={() => setRenderLimit((prev) => prev + 200)}>
-            더 보기 ({visibleItems.length} / {filteredItems.length})
-          </Btn>
+      {/* 주간/월간 소모량 현황 */}
+      <Card style={{ padding: 20, marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+          <SectionLabel>소모량 현황</SectionLabel>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setPeriodType("week")}
+              style={{
+                padding: "6px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+                border: periodType === "week" ? "1px solid #38BDF8" : "1px solid #1F3B54",
+                background: periodType === "week" ? "#38BDF81f" : "#0B1C2C",
+                color: periodType === "week" ? "#38BDF8" : "#7F97AC",
+                cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
+              }}
+            >
+              이번 주
+            </button>
+            <button
+              type="button"
+              onClick={() => setPeriodType("month")}
+              style={{
+                padding: "6px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+                border: periodType === "month" ? "1px solid #F5A623" : "1px solid #1F3B54",
+                background: periodType === "month" ? "#F5A6231f" : "#0B1C2C",
+                color: periodType === "month" ? "#F5A623" : "#7F97AC",
+                cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace",
+              }}
+            >
+              이번 달
+            </button>
+          </div>
         </div>
-      )}
+
+        <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 12 }}>
+          {periodType === "week" ? "이번 주 (월요일부터)" : "이번 달 (1일부터)"} 총 소모량: <b style={{ color: "#FBBF24" }}>{totalPeriodQty.toLocaleString()}</b>
+        </div>
+
+        {consumptionSummary.length === 0 ? (
+          <EmptyState icon={ScanLine} text="해당 기간에 소모된 자재 이력이 없습니다." color="#5E86A3" />
+        ) : (
+          <>
+            <div style={{ height: 220, marginBottom: 16 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={consumptionSummary} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid stroke="#17293B" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={{ stroke: "#1F3B54" }} tickLine={false} />
+                  <YAxis tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    cursor={{ fill: "#FBBF2411" }}
+                    contentStyle={{ background: "#0F2233", border: "1px solid #274460", borderRadius: 8, fontSize: 12 }}
+                    formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
+                  />
+                  <Bar dataKey="qty" radius={[6, 6, 0, 0]}>
+                    {consumptionSummary.map((_, idx) => (
+                      <Cell key={idx} fill={["#FBBF24", "#38BDF8", "#35D08C", "#EF5350", "#A855F7"][idx % 5]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div style={{ background: "#0B1C2C", borderRadius: 8, padding: 10, maxHeight: 160, overflowY: "auto", border: "1px solid #1F3B54" }}>
+              <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 6, fontWeight: 600 }}>자재별 소모 상세</div>
+              {consumptionSummary.map((row) => (
+                <div key={row.code} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0", borderBottom: "1px solid #16293C" }}>
+                  <span style={{ color: "#E7EEF5", fontWeight: 500 }}>{row.name} <span style={{ fontSize: 10, color: "#7F97AC" }}>({row.code})</span></span>
+                  <span style={{ color: "#FBBF24", fontWeight: 700, fontFamily: "IBM Plex Mono" }}>{row.qty} {row.unit}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </Card>
+
+      {/* 출고 이력 */}
+      <Card style={{ padding: 16 }}>
+        <SectionLabel>최근 출고 이력 (최근 20건, 잘못 등록 시 취소)</SectionLabel>
+        {recentOutTxs.length === 0 ? (
+          <EmptyState icon={ArrowUpFromLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 420, overflowY: "auto" }}>
+            {recentOutTxs.map((t) => (
+              <div
+                key={t.id}
+                style={{
+                  background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+                  padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+                }}
+              >
+                <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8" }}>{t.itemName}</div>
+                  <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>{t.at}</div>
+                </div>
+                <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
+                  <div>
+                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
+                    <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>{t.qty} {t.unit}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>불출자</span>
+                    <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => cancelOutboundHistory(t)}
+                  style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600, marginLeft: "auto", flexShrink: 0 }}
+                >
+                  취소
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       {/* 입고 모달 (관리자/PC 전용 버튼에서만 열림) */}
       {inboundTarget && (

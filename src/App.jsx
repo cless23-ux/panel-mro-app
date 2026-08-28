@@ -1913,8 +1913,13 @@ function AppInner() {
   const [slideDir, setSlideDir] = useState(1);
   const [rawManagePresetShip, setRawManagePresetShip] = useState("");
   const [rawManagePresetReturnItems, setRawManagePresetReturnItems] = useState([]);
- const goToTab = (next) => {
+  const goToTab = (next) => {
   if (next === "shipMaterial") {
+    const confirmed = window.confirm(
+      "호선자재 페이지로 이동합니다.\n외부 페이지(구글 시트)가 새 창으로 열립니다.\n계속하시겠습니까?"
+    );
+    if (!confirmed) return;
+
     window.open(
       "https://script.google.com/macros/s/AKfycbwE_qtw1v68mY6kteIyrgQ7YIYsn6UjN61uShOfOq8lodE-mCTRl9Xr6xBU2mSVtXjE/exec?view=ship",
       "_blank"

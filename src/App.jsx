@@ -3040,30 +3040,38 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   };
 
   const findItemByCode = (rawCode) => {
-    if (!rawCode) return null;
-    const cleanScan = String(rawCode).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
-    const alphaNumScan = cleanScan.replace(/[^a-z0-9]/g, "");
+  if (!rawCode) return null;
+  const cleanScan = String(rawCode).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+  const alphaNumScan = cleanScan.replace(/[^a-z0-9]/g, "");
+  if (!cleanScan) return null;
 
-    if (!cleanScan) return null;
+  const getCode = (i) => String(i.code || i.Code || i.자재코드 || i.item_code || "")
+    .replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+  const getName = (i) => String(i.name || i.Name || i.품명 || "")
+    .replace(/[\r\n\t]+/g, "").trim().toLowerCase();
 
-    return items.find((i) => {
-      if (!i) return false;
-      const itemCodeVal = i.code || i.Code || i.자재코드 || i.item_code || "";
-      const rawItemCode = String(itemCodeVal).replace(/[\r\n\t]+/g, "").trim().toLowerCase();
-      const alphaNumItemCode = rawItemCode.replace(/[^a-z0-9]/g, "");
-      const rawItemName = String(i.name || i.Name || i.품명 || "").replace(/[\r\n\t]+/g, "").trim().toLowerCase();
-      const alphaNumItemName = rawItemName.replace(/[^a-z0-9]/g, "");
+  // 1순위: 코드 완전일치
+  let hit = items.find((i) => getCode(i) === cleanScan);
+  if (hit) return hit;
 
-      return (
-        rawItemCode === cleanScan ||
-        (alphaNumItemCode && alphaNumItemCode === alphaNumScan) ||
-        cleanScan.includes(rawItemCode) ||
-        rawItemCode.includes(cleanScan) ||
-        rawItemName === cleanScan ||
-        (alphaNumItemName && alphaNumItemName === alphaNumScan)
-      );
-    });
-  };
+  // 2순위: 특수문자 제거 후 완전일치
+  hit = items.find((i) => {
+    const a = getCode(i).replace(/[^a-z0-9]/g, "");
+    return a && a === alphaNumScan;
+  });
+  if (hit) return hit;
+
+  // 3순위: 품명 완전일치
+  hit = items.find((i) => getName(i) === cleanScan);
+  if (hit) return hit;
+
+  // 4순위(최후 수단): 포함 관계 - 완전일치가 하나도 없을 때만 사용
+  hit = items.find((i) => {
+    const code = getCode(i);
+    return code && (cleanScan.includes(code) || code.includes(cleanScan));
+  });
+  return hit || null;
+};
 
   const doScan = (val) => {
     const codeVal = val ?? scan;

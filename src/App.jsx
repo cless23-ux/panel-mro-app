@@ -5,7 +5,7 @@ import {
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
   AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save, Lock, Anchor,
-  Ship
+  Ship, Clock
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -1891,6 +1891,7 @@ function AppInner() {
     { id: "shipMaterial", label: "호선자재", icon: Ship },
     { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
     { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
+    { id: "stale", label: "장기미사용자재", icon: Clock, pcOnly: true },
     { id: "chat", label: "실시간 대화", icon: MessageCircle },
   ];
   const NAV_IDS = NAV.map((n) => n.id);
@@ -1907,6 +1908,7 @@ function AppInner() {
     consumable: "#FBBF24",
     settings: "#2DD4BF",
     trash: "#EF5350",
+    stale: "#A78BFA",
     chat: "#22D3EE",
   };
 
@@ -2470,6 +2472,8 @@ if (showSplash) {
             {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
           </div>
         )}
@@ -8794,7 +8798,215 @@ function TrashView({ items, saveItems, notify }) {
     </div>
   );
 }
+/* ---------------- 장기 미사용 자재 관리 ---------------- */
+function computeLastActivityMap(txs) {
+  const map = {};
+  (txs || []).forEach((t) => {
+    if (t.deleted) return;
+    if (t.type !== "in" && t.type !== "out" && t.type !== "return") return;
+    const code = String(t.itemCode || "").trim();
+    if (!code) return;
+    const d = new Date(String(t.at || "").replace(" ", "T"));
+    if (Number.isNaN(d.getTime())) return;
+    const time = d.getTime();
+    if (!map[code] || time > map[code].time) {
+      map[code] = { time, at: t.at, type: t.type };
+    }
+  });
+  return map;
+}
 
+const STALE_REVIEWED_KEY = "panel:staleReviewedCodes";
+
+function StaleItemsView({ items, txs, notify }) {
+  const [thresholdDays, setThresholdDays] = useState(90);
+  const [materialFilter, setMaterialFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [includeReviewed, setIncludeReviewed] = useState(false);
+  const [reviewedCodes, setReviewedCodes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(STALE_REVIEWED_KEY) || "[]"); } catch { return []; }
+  });
+
+  const lastActivity = useMemo(() => computeLastActivityMap(txs), [txs]);
+
+  const rows = useMemo(() => {
+    const now = Date.now();
+    return items.map((item) => {
+      const code = String(item.code).trim();
+      const rec = lastActivity[code];
+      const days = rec ? Math.floor((now - rec.time) / 86400000) : null; // null = 이력 자체가 없음
+      return { item, lastAt: rec?.at || null, lastType: rec?.type || null, days };
+    });
+  }, [items, lastActivity]);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows
+      .filter(({ item, days }) => {
+        if (materialFilter !== "all" && getMaterialType(item.code) !== materialFilter) return false;
+        if (q && !(String(item.name).toLowerCase().includes(q) || String(item.code).toLowerCase().includes(q))) return false;
+        if (!includeReviewed && reviewedCodes.includes(item.code)) return false;
+        const effectiveDays = days === null ? Infinity : days;
+        return effectiveDays >= thresholdDays;
+      })
+      .sort((a, b) => {
+        const da = a.days === null ? Infinity : a.days;
+        const db = b.days === null ? Infinity : b.days;
+        return db - da; // 오래된 것부터
+      });
+  }, [rows, materialFilter, search, thresholdDays, includeReviewed, reviewedCodes]);
+
+  const totalNeverMoved = useMemo(() => rows.filter((r) => r.days === null).length, [rows]);
+
+  const toggleReviewed = (code) => {
+    setReviewedCodes((prev) => {
+      const next = prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code];
+      try { localStorage.setItem(STALE_REVIEWED_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const exportCSV = () => {
+    if (filteredRows.length === 0) { notify?.("다운로드할 항목이 없습니다.", "err"); return; }
+    const headers = ["코드,품명,규격,구분,현재고,안전재고,마지막거래유형,마지막거래일,미사용일수\n"];
+    const csvRows = filteredRows.map(({ item, lastAt, lastType, days }) => {
+      const typeLabel = lastType === "in" ? "입고" : lastType === "out" ? "출고" : lastType === "return" ? "반납" : "-";
+      return `"${csvSafe(item.code)}","${csvSafe(item.name)}","${csvSafe(item.spec)}","${MATERIAL_TYPE_META[getMaterialType(item.code)].label}",${item.stock},${item.safety},"${typeLabel}","${lastAt || "이력없음"}",${days === null ? "이력없음" : days}\n`;
+    });
+    const blob = new Blob(["\uFEFF" + headers + csvRows.join("")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `MRO_장기미사용자재_${nowStr().split(" ")[0]}.csv`;
+    link.click();
+    notify?.("장기 미사용 자재 목록이 다운로드되었습니다.", "ok");
+  };
+
+  const filterChip = (id, label) => (
+    <button
+      key={id}
+      onClick={() => setMaterialFilter(id)}
+      style={{
+        padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: "bold",
+        border: materialFilter === id ? "1px solid #A78BFA" : "1px solid #1F3B54",
+        background: materialFilter === id ? "#A78BFA1f" : "#0B1C2C",
+        color: materialFilter === id ? "#A78BFA" : "#7F97AC",
+        cursor: "pointer", whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div>
+      <Header title="장기 미사용 자재" subtitle="설정한 기간 동안 입출고 이력이 없는 자재를 모아 확인하고 관리합니다" />
+
+      <Card style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", marginBottom: 12 }}>
+          <Field label="기준 미사용일 이상">
+            <Select
+              value={String(thresholdDays)}
+              onChange={(e) => setThresholdDays(Number(e.target.value))}
+              options={["30", "60", "90", "180", "365"]}
+              style={{ width: 100 }}
+            />
+          </Field>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <Field label="검색">
+              <input
+                style={inputStyle}
+                placeholder="자재명 또는 코드 검색"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </Field>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "#9FB4C7", paddingBottom: 8, cursor: "pointer" }}>
+            <input type="checkbox" checked={includeReviewed} onChange={(e) => setIncludeReviewed(e.target.checked)} />
+            검토완료 항목도 표시
+          </label>
+          <Btn variant="subtle" onClick={exportCSV} style={{ marginLeft: "auto" }}>
+            <Download size={15} />엑셀 다운로드
+          </Btn>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {filterChip("all", "전체")}
+          {filterChip("raw", "원자재")}
+          {filterChip("sub", "부자재")}
+          {filterChip("consumable", "소모자재")}
+        </div>
+      </Card>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
+        <StatCard label={`${thresholdDays}일 이상 미사용`} value={filteredRows.length} unit="종" icon={ScanLine} color="#A78BFA" />
+        <StatCard label="입출고 이력 전혀 없음" value={totalNeverMoved} unit="종" icon={AlertTriangle} color="#F5A623" />
+      </div>
+
+      <Card style={{ padding: 8 }}>
+        {filteredRows.length === 0 ? (
+          <EmptyState icon={CheckCircle2} text="조건에 해당하는 장기 미사용 자재가 없습니다." color="#35D08C" />
+        ) : (
+          <div className="mobile-scroll-table" style={{ maxHeight: "calc(100vh - 380px)", overflowY: "auto" }}>
+            <table>
+              <thead style={{ position: "sticky", top: 0, background: "#0F2233" }}>
+                <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
+                  <th>구분</th><th>코드</th><th>품명 / 규격</th><th>현재고</th><th>안전재고</th>
+                  <th>마지막 거래</th><th>미사용일수</th><th>검토</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map(({ item, lastAt, lastType, days }) => {
+                  const mType = getMaterialType(item.code);
+                  const reviewed = reviewedCodes.includes(item.code);
+                  const typeLabel = lastType === "in" ? "입고" : lastType === "out" ? "출고" : lastType === "return" ? "반납" : "-";
+                  return (
+                    <tr key={item.code} style={{ opacity: reviewed ? 0.55 : 1 }}>
+                      <td>
+                        <span style={{
+                          display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10.5, fontWeight: 700,
+                          color: MATERIAL_TYPE_META[mType].color, background: `${MATERIAL_TYPE_META[mType].color}1f`,
+                          fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+                        }}>
+                          {MATERIAL_TYPE_META[mType].label}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{item.code}</td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{item.name}</div>
+                        {item.spec && <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{item.spec}</div>}
+                      </td>
+                      <td style={{ fontFamily: "IBM Plex Mono" }}>{item.stock} {item.unit}</td>
+                      <td style={{ fontFamily: "IBM Plex Mono", color: "#7F97AC" }}>{item.safety} {item.unit}</td>
+                      <td style={{ fontSize: 11.5, color: "#9FB4C7" }}>
+                        {lastAt ? `${typeLabel} · ${lastAt}` : "이력없음"}
+                      </td>
+                      <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: days === null ? "#EF5350" : days >= 180 ? "#EF5350" : "#F5A623" }}>
+                        {days === null ? "-" : `${days}일`}
+                      </td>
+                      <td>
+                        <button
+                          onClick={() => toggleReviewed(item.code)}
+                          style={{
+                            padding: "5px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                            border: reviewed ? "1px solid #35D08C" : "1px solid #274460",
+                            background: reviewed ? "#35D08C1f" : "#0B1C2C",
+                            color: reviewed ? "#35D08C" : "#9FB4C7",
+                          }}
+                        >
+                          {reviewed ? "검토완료" : "검토표시"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
 function OptionListEditor({ title, description, category, options, saveCategory, notify, placeholder }) {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
@@ -8907,6 +9119,7 @@ function OutFormSettingsView({ settings, saveCategory, notify }) {
         />
         <OptionListEditor
           title="프로젝트 목록"
+          description="출고 화면에서는 직접 입력도 가능하지만, 여기 등록해두면 검색 추천 목록으로 표시됩니다."
           category="projects"
           options={settings.projects}
           saveCategory={saveCategory}

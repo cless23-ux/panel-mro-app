@@ -2957,6 +2957,39 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [isScanning, setIsScanning] = useState(false);
   const qrScannerRef = useRef(null);
   const infoCardRef = useRef(null);
+    const [uploadingFoundImage, setUploadingFoundImage] = useState(false);
+  const foundCameraInputRef = useRef(null);
+  const foundGalleryInputRef = useRef(null);
+
+  const handleFoundImageSelected = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !found) { e.target.value = ""; return; }
+    try {
+      setUploadingFoundImage(true);
+      notify("이미지를 압축 및 업로드 중...", "info");
+      const imageUrl = await compressAndUploadImage(file, found.code);
+      const nextItems = items.map((i) =>
+        String(i.code).trim() === String(found.code).trim() ? { ...i, image_url: imageUrl } : i
+      );
+      await saveItems(nextItems);
+      setFound((prev) => (prev ? { ...prev, image_url: imageUrl } : prev));
+      notify("자재 사진이 등록되었습니다.", "ok");
+    } catch (err) {
+      console.error(err);
+      notify(`이미지 업로드 실패: ${err?.message || err}`, "err");
+    } finally {
+      setUploadingFoundImage(false);
+      e.target.value = "";
+    }
+  };
+
+  const triggerFoundPhotoUpload = () => {
+    if (window.confirm("사진 등록 방식을 선택하세요.\n확인: 라이브 촬영 / 취소: 갤러리")) {
+      foundCameraInputRef.current?.click();
+    } else {
+      foundGalleryInputRef.current?.click();
+    }
+  };
 
   const scrollToInfoCard = () => {
     setTimeout(() => {
@@ -3384,6 +3417,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     <div>
       <Header title="출고 / 반납 (QR·바코드 스캔)" subtitle="스캔으로 빠르게 불출 또는 반납 처리" />
       <div className="outform-grid">
+         <input type="file" accept="image/*" capture="environment" ref={foundCameraInputRef} style={{ display: "none" }} onChange={handleFoundImageSelected} />
+        <input type="file" accept="image/*" ref={foundGalleryInputRef} style={{ display: "none" }} onChange={handleFoundImageSelected} />
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
           {!isScanning ? (
@@ -3504,13 +3539,30 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
-                <div className="out-found-summary">
+                                <div className="out-found-summary">
                   <div className="out-found-product">
-                    {found.image_url ? (
-                      <img src={found.image_url} alt={found.name} className="out-found-image" />
-                    ) : (
-                      <div className="out-found-image out-found-image-empty"><Led status={statusOf(found)} size={12} /></div>
-                    )}
+                    <button
+                      type="button"
+                      onClick={triggerFoundPhotoUpload}
+                      disabled={uploadingFoundImage}
+                      title="클릭하여 사진 등록/변경"
+                      style={{
+                        padding: 0, border: "none", background: "none", cursor: uploadingFoundImage ? "wait" : "pointer",
+                        position: "relative", flexShrink: 0,
+                      }}
+                    >
+                      {found.image_url ? (
+                        <img src={found.image_url} alt={found.name} className="out-found-image" />
+                      ) : (
+                        <div className="out-found-image out-found-image-empty"><Led status={statusOf(found)} size={12} /></div>
+                      )}
+                      <span style={{
+                        position: "absolute", bottom: -4, right: -4, width: 20, height: 20, borderRadius: "50%",
+                        background: "#F5A623", border: "2px solid #0B1C2C", display: "flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        <Camera size={11} color="#0A1622" />
+                      </span>
+                    </button>
                     <div className="out-found-details">
                       <div className="out-found-name">{found.name}</div>
                       <div className="out-found-code">코드: {found.code}</div>

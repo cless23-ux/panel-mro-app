@@ -1102,7 +1102,84 @@ function AutocompleteInput({ value, onChange, options, placeholder }) {
     </div>
   );
 }
+/* 검색은 가능하지만 목록에서 직접 선택해야만 값이 확정되는 드롭다운 (호선 등 기록이 지저분해지면 안 되는 항목용) */
+function StrictAutocompleteInput({ value, onChange, options, placeholder }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  const wrapRef = useRef(null);
 
+  useEffect(() => {
+    setDraft(value || "");
+  }, [value]);
+
+  const filtered = useMemo(() => {
+    const list = options || [];
+    if (!draft) return list.slice(0, 30);
+    const q = draft.toLowerCase().trim();
+    return list.filter((o) => String(o).toLowerCase().includes(q)).slice(0, 30);
+  }, [options, draft]);
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+        setDraft(value || ""); // 목록에서 선택하지 않고 벗어나면 이전 확정값으로 되돌림
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [value]);
+
+  const selectOption = (opt) => {
+    onChange(opt);
+    setDraft(opt);
+    setOpen(false);
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <input
+        style={inputStyle}
+        value={draft}
+        onChange={(e) => { setDraft(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && filtered.length === 1) {
+            e.preventDefault();
+            selectOption(filtered[0]);
+          }
+        }}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+          background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
+          marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", maxHeight: 220, overflowY: "auto",
+        }}>
+          {filtered.length > 0 ? (
+            filtered.map((opt) => (
+              <div
+                key={opt}
+                onMouseDown={(e) => { e.preventDefault(); selectOption(opt); }}
+                style={{
+                  padding: "10px 12px", cursor: "pointer", fontSize: 13,
+                  borderBottom: "1px solid #16293C", color: "#E7EEF5",
+                  background: opt === value ? "#1E3A5F" : "transparent",
+                }}
+              >
+                {opt}
+              </div>
+            ))
+          ) : (
+            <div style={{ padding: "10px 12px", fontSize: 12, color: "#5E86A3" }}>일치하는 항목이 없습니다.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 function Toast({ toast }) {
   if (!toast) return null;
   const colors = { ok: "#35D08C", err: "#EF5350", info: "#F5A623" };
@@ -3176,10 +3253,20 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   };
 
   /* ---------- 출고 확정 (기존 로직 그대로) ---------- */
-  const submit = async () => {
+    const submit = async () => {
     if (outSubmitting) return;
     if (!found || !qty || Number(qty) <= 0) { notify("자재를 스캔하고 수량을 입력해주세요.", "err"); return; }
     if (Number(qty) > found.stock) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
+
+    const confirmMsg =
+      `다음 내용으로 출고하시겠습니까?\n\n` +
+      `자재: ${found.name}\n` +
+      `수량: ${qty}${found.unit}\n` +
+      `호선: ${shipNo || "미입력"}\n` +
+      `프로젝트: ${project}\n` +
+      `공정구분: ${process}\n` +
+      `불출자: ${worker}`;
+    if (!window.confirm(confirmMsg)) return;
 
     setOutSubmitting(true);
     try {
@@ -3601,25 +3688,35 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                 </div>
               </div>
 
-              {txMode === "out" ? (
+                            {txMode === "out" ? (
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <Field label="1. 호선">
-                      <AutocompleteInput
+                      <StrictAutocompleteInput
                         value={shipNo}
                         onChange={setShipNo}
                         options={shipOptions}
-                        placeholder="예: H-2024 (직접 입력 또는 목록 검색)"
+                        placeholder="호선 검색 후 목록에서 선택"
                       />
                     </Field>
                     <Field label="2. 프로젝트">
-                      <Select value={project} onChange={(e) => setProject(e.target.value)} options={projectOptions} />
+                      <StrictAutocompleteInput
+                        value={project}
+                        onChange={setProject}
+                        options={projectOptions}
+                        placeholder="프로젝트 검색 후 선택"
+                      />
                     </Field>
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <Field label="3. 공정구분">
-                      <Select value={process} onChange={(e) => setProcess(e.target.value)} options={processOptions} />
+                      <StrictAutocompleteInput
+                        value={process}
+                        onChange={setProcess}
+                        options={processOptions}
+                        placeholder="공정구분 검색 후 선택"
+                      />
                     </Field>
                     <Field label={`4. 불출수량 (${found.unit})`}>
                       <input
@@ -3631,7 +3728,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                   </div>
 
                   <Field label="5. 불출자">
-                    <Select value={worker} onChange={(e) => setWorker(e.target.value)} options={workerOptions} />
+                    <StrictAutocompleteInput
+                      value={worker}
+                      onChange={setWorker}
+                      options={workerOptions}
+                      placeholder="불출자 검색 후 선택"
+                    />
                   </Field>
 
                   <Btn

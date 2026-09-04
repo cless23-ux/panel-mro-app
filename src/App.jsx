@@ -3016,10 +3016,10 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
   // 출고용 입력값 (기존 그대로)
   const [shipNo, setShipNo] = useState("");
-  const [project, setProject] = useState("MSBD/LVSB");
-  const [process, setProcess] = useState("배전반 결선");
+  const [project, setProject] = useState("");
+  const [process, setProcess] = useState("");
   const [qty, setQty] = useState("");
-  const [worker, setWorker] = useState("울산에이원");
+  const [worker, setWorker] = useState("");
   const [outSubmitting, setOutSubmitting] = useState(false);
 
   // 반납용 입력값 (신규)
@@ -3089,23 +3089,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const processOptions = outFormSettings?.processes || [];
   const workerOptions = outFormSettings?.workers || [];
 
-  useEffect(() => {
-    if (projectOptions.length > 0 && !projectOptions.includes(project)) {
-      setProject(projectOptions[0]);
-    }
-  }, [projectOptions]);
 
-  useEffect(() => {
-    if (processOptions.length > 0 && !processOptions.includes(process)) {
-      setProcess(processOptions[0]);
-    }
-  }, [processOptions]);
-
-  useEffect(() => {
-    if (workerOptions.length > 0 && !workerOptions.includes(worker)) {
-      setWorker(workerOptions[0]);
-    }
-  }, [workerOptions]);
 
   useEffect(() => {
     if (projectOptions.length > 0 && !returnProject) {
@@ -3304,9 +3288,9 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
       setQty("");
       setShipNo("");
-      setProject(projectOptions[0] || "MSBD/LVSB");
-      setProcess(processOptions[0] || "배전반 결선");
-      setWorker(workerOptions[0] || "울산에이원");
+      setProject("");
+      setProcess("");
+      setWorker("");
       setFound(null);
       setScan("");
     } finally {

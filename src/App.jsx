@@ -5891,7 +5891,26 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     setEditingSafetyCode(null);
     setEditingSafetyValue("");
   };
+  const [editingStockCode, setEditingStockCode] = useState(null);
+  const [editingStockValue, setEditingStockValue] = useState("");
 
+  const startEditStock = (item) => {
+    setEditingStockCode(item.code);
+    setEditingStockValue(String(item.stock ?? 0));
+  };
+
+  const commitEditStock = async (code) => {
+    const num = Number(editingStockValue);
+    if (editingStockValue.trim() === "" || Number.isNaN(num) || num < 0) {
+      notify("현재고는 0 이상의 숫자여야 합니다.", "err");
+      return;
+    }
+    const nextItems = items.map((i) => (i.code === code ? { ...i, stock: num } : i));
+    await saveItems(nextItems);
+    notify("현재고가 수정되었습니다.", "ok");
+    setEditingStockCode(null);
+    setEditingStockValue("");
+  };
   const [editingLocationCode, setEditingLocationCode] = useState(null);
   const [editingLocationValue, setEditingLocationValue] = useState("");
 
@@ -6587,7 +6606,31 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                     )}
                   </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.unit}</td>
-                  <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600, fontSize: 13.5, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#E7EEF5" }}>{i.stock}</td>
+                                    <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600, fontSize: 13.5, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#E7EEF5" }}>
+                    {editingStockCode === i.code ? (
+                      <input
+                        type="number"
+                        min="0"
+                        autoFocus
+                        value={editingStockValue}
+                        onChange={(e) => setEditingStockValue(e.target.value)}
+                        onBlur={() => commitEditStock(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditStock(i.code);
+                          if (e.key === "Escape") setEditingStockCode(null);
+                        }}
+                        style={{ ...inputStyle, width: 84, padding: "4px 8px", fontSize: 13 }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditStock(i)}
+                        title="클릭하여 현재고 수정"
+                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
+                      >
+                        {i.stock}
+                      </span>
+                    )}
+                  </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#7F97AC", fontSize: 13 }}>
                     {editingSafetyCode === i.code ? (
                       <input
@@ -6784,8 +6827,27 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                     </span>
                   </div>
 
-                  <div style={{ fontFamily: "IBM Plex Mono", fontSize: 15, fontWeight: 700, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C" }}>
-                    {i.stock} <span style={{ fontSize: 11, fontWeight: 400, color: "#7F97AC" }}>{i.unit}</span>
+                                    <div style={{ fontFamily: "IBM Plex Mono", fontSize: 15, fontWeight: 700, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C" }}>
+                    {editingStockCode === i.code ? (
+                      <input
+                        type="number"
+                        min="0"
+                        autoFocus
+                        value={editingStockValue}
+                        onChange={(e) => setEditingStockValue(e.target.value)}
+                        onBlur={() => commitEditStock(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditStock(i.code);
+                          if (e.key === "Escape") setEditingStockCode(null);
+                        }}
+                        style={{ ...inputStyle, width: 70, padding: "2px 4px", fontSize: 13, display: "inline-block" }}
+                      />
+                    ) : (
+                      <span onClick={() => startEditStock(i)} style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}>
+                        {i.stock}
+                      </span>
+                    )}{" "}
+                    <span style={{ fontSize: 11, fontWeight: 400, color: "#7F97AC" }}>{i.unit}</span>
                   </div>
                 </div>
               </Card>

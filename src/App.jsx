@@ -2022,41 +2022,7 @@ function AppInner() {
   setTab(next);
 };
 
-const [showSplash, setShowSplash] = useState(true);
-
-useEffect(() => {
-  const timer = setTimeout(() => {
-    setShowSplash(false);
-  }, 2000);
-
-  return () => clearTimeout(timer);
-}, []);
   const ready = itemsLoaded && txsLoaded && outFormSettingsLoaded;
-if (showSplash) {
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "#00122B",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        zIndex: 99999,
-      }}
-    >
-      <img
-        src="/splash.png"
-        alt="LUXCO"
-        style={{
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-        }}
-      />
-    </div>
-  );
-}
   return (
     <div className={`app-container${lightMode ? " light-mode" : ""}`} style={{
       background: "#0A1622", color: "#E7EEF5", fontFamily: "Inter, sans-serif",

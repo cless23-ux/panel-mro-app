@@ -2410,25 +2410,7 @@ function AppInner() {
           <img src="/Luxco.png" alt="Luxco" style={{ height: 34, width: "auto", objectFit: "contain", display: "block" }} />
           <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
             선박 생산부
-          </span>
-          <button
-            onClick={() => goToTab("master")}
-            title="자재마스터 이동"
-            style={{
-              background: tab === "master" ? "#F5A62322" : "transparent",
-              border: `1px solid ${tab === "master" ? "#F5A623" : "#274460"}`,
-              borderRadius: 6,
-              padding: "4px 6px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#F5A623",
-              marginLeft: 4
-            }}
-          >
-            <Package size={17} color="#F5A623" />
-          </button>
+          </span>          
           <button
             className="theme-toggle"
             onClick={toggleTheme}
@@ -8865,6 +8847,7 @@ keyCode = String(keyCode)
 
 function TrashView({ items, saveItems, notify }) {
   const [trashItems, setTrashItems] = useState([]);
+  const [selectedCodes, setSelectedCodes] = useState([]);
 
   useEffect(() => {
     loadTrash();
@@ -8880,7 +8863,20 @@ function TrashView({ items, saveItems, notify }) {
       .order("deleted_at", { ascending: false });
 
     setTrashItems(data || []);
+    setSelectedCodes([]);
   }
+
+  const toggleSelect = (code) => {
+    setSelectedCodes((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedCodes((prev) =>
+      prev.length === trashItems.length ? [] : trashItems.map((i) => i.code)
+    );
+  };
 
   const restoreItem = async (code) => {
     const { error } = await supabase
@@ -8928,9 +8924,90 @@ function TrashView({ items, saveItems, notify }) {
     saveItems(data || []);
   };
 
+  /* ---------- 선택 복원 ---------- */
+  const restoreSelected = async () => {
+    if (selectedCodes.length === 0) {
+      notify("복원할 자재를 먼저 선택해주세요.", "err");
+      return;
+    }
+    if (!window.confirm(`선택한 ${selectedCodes.length}개 자재를 복원하시겠습니까?`)) return;
+
+    const { error } = await supabase
+      .from("items")
+      .update({ deleted: false, deleted_at: null })
+      .in("code", selectedCodes);
+
+    if (error) {
+      notify("선택 복원 실패", "err");
+      return;
+    }
+
+    notify(`${selectedCodes.length}개 자재가 복원되었습니다.`, "ok");
+    loadTrash();
+
+    const { data } = await supabase
+      .from("items")
+      .select("*")
+      .eq("deleted", false);
+
+    saveItems(data || []);
+  };
+
+  /* ---------- 선택 삭제 (영구삭제) ---------- */
+  const deleteSelectedForever = async () => {
+    if (selectedCodes.length === 0) {
+      notify("영구삭제할 자재를 먼저 선택해주세요.", "err");
+      return;
+    }
+    if (!window.confirm(`선택한 ${selectedCodes.length}개 자재를 영구삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+
+    const { error } = await supabase
+      .from("items")
+      .delete()
+      .in("code", selectedCodes);
+
+    if (error) {
+      notify("선택 영구삭제 실패", "err");
+      return;
+    }
+
+    notify(`${selectedCodes.length}개 자재가 영구삭제되었습니다.`, "ok");
+    loadTrash();
+
+    const { data } = await supabase
+      .from("items")
+      .select("*")
+      .eq("deleted", false);
+
+    saveItems(data || []);
+  };
+
   return (
     <div style={{ padding: 20 }}>
-      <h2>🗑 삭제 복원</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+        <h2 style={{ margin: 0 }}>🗑 삭제 복원</h2>
+        {trashItems.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+              {selectedCodes.length}개 선택됨
+            </span>
+            <Btn
+              onClick={restoreSelected}
+              variant="subtle"
+              disabled={selectedCodes.length === 0}
+            >
+              선택 복원
+            </Btn>
+            <Btn
+              onClick={deleteSelectedForever}
+              variant="danger"
+              disabled={selectedCodes.length === 0}
+            >
+              <Trash2 size={15} />선택 영구삭제
+            </Btn>
+          </div>
+        )}
+      </div>
 
       {trashItems.length === 0 ? (
         <div style={{ opacity: 0.6 }}>휴지통이 비어 있습니다.</div>
@@ -8938,6 +9015,14 @@ function TrashView({ items, saveItems, notify }) {
         <table className="table">
           <thead>
             <tr>
+              <th style={{ width: 36 }}>
+                <input
+                  type="checkbox"
+                  checked={trashItems.length > 0 && selectedCodes.length === trashItems.length}
+                  onChange={toggleSelectAll}
+                  title="전체 선택"
+                />
+              </th>
               <th>코드</th>
               <th>품명</th>
               <th>삭제일</th>
@@ -8947,6 +9032,13 @@ function TrashView({ items, saveItems, notify }) {
           <tbody>
             {trashItems.map(item => (
               <tr key={item.code}>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selectedCodes.includes(item.code)}
+                    onChange={() => toggleSelect(item.code)}
+                  />
+                </td>
                 <td>{item.code}</td>
                 <td>{item.name}</td>
                 <td>

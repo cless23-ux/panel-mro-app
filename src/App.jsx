@@ -14,9 +14,9 @@ const FONT_LINK =
 "Rajdhani:wght@500;600;700|Oswald:wght@500;600;700|IBM+Plex+Mono:wght@400;500;600|Inter:wght@400;500;600;700";
 
 const seedItems = [
-  { code: "BB-C1100-T3", name: "부스바 (동바)", spec: "C1100 T3 x 20mm", unit: "m", stock: 62, safety: 50, location: "A-01", manufacturer: "대한전선", category: "부스바", memo: "", image_url: "" },
-  { code: "RT-2.5SQ", name: "압착단자", spec: "Ring Terminal 2.5 sq", unit: "EA", stock: 840, safety: 1000, location: "B-04", manufacturer: "KEC", category: "압착단자", memo: "", image_url: "" },
-  { code: "CG-M20-BR", name: "케이블 글랜드", spec: "Brass Gland M20", unit: "EA", stock: 260, safety: 200, location: "B-07", manufacturer: "동아베스텍", category: "케이블 글랜드", memo: "", image_url: "" },
+  { code: "BB-C1100-T3", name: "부스바 (동바)", spec: "C1100 T3 x 20mm", unit: "m", stock: 62, safety: 50, location: "A-01", manufacturer: "대한전선", category: "부스바", memo: "", image_url: "", in_use: false },
+  { code: "RT-2.5SQ", name: "압착단자", spec: "Ring Terminal 2.5 sq", unit: "EA", stock: 840, safety: 1000, location: "B-04", manufacturer: "KEC", category: "압착단자", memo: "", image_url: "", in_use: false },
+  { code: "CG-M20-BR", name: "케이블 글랜드", spec: "Brass Gland M20", unit: "EA", stock: 260, safety: 200, location: "B-07", manufacturer: "동아베스텍", category: "케이블 글랜드", memo: "", image_url: "", in_use: false },
 ];
 
 function uid(p = "T") {
@@ -5851,7 +5851,7 @@ async function buildQrLabelWorkbook(items) {
 
 /* ---------------- 자재 마스터 관리 ---------------- */
 function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
-  const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", memo: "", image_url: "" };
+  const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", memo: "", image_url: "", in_use: false };
   const MATERIAL_PREFIX_BY_TYPE = { raw: "1", sub: "2", consumable: "4" };
   const MATERIAL_LABEL_BY_TYPE = { raw: "원자재", sub: "부자재", consumable: "소모자재" };
   const [form, setForm] = useState(blank);
@@ -5875,14 +5875,14 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
-  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all" });
+  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all", inUse: "all" });
   const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
-  const clearColumnFilters = () => setColumnFilters({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all" });
+  const clearColumnFilters = () => setColumnFilters({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all", inUse: "all" });
   const masterFilterOptions = useMemo(() => ({
     category: Array.from(new Set(items.map((i) => String(i.category || "").trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, "ko")),
     unit: Array.from(new Set(items.map((i) => String(i.unit || "").trim()).filter(Boolean))).sort(),
   }), [items]);
-  const displayedItems = useMemo(() => {
+ const displayedItems = useMemo(() => {
     const f = columnFilters;
     const text = (value, q) => !q || String(value || "").toLowerCase().includes(q.toLowerCase());
     return items.filter((i) => {
@@ -5892,6 +5892,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       if (f.unit !== "all" && String(i.unit || "").trim() !== f.unit) return false;
       if (f.stock === "low" && !(Number(i.stock) <= Number(i.safety))) return false;
       if (f.stock === "normal" && !(Number(i.stock) > Number(i.safety))) return false;
+      if (f.inUse === "yes" && !i.in_use) return false;
+      if (f.inUse === "no" && i.in_use) return false;
       return true;
     });
   }, [items, materialFilter, columnFilters]);
@@ -5963,6 +5965,24 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   const startEditSafety = (item) => {
     setEditingSafetyCode(item.code);
     setEditingSafetyValue(String(item.safety ?? 0));
+  };
+    const toggleInUse = async (item) => {
+    const next = !item.in_use;
+    const nextItems = items.map((i) => (i.code === item.code ? { ...i, in_use: next } : i));
+    try {
+      if (supabase) {
+        const { error } = await supabase
+          .from("items")
+          .update({ in_use: next })
+          .eq("code", item.code);
+        if (error) throw error;
+      }
+      await saveItems(nextItems);
+      notify(next ? `[${item.name}] 실사용으로 표시되었습니다.` : `[${item.name}] 실사용 표시가 해제되었습니다.`, "ok");
+    } catch (e) {
+      console.error("실사용 표시 저장 오류:", e);
+      notify("실사용 표시 저장에 실패했습니다.", "err");
+    }
   };
 
   const commitEditSafety = async (code) => {
@@ -6066,10 +6086,11 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       return;
     }
 
-    const newItem = {
+        const newItem = {
       ...form,
       stock: Number(form.stock) || 0,
       safety: Number(form.safety) || 0,
+      in_use: !!form.in_use,
       deleted: false,
     };
 
@@ -6124,9 +6145,9 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     notify(`${selectedQrCodes.length}개 자재가 삭제되었습니다.`, "ok");
     setSelectedQrCodes([]);
   };
-  const exportCSV = () => {
-    const headers = ["코드,품명,규격,카테고리,단위,현재고,안전재고,거래처,비고,이미지주소\n"];
-    const rows = items.map(i => `"${csvSafe(i.code)}","${csvSafe(i.name)}","${csvSafe(i.spec)}","${csvSafe(i.category)}","${i.unit}",${i.stock},${i.safety},"${csvSafe(i.manufacturer)}","${csvSafe(i.memo)}","${csvSafe(i.image_url)}"\n`);
+    const exportCSV = () => {
+    const headers = ["코드,품명,규격,카테고리,단위,현재고,안전재고,거래처,비고,이미지주소,실사용\n"];
+    const rows = items.map(i => `"${csvSafe(i.code)}","${csvSafe(i.name)}","${csvSafe(i.spec)}","${csvSafe(i.category)}","${i.unit}",${i.stock},${i.safety},"${csvSafe(i.manufacturer)}","${csvSafe(i.memo)}","${csvSafe(i.image_url)}","${i.in_use ? "Y" : ""}"\n`);
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -6419,6 +6440,28 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
           </button>
         ))}
       </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>실사용 여부:</span>
+        {[
+          { id: "all", label: "전체" },
+          { id: "yes", label: `실사용 (${items.filter((i) => i.in_use).length})` },
+          { id: "no", label: `미사용/미확인 (${items.length - items.filter((i) => i.in_use).length})` },
+        ].map((f) => (
+          <button
+            key={f.id}
+            onClick={() => updateColumnFilter("inUse", f.id)}
+            style={{
+              padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+              border: columnFilters.inUse === f.id ? "1px solid #35D08C" : "1px solid #1F3B54",
+              background: columnFilters.inUse === f.id ? "#35D08C1f" : "#0B1C2C",
+              color: columnFilters.inUse === f.id ? "#35D08C" : "#7F97AC",
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
 
       {/* 긴급요청 경고 바 */}
       <div style={{
@@ -6577,16 +6620,21 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
         <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
           <table>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
-              <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
+                            <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
                 <th style={{ width: 42, textAlign: "center" }}>
                   <input type="checkbox" checked={displayedItems.length > 0 && displayedItems.every((i) => selectedQrCodes.includes(i.code))} onChange={toggleAllQrSelection} title="현재 목록 전체 선택" />
-                </th><th>No.</th><th>사진</th><th>구분</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>비고</th><th>QR</th><th>삭제</th>
+                </th><th>No.</th><th>사진</th><th>구분</th><th>실사용</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>비고</th><th>QR</th><th>삭제</th>
               </tr>
-              <tr style={{ background: "#0B1C2C" }}>
+                            <tr style={{ background: "#0B1C2C" }}>
                 <th></th><th></th><th></th>
                 <th>              
                   <select value={materialFilter} onChange={(e) => setMaterialFilter(e.target.value)} style={{ ...inputStyle, width: 84, padding: "4px 6px", fontSize: 10.5 }}>
                     <option value="all">전체</option><option value="raw">원자재</option><option value="sub">부자재</option><option value="consumable">소모자재</option>
+                  </select>
+                </th>
+                <th>
+                  <select value={columnFilters.inUse} onChange={(e) => updateColumnFilter("inUse", e.target.value)} style={{ ...inputStyle, width: 84, padding: "4px 6px", fontSize: 10.5 }}>
+                    <option value="all">전체</option><option value="yes">실사용</option><option value="no">미사용</option>
                   </select>
                 </th>
                 <th><input value={columnFilters.code} onChange={(e) => updateColumnFilter("code", e.target.value)} placeholder="코드" style={{ ...inputStyle, width: 105, padding: "4px 6px", fontSize: 10.5 }} /></th>
@@ -6629,7 +6677,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                       </button>
                     )}
                   </td>
-                  <td>
+                                    <td>
                     <span style={{
                       display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10.5, fontWeight: 700,
                       color: MATERIAL_TYPE_META[mType].color, background: `${MATERIAL_TYPE_META[mType].color}1f`,
@@ -6637,6 +6685,21 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                     }}>
                       {MATERIAL_TYPE_META[mType].label}
                     </span>
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    <button
+                      onClick={() => toggleInUse(i)}
+                      title={i.in_use ? "실사용 해제" : "실사용으로 표시 (모든 기기에 공유됨)"}
+                      style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        background: i.in_use ? "#35D08C1f" : "transparent",
+                        border: `1px solid ${i.in_use ? "#35D08C" : "#274460"}`,
+                        borderRadius: 6, padding: "5px 7px", cursor: "pointer",
+                        color: i.in_use ? "#35D08C" : "#5E86A3",
+                      }}
+                    >
+                      <CheckCircle2 size={14} />
+                    </button>
                   </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
                   <td>
@@ -6814,7 +6877,19 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    <button
+                      onClick={() => toggleInUse(i)}
+                      title={i.in_use ? "실사용 해제" : "실사용으로 표시"}
+                      style={{
+                        background: i.in_use ? "#35D08C1f" : "#0B1C2C",
+                        border: `1px solid ${i.in_use ? "#35D08C" : "#274460"}`,
+                        color: i.in_use ? "#35D08C" : "#5E86A3",
+                        padding: "6px 8px", borderRadius: 6, cursor: "pointer",
+                      }}
+                    >
+                      <CheckCircle2 size={14} />
+                    </button>
                     <button
                       onClick={() => {
                         if (window.innerWidth > 768) {

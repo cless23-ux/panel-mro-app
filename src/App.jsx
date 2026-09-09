@@ -3717,7 +3717,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                         color: outInputMode === "local" ? "#38BDF8" : "#F5A623",
                         fontFamily: "'IBM Plex Mono', monospace",
                       }}>
-                        {outInputMode === "local" ? "최근기록 창 (이 기기 전용)" : "공유 창"}
+                        {outInputMode === "local" ? "최근기록 창 (이 기기 전용)" : "모드 전환탭"}
                       </div>
                       <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>
                         {outInputMode === "local" ? "내가 입력했던 값이 자동완성으로 남습니다" : "등록된 목록에서만 선택 가능합니다"}

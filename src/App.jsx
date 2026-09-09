@@ -1930,7 +1930,23 @@ function AppInner() {
       document.body.appendChild(script);
     }
   }, []);
-
+  /* 모바일에서 입력창 포커스 시 키보드에 가리지 않도록 자동 스크롤 */
+  useEffect(() => {
+    const handleFocusIn = (e) => {
+      const target = e.target;
+      if (!target) return;
+      const tag = target.tagName;
+      if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
+      // 키보드가 올라오는 애니메이션 시간을 기다린 뒤 스크롤
+      setTimeout(() => {
+        try {
+          target.scrollIntoView({ behavior: "smooth", block: "center" });
+        } catch {}
+      }, 300);
+    };
+    document.addEventListener("focusin", handleFocusIn);
+    return () => document.removeEventListener("focusin", handleFocusIn);
+  }, []);
   const refreshAll = async () => {
     setRefreshing(true);
     await Promise.all([reloadItems(), reloadTxs()]);
@@ -2245,12 +2261,14 @@ function AppInner() {
             height: 52px; padding: 0 16px; border-bottom: 1px solid #16293C; background: #0F2233;
             display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10;
           }
-          .mobile-bottom-nav {
+                    .mobile-bottom-nav {
             height: 68px; border-top: 1px solid #16293C; background: #0F2233; display: grid;
-            grid-template-columns: 1fr 1fr 1.28fr 1fr 1fr; flex-shrink: 0; z-index: 10;
+            grid-template-columns: 1fr 1fr 1.28fr 1fr 1fr; z-index: 50;
             align-items: stretch; gap: 0;
+            position: fixed; left: 0; right: 0; bottom: 0; width: 100%;
+            padding-bottom: env(safe-area-inset-bottom, 0px);
           }
-          .main-content { flex: 1; padding: 12px 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
+          .main-content { flex: 1; padding: 12px 10px calc(68px + env(safe-area-inset-bottom, 0px) + 12px) 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
           .tab-panel { padding: 14px 12px; border-radius: 14px; }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }

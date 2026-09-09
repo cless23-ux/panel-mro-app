@@ -3025,7 +3025,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [worker, setWorker] = useState("");
   const [outSubmitting, setOutSubmitting] = useState(false);
 
-  const [outInputMode, setOutInputModeState] = useState(() => {
+    const [outInputMode, setOutInputModeState] = useState(() => {
     try { return localStorage.getItem(OUT_INPUT_MODE_KEY) || "shared"; } catch { return "shared"; }
   });
   const setOutInputMode = (mode) => {
@@ -3033,6 +3033,15 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     try { localStorage.setItem(OUT_INPUT_MODE_KEY, mode); } catch {}
   };
   const { history: outLocalHistory, addToHistory: addOutLocalHistory } = useOutLocalHistory();
+
+  /* 내 최근기록 모드일 때는 드롭다운 선택 없이도 가장 최근 값이 즉시 입력창에 채워지도록 */
+  useEffect(() => {
+    if (outInputMode !== "local") return;
+    setShipNo(outLocalHistory.ship[0] || "");
+    setProject(outLocalHistory.project[0] || "");
+    setProcess(outLocalHistory.process[0] || "");
+    setWorker(outLocalHistory.worker[0] || "");
+  }, [outInputMode, found, outLocalHistory]);
 
   // 반납용 입력값 (신규)
   const [returnQty, setReturnQty] = useState("");

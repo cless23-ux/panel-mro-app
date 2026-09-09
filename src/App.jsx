@@ -415,7 +415,43 @@ function useFavoriteItems(notify) {
 
   return { favoriteCodes, isFavorite, toggleFavorite };
 }
+/* ---------------- 불출정보 입력 방식 (공유 목록 / 내 최근기록) ---------------- */
+const OUT_INPUT_MODE_KEY = "panel:outInputMode"; // "shared" | "local"
+const OUT_LOCAL_HISTORY_KEY = "panel:outLocalHistory";
+const OUT_LOCAL_HISTORY_LIMIT = 20;
 
+function readOutLocalHistory() {
+  try {
+    const raw = localStorage.getItem(OUT_LOCAL_HISTORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      ship: Array.isArray(parsed.ship) ? parsed.ship : [],
+      project: Array.isArray(parsed.project) ? parsed.project : [],
+      process: Array.isArray(parsed.process) ? parsed.process : [],
+      worker: Array.isArray(parsed.worker) ? parsed.worker : [],
+    };
+  } catch {
+    return { ship: [], project: [], process: [], worker: [] };
+  }
+}
+
+function useOutLocalHistory() {
+  const [history, setHistory] = useState(readOutLocalHistory);
+
+  const addToHistory = useCallback((field, value) => {
+    const clean = String(value || "").trim();
+    if (!clean) return;
+    setHistory((prev) => {
+      const list = prev[field] || [];
+      const next = [clean, ...list.filter((v) => v !== clean)].slice(0, OUT_LOCAL_HISTORY_LIMIT);
+      const nextAll = { ...prev, [field]: next };
+      try { localStorage.setItem(OUT_LOCAL_HISTORY_KEY, JSON.stringify(nextAll)); } catch {}
+      return nextAll;
+    });
+  }, []);
+
+  return { history, addToHistory };
+}
 function useOutFormSettings() {
   const [settings, setSettings] = useState(DEFAULT_OUT_FORM_SETTINGS);
   const [loaded, setLoaded] = useState(false);
@@ -2970,6 +3006,15 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [worker, setWorker] = useState("");
   const [outSubmitting, setOutSubmitting] = useState(false);
 
+  const [outInputMode, setOutInputModeState] = useState(() => {
+    try { return localStorage.getItem(OUT_INPUT_MODE_KEY) || "shared"; } catch { return "shared"; }
+  });
+  const setOutInputMode = (mode) => {
+    setOutInputModeState(mode);
+    try { localStorage.setItem(OUT_INPUT_MODE_KEY, mode); } catch {}
+  };
+  const { history: outLocalHistory, addToHistory: addOutLocalHistory } = useOutLocalHistory();
+
   // 반납용 입력값 (신규)
   const [returnQty, setReturnQty] = useState("");
   const [returnReason, setReturnReason] = useState(RETURN_REASONS[0]);
@@ -3231,8 +3276,13 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         await saveItems(nextItems);
         await saveTxs([...txs, tx]);
       }
-      const remain = found.stock - Number(qty);
+            const remain = found.stock - Number(qty);
       notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
+
+      addOutLocalHistory("ship", shipNo);
+      addOutLocalHistory("project", project);
+      addOutLocalHistory("process", process);
+      addOutLocalHistory("worker", worker);
 
       setQty("");
       setShipNo("");
@@ -3620,35 +3670,99 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                 </div>
               </div>
 
-                            {txMode === "out" ? (
+                                                       {txMode === "out" ? (
                 <>
+                  <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                    padding: "8px 10px", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 8,
+                  }}>
+                    <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                      입력 방식 {outInputMode === "local" && "(이 기기에만 저장)"}
+                    </span>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => setOutInputMode("shared")}
+                        style={{
+                          padding: "6px 12px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                          border: outInputMode === "shared" ? "1px solid #F5A623" : "1px solid #274460",
+                          background: outInputMode === "shared" ? "#F5A6231f" : "transparent",
+                          color: outInputMode === "shared" ? "#F5A623" : "#7F97AC",
+                          fontFamily: "'IBM Plex Mono', monospace",
+                        }}
+                      >
+                        공유 목록
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOutInputMode("local")}
+                        style={{
+                          padding: "6px 12px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                          border: outInputMode === "local" ? "1px solid #38BDF8" : "1px solid #274460",
+                          background: outInputMode === "local" ? "#38BDF81f" : "transparent",
+                          color: outInputMode === "local" ? "#38BDF8" : "#7F97AC",
+                          fontFamily: "'IBM Plex Mono', monospace",
+                        }}
+                      >
+                        내 최근기록
+                      </button>
+                    </div>
+                  </div>
+
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <Field label="1. 호선">
-                      <StrictAutocompleteInput
-                        value={shipNo}
-                        onChange={setShipNo}
-                        options={shipOptions}
-                        placeholder="호선 검색 후 목록에서 선택"
-                      />
+                      {outInputMode === "shared" ? (
+                        <StrictAutocompleteInput
+                          value={shipNo}
+                          onChange={setShipNo}
+                          options={shipOptions}
+                          placeholder="호선 검색 후 목록에서 선택"
+                        />
+                      ) : (
+                        <AutocompleteInput
+                          value={shipNo}
+                          onChange={setShipNo}
+                          options={outLocalHistory.ship}
+                          placeholder="호선 입력 (최근 기록에서 선택 가능)"
+                        />
+                      )}
                     </Field>
                     <Field label="2. 프로젝트">
-                      <StrictAutocompleteInput
-                        value={project}
-                        onChange={setProject}
-                        options={projectOptions}
-                        placeholder="프로젝트 검색 후 선택"
-                      />
+                      {outInputMode === "shared" ? (
+                        <StrictAutocompleteInput
+                          value={project}
+                          onChange={setProject}
+                          options={projectOptions}
+                          placeholder="프로젝트 검색 후 선택"
+                        />
+                      ) : (
+                        <AutocompleteInput
+                          value={project}
+                          onChange={setProject}
+                          options={outLocalHistory.project}
+                          placeholder="프로젝트 입력 (최근 기록에서 선택 가능)"
+                        />
+                      )}
                     </Field>
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <Field label="3. 공정구분">
-                      <StrictAutocompleteInput
-                        value={process}
-                        onChange={setProcess}
-                        options={processOptions}
-                        placeholder="공정구분 검색 후 선택"
-                      />
+                      {outInputMode === "shared" ? (
+                        <StrictAutocompleteInput
+                          value={process}
+                          onChange={setProcess}
+                          options={processOptions}
+                          placeholder="공정구분 검색 후 선택"
+                        />
+                      ) : (
+                        <AutocompleteInput
+                          value={process}
+                          onChange={setProcess}
+                          options={outLocalHistory.process}
+                          placeholder="공정구분 입력 (최근 기록에서 선택 가능)"
+                        />
+                      )}
                     </Field>
                     <Field label={`4. 불출수량 (${found.unit})`}>
                       <input
@@ -3660,12 +3774,21 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                   </div>
 
                   <Field label="5. 불출자">
-                    <StrictAutocompleteInput
-                      value={worker}
-                      onChange={setWorker}
-                      options={workerOptions}
-                      placeholder="불출자 검색 후 선택"
-                    />
+                    {outInputMode === "shared" ? (
+                      <StrictAutocompleteInput
+                        value={worker}
+                        onChange={setWorker}
+                        options={workerOptions}
+                        placeholder="불출자 검색 후 선택"
+                      />
+                    ) : (
+                      <AutocompleteInput
+                        value={worker}
+                        onChange={setWorker}
+                        options={outLocalHistory.worker}
+                        placeholder="불출자 입력 (최근 기록에서 선택 가능)"
+                      />
+                    )}
                   </Field>
 
                   <Btn

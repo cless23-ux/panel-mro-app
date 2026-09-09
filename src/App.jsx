@@ -1113,7 +1113,8 @@ function AutocompleteInput({ value, onChange, options, placeholder }) {
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         placeholder={placeholder}
-        autoComplete="off"
+        autoComplete="one-time-code"
+        name={`field-${Math.random().toString(36).slice(2)}`}
       />
       {open && filtered.length > 0 && (
         <div style={{

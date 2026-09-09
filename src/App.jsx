@@ -3034,14 +3034,21 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   };
   const { history: outLocalHistory, addToHistory: addOutLocalHistory } = useOutLocalHistory();
 
-  /* 내 최근기록 모드일 때는 드롭다운 선택 없이도 가장 최근 값이 즉시 입력창에 채워지도록 */
+    /* 내 최근기록 모드일 때만 가장 최근 값이 즉시 입력창에 채워지고,
+     공유 목록 모드로 전환하면 입력창은 초기화됩니다. */
   useEffect(() => {
-    if (outInputMode !== "local") return;
-    setShipNo(outLocalHistory.ship[0] || "");
-    setProject(outLocalHistory.project[0] || "");
-    setProcess(outLocalHistory.process[0] || "");
-    setWorker(outLocalHistory.worker[0] || "");
-  }, [outInputMode, found, outLocalHistory]);
+    if (outInputMode === "local") {
+      setShipNo(outLocalHistory.ship[0] || "");
+      setProject(outLocalHistory.project[0] || "");
+      setProcess(outLocalHistory.process[0] || "");
+      setWorker(outLocalHistory.worker[0] || "");
+    } else {
+      setShipNo("");
+      setProject("");
+      setProcess("");
+      setWorker("");
+    }
+  }, [outInputMode, found]);
 
   // 반납용 입력값 (신규)
   const [returnQty, setReturnQty] = useState("");

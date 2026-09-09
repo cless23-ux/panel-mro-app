@@ -3672,41 +3672,41 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
                                                        {txMode === "out" ? (
                 <>
-                  <div style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                    padding: "8px 10px", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 8,
+                                    <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                    padding: "10px 12px", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 8,
                   }}>
-                    <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
-                      입력 방식 {outInputMode === "local" && "(이 기기에만 저장)"}
-                    </span>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button
-                        type="button"
-                        onClick={() => setOutInputMode("shared")}
-                        style={{
-                          padding: "6px 12px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
-                          border: outInputMode === "shared" ? "1px solid #F5A623" : "1px solid #274460",
-                          background: outInputMode === "shared" ? "#F5A6231f" : "transparent",
-                          color: outInputMode === "shared" ? "#F5A623" : "#7F97AC",
-                          fontFamily: "'IBM Plex Mono', monospace",
-                        }}
-                      >
-                        공유 목록
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setOutInputMode("local")}
-                        style={{
-                          padding: "6px 12px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
-                          border: outInputMode === "local" ? "1px solid #38BDF8" : "1px solid #274460",
-                          background: outInputMode === "local" ? "#38BDF81f" : "transparent",
-                          color: outInputMode === "local" ? "#38BDF8" : "#7F97AC",
-                          fontFamily: "'IBM Plex Mono', monospace",
-                        }}
-                      >
-                        내 최근기록
-                      </button>
+                    <div>
+                      <div style={{
+                        fontSize: 12.5, fontWeight: 700,
+                        color: outInputMode === "local" ? "#38BDF8" : "#F5A623",
+                        fontFamily: "'IBM Plex Mono', monospace",
+                      }}>
+                        {outInputMode === "local" ? "내 최근기록 (이 기기 전용)" : "공유 목록"}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>
+                        {outInputMode === "local" ? "내가 입력했던 값이 자동완성으로 남습니다" : "등록된 목록에서만 선택 가능합니다"}
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={outInputMode === "local"}
+                      onClick={() => setOutInputMode(outInputMode === "shared" ? "local" : "shared")}
+                      style={{
+                        position: "relative", width: 46, height: 26, borderRadius: 999, flexShrink: 0,
+                        border: "1px solid " + (outInputMode === "local" ? "#38BDF8" : "#F5A623"),
+                        background: outInputMode === "local" ? "#38BDF833" : "#F5A62333",
+                        cursor: "pointer", transition: "background .15s, border-color .15s",
+                      }}
+                    >
+                      <span style={{
+                        position: "absolute", top: 2, left: outInputMode === "local" ? 22 : 2,
+                        width: 20, height: 20, borderRadius: "50%",
+                        background: outInputMode === "local" ? "#38BDF8" : "#F5A623",
+                        transition: "left .15s",
+                      }} />
+                    </button>
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>

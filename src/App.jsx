@@ -1789,6 +1789,7 @@ function AppInner() {
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const chatLastSeenRef = useRef(null);
   const [presetItem, setPresetItem] = useState(null);
+  const [masterSearchPreset, setMasterSearchPreset] = useState("");
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [pwaInstallEvent, setPwaInstallEvent] = useState(null);
@@ -2571,13 +2572,13 @@ function AppInner() {
               "--tab-neon-bg": `${TAB_NEON[tab] || "#274460"}0d`,
             }}
           >
-            {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} onDeleteTransactions={deleteTransactionRecords} />}
+                        {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} onDeleteTransactions={deleteTransactionRecords} onSelectAlertItem={(item) => { setMasterSearchPreset(item.code); goToTab("master"); }} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} materialType="sub" />}
             {tab === "rawInbound" && <RawMaterialInboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} initialShip={rawManagePresetShip} onOpenReturn={(payload) => { const list = Array.isArray(payload?.items) ? payload.items : []; setRawManagePresetShip(payload?.ship || list[0]?.shipNo || ""); setRawManagePresetReturnItems(list); goToTab("return"); }} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
-            {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} />}
+                        {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
             {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
@@ -2654,7 +2655,7 @@ function AppInner() {
 }
 
 /* ---------------- Dashboard ---------------- */
-function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions }) {
+function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onSelectAlertItem }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
   const [cumulativeOutTxs, setCumulativeOutTxs] = useState([]);
   const [recentPage, setRecentPage] = useState(1);
@@ -2863,14 +2864,19 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions }) {
           {alertItems.length === 0 ? (
             <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 280, overflowY: "auto" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 280, overflowY: "auto" }}>
               {alertItems.map((i) => {
                 const st = statusOf(i);
                 return (
-                  <div key={i.code} style={{
-                    display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
-                    background: "#0B1C2C", border: `1px solid ${STATUS_META[st].color}33`, borderRadius: 8,
-                  }}>
+                  <div
+                    key={i.code}
+                    onClick={() => onSelectAlertItem && onSelectAlertItem(i)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                      background: "#0B1C2C", border: `1px solid ${STATUS_META[st].color}33`, borderRadius: 8,
+                      cursor: onSelectAlertItem ? "pointer" : "default",
+                    }}
+                  >
                     <Led status={st} size={10} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13.5, fontWeight: 600, color: "#E7EEF5" }}>{i.name}</div>
@@ -6037,7 +6043,7 @@ async function buildQrLabelWorkbook(items) {
 }
 
 /* ---------------- 자재 마스터 관리 ---------------- */
-function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart }) {
+function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart, searchPreset, onConsumeSearchPreset }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", memo: "", image_url: "", in_use: false };
   const MATERIAL_PREFIX_BY_TYPE = { raw: "1", sub: "2", consumable: "4" };
   const MATERIAL_LABEL_BY_TYPE = { raw: "원자재", sub: "부자재", consumable: "소모자재" };
@@ -6065,6 +6071,13 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   const [columnFilters, setColumnFilters] = useState({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all", inUse: "all" });
   const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
   const clearColumnFilters = () => setColumnFilters({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all", inUse: "all" });
+    useEffect(() => {
+    if (searchPreset) {
+      setMaterialFilter("all");
+      setColumnFilters((prev) => ({ ...prev, code: "", name: searchPreset }));
+      if (onConsumeSearchPreset) onConsumeSearchPreset();
+    }
+  }, [searchPreset]);
   const masterFilterOptions = useMemo(() => ({
     category: Array.from(new Set(items.map((i) => String(i.category || "").trim()).filter(Boolean))).sort((a,b) => a.localeCompare(b, "ko")),
     unit: Array.from(new Set(items.map((i) => String(i.unit || "").trim()).filter(Boolean))).sort(),

@@ -934,12 +934,13 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
   });
   const [shipNo, setShipNo] = useState("");
   const [project, setProject] = useState("MSBD/LVSB");
-  const [note, setNote] = useState("");
+  const [requestQty, setRequestQty] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const [outFormSettings] = useOutFormSettings();
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
+  const workerOptions = outFormSettings?.workers || [];
 
   useEffect(() => {
     if (projectOptions.length > 0 && !projectOptions.includes(project)) {
@@ -962,8 +963,13 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
   };
 
   const submit = async () => {
-    if (!requester.trim()) { notify("요청자 이름을 입력해주세요.", "err"); return; }
-    
+    const trimmedRequester = requester.trim();
+    if (!trimmedRequester) { notify("요청자를 선택해주세요.", "err"); return; }
+    if (workerOptions.length > 0 && !workerOptions.includes(trimmedRequester)) {
+      notify("등록되지 않은 요청자입니다. 저장된 목록에서만 선택할 수 있어요.", "err");
+      return;
+    }
+
     // [설정된 호선만 작성 가능하도록 검증]
     const trimmedShip = shipNo.trim();
     if (!trimmedShip) {
@@ -975,19 +981,25 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
       return;
     }
 
+    const trimmedProject = project.trim();
+    if (projectOptions.length > 0 && !projectOptions.includes(trimmedProject)) {
+      notify("등록되지 않은 프로젝트입니다. 저장된 프로젝트만 선택할 수 있어요.", "err");
+      return;
+    }
+
     setSubmitting(true);
     await addRequest({
       itemCode: item.code,
       itemName: item.name,
-      requester: requester.trim(),
+      requester: trimmedRequester,
       shipNo: shipNo.trim(),
-      project: project,
-      note: note.trim()
+      project: trimmedProject,
+      note: requestQty.trim() ? `요청수량: ${requestQty.trim()}${item.unit || ""}` : ""
     });
-    try { localStorage.setItem(LAST_REQUESTER_KEY, requester.trim()); } catch {}
+    try { localStorage.setItem(LAST_REQUESTER_KEY, trimmedRequester); } catch {}
     setSubmitting(false);
     setOpen(false);
-    setNote("");
+    setRequestQty("");
     notify(`🚨 ${item.name} 긴급 발주 요청을 보냈습니다.`, "ok");
   };
 
@@ -1042,8 +1054,13 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
             )}
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
-              <Field label="요청자 이름">
-                <input style={inputStyle} value={requester} onChange={(e) => setRequester(e.target.value)} placeholder="이름 입력" />
+              <Field label="요청자 선택/작성 (등록된 불출자만 가능)">
+                <AutocompleteInput
+                  value={requester}
+                  onChange={setRequester}
+                  options={workerOptions}
+                  placeholder="요청자 검색 후 목록에서 선택"
+                />
               </Field>
               <Field label="호선 선택/작성 (등록된 호선만 가능)">
                 <AutocompleteInput
@@ -1053,11 +1070,23 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
                   placeholder="예: H3527 (저장된 호선 선택)"
                 />
               </Field>
-              <Field label="프로젝트 선택">
-                <Select value={project} onChange={(e) => setProject(e.target.value)} options={projectOptions} />
+              <Field label="프로젝트 선택/작성 (등록된 프로젝트만 가능)">
+                <AutocompleteInput
+                  value={project}
+                  onChange={setProject}
+                  options={projectOptions}
+                  placeholder="프로젝트 검색 후 목록에서 선택"
+                />
               </Field>
-              <Field label="메모 (선택)">
-                <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 이번 주 내 필요" />
+              <Field label={`요청 수량 (${item.unit || "EA"}, 선택)`}>
+                <input
+                  style={inputStyle}
+                  type="number"
+                  min="0"
+                  value={requestQty}
+                  onChange={(e) => setRequestQty(e.target.value)}
+                  placeholder="예: 50"
+                />
               </Field>
             </div>
 
@@ -3720,7 +3749,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                         {outInputMode === "local" ? "최근기록 창 (이 기기 전용)" : "Local mode 전환 ☞"}
                       </div>
                       <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>
-                        {outInputMode === "local" ? "내가 입력했던 값이 자동완성으로 남습니다" : "등록된 목록에서만 선택 가능합니다"}
+                        {outInputMode === "local" ? "내가 입력했던 값이 자동완성으로 남습니다" : "좌측 버튼 활성화하면 이전 기록을 사용할 수 있습니다."}
                       </div>
                     </div>
                     <button
@@ -6070,7 +6099,12 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   const [selectedUrgent, setSelectedUrgent] = useState(null);
   const [showCartModal, setShowCartModal] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [cartSelectedCodes, setCartSelectedCodes] = useState([]);
+  const [cartDetailItem, setCartDetailItem] = useState(null);
 
+  useEffect(() => {
+    setCartSelectedCodes((prev) => prev.filter((code) => cartItems.some((c) => c.code === code)));
+  }, [cartItems]);
   const pendingUrgentList = useMemo(() => {
     return (urgentRequests || []).filter((r) => r.status === "pending");
   }, [urgentRequests]);
@@ -6437,7 +6471,42 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
       setTimeout(() => setCopied(false), 2000);
     });
   };
+  const toggleCartSelect = (code) => {
+    setCartSelectedCodes((prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]);
+  };
 
+  const toggleCartSelectAll = () => {
+    setCartSelectedCodes((prev) => prev.length === cartItems.length ? [] : cartItems.map((c) => c.code));
+  };
+
+  const completeSelectedCartItems = async () => {
+    if (cartSelectedCodes.length === 0) { notify("완료 처리할 자재를 선택해주세요.", "err"); return; }
+    if (!window.confirm(`선택한 ${cartSelectedCodes.length}개 자재의 발주를 완료 처리하시겠습니까?\n장바구니에서 제거됩니다.`)) return;
+
+    for (const code of cartSelectedCodes) {
+      const cItem = cartItems.find((c) => c.code === code);
+      if (cItem?.requestId) {
+        try { await resolveUrgentRequest(cItem.requestId); } catch (e) { /* 이미 처리된 경우 무시 */ }
+      }
+    }
+    cartSelectedCodes.forEach((code) => removeFromCart(code));
+    notify(`${cartSelectedCodes.length}개 자재의 발주 처리가 완료되었습니다.`, "ok");
+    setCartSelectedCodes([]);
+  };
+
+  const exportCartCSV = () => {
+    if (cartItems.length === 0) { notify("다운로드할 장바구니 항목이 없습니다.", "err"); return; }
+    const headers = ["코드,품명,요청자,호선,프로젝트,요청메모/수량,현재고,단위\n"];
+    const rows = cartItems.map((c) =>
+      `"${csvSafe(c.code)}","${csvSafe(c.name)}","${csvSafe(c.requester || "")}","${csvSafe(c.shipNo || "")}","${csvSafe(c.project || "")}","${csvSafe(c.note || "")}",${c.stock ?? ""},"${csvSafe(c.unit || "")}"\n`
+    );
+    const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `MRO_발주장바구니_${nowStr().split(" ")[0]}.csv`;
+    link.click();
+    notify("장바구니 목록이 엑셀(CSV)로 다운로드 되었습니다.", "ok");
+  };
   const currentUrgentMasterItem = useMemo(() => {
     if (!selectedUrgent) return null;
     return items.find((i) => String(i.code).trim() === String(selectedUrgent.item_code).trim()) || null;
@@ -7246,14 +7315,25 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
               {selectedUrgent.note && <div><strong>메모:</strong> {selectedUrgent.note}</div>}
             </div>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <Btn
                 variant="subtle"
                 style={{ flex: 1, fontSize: 13 }}
-                onClick={() => {
-                  const targetItem = currentUrgentMasterItem || { code: selectedUrgent.item_code, name: selectedUrgent.item_name, stock: 0, unit: "EA" };
+                onClick={async () => {
+                  const baseItem = currentUrgentMasterItem || { code: selectedUrgent.item_code, name: selectedUrgent.item_name, stock: 0, unit: "EA" };
+                  const targetItem = {
+                    ...baseItem,
+                    requestId: selectedUrgent.id,
+                    requester: selectedUrgent.requester,
+                    shipNo: selectedUrgent.ship_no,
+                    project: selectedUrgent.project,
+                    note: selectedUrgent.note,
+                    requestedAt: selectedUrgent.created_at,
+                  };
                   addToCart(targetItem);
-                  notify(`[${targetItem.name}] 자재를 발주 장바구니에 담았습니다.`, "ok");
+                  await resolveUrgentRequest(selectedUrgent.id);
+                  notify(`[${targetItem.name}] 자재를 발주 장바구니에 담고 긴급요청 목록에서 제거했습니다.`, "ok");
+                  setSelectedUrgent(null);
                 }}
               >
                 <ShoppingCart size={15} /> 발주 장바구니 담기
@@ -7273,7 +7353,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
         </div>
       )}
 
-      {/* 발주 장바구니 모달 */}
+            {/* 발주 장바구니 모달 */}
       {showCartModal && (
         <div
           onClick={() => setShowCartModal(false)}
@@ -7304,22 +7384,57 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
               <EmptyState icon={ShoppingCart} text="장바구니에 담긴 자재가 없습니다." color="#5E86A3" />
             ) : (
               <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#9FB4C7", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={cartItems.length > 0 && cartSelectedCodes.length === cartItems.length}
+                      onChange={toggleCartSelectAll}
+                    />
+                    전체선택
+                  </label>
+                  <span style={{ fontSize: 11, color: "#5E86A3" }}>
+                    {cartSelectedCodes.length}개 선택됨 · 항목 클릭 시 상세보기
+                  </span>
+                </div>
+
                 <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
                   {cartItems.map((cItem) => (
-                    <div key={cItem.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0B1C2C", padding: "10px 12px", borderRadius: 8, border: "1px solid #1F3B54" }}>
-                      <div>
-                        <div style={{ fontWeight: 700, color: "#38BDF8", fontSize: 13.5 }}>{cItem.name}</div>
-                        <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{cItem.code}</div>
+                    <div
+                      key={cItem.code}
+                      onClick={() => setCartDetailItem(cItem)}
+                      style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        background: "#0B1C2C", padding: "10px 12px", borderRadius: 8,
+                        border: `1px solid ${cartSelectedCodes.includes(cItem.code) ? "#38BDF8" : "#1F3B54"}`,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={cartSelectedCodes.includes(cItem.code)}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => { e.stopPropagation(); toggleCartSelect(cItem.code); }}
+                        />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, color: "#38BDF8", fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {cItem.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                            {cItem.code}{cItem.shipNo ? ` · ${cItem.shipNo}` : ""}
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                         <button
-                          onClick={() => copyCodeToClipboard(cItem.code)}
+                          onClick={(e) => { e.stopPropagation(); copyCodeToClipboard(cItem.code); }}
                           style={{ background: "#16324A", border: "1px solid #274460", color: "#C9DAE8", padding: "4px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}
                         >
                           <Copy size={12} /> 복사
                         </button>
                         <button
-                          onClick={() => removeFromCart(cItem.code)}
+                          onClick={(e) => { e.stopPropagation(); removeFromCart(cItem.code); }}
                           style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer" }}
                         >
                           <Trash2 size={15} />
@@ -7329,7 +7444,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   ))}
                 </div>
 
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <Btn
                     variant="ghost"
                     onClick={() => {
@@ -7337,13 +7452,32 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                       navigator.clipboard.writeText(allCodes);
                       notify("전체 자재 코드가 복사되었습니다.", "ok");
                     }}
-                    style={{ flex: 1, fontSize: 12.5 }}
+                    style={{ flex: "1 1 130px", fontSize: 12.5 }}
                   >
                     <Copy size={14} /> 전체 목록 복사
                   </Btn>
                   <Btn
+                    variant="subtle"
+                    onClick={exportCartCSV}
+                    style={{ flex: "1 1 130px", fontSize: 12.5 }}
+                  >
+                    <Download size={14} /> 엑셀 다운로드
+                  </Btn>
+                  <Btn
+                    onClick={completeSelectedCartItems}
+                    disabled={cartSelectedCodes.length === 0}
+                    style={{
+                      flex: "1 1 130px", fontSize: 12.5,
+                      background: cartSelectedCodes.length ? "#35D08C" : "#1F3B54",
+                      border: `1px solid ${cartSelectedCodes.length ? "#35D08C" : "#1F3B54"}`,
+                      color: cartSelectedCodes.length ? "#0A1622" : "#5E86A3",
+                    }}
+                  >
+                    <CheckCircle2 size={14} /> 선택 완료처리{cartSelectedCodes.length ? ` (${cartSelectedCodes.length})` : ""}
+                  </Btn>
+                  <Btn
                     variant="danger"
-                    onClick={() => { clearCart(); notify("장바구니가 비워졌습니다.", "info"); }}
+                    onClick={() => { clearCart(); setCartSelectedCodes([]); notify("장바구니가 비워졌습니다.", "info"); }}
                     style={{ fontSize: 12.5 }}
                   >
                     비우기
@@ -7354,7 +7488,92 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
           </div>
         </div>
       )}
+      {/* 장바구니 항목 상세보기 모달 */}
+      {cartDetailItem && (
+        <div
+          onClick={() => setCartDetailItem(null)}
+          className="app-modal-overlay"
+          style={{
+            position: "fixed", inset: 0, background: "rgba(6,14,22,0.85)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1200, padding: 20
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 420, background: "#0F2233", border: "1px solid #38BDF8AA",
+              borderRadius: 14, padding: 22, color: "#E7EEF5", boxShadow: "0 12px 32px rgba(0,0,0,0.6)"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#38BDF8", fontWeight: 700, fontSize: 16 }}>
+                <ShoppingCart size={20} /> 장바구니 항목 상세
+              </div>
+              <button onClick={() => setCartDetailItem(null)} style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4 }}>
+                <X size={20} />
+              </button>
+            </div>
 
+            <div style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "#38BDF8", marginBottom: 6 }}>{cartDetailItem.name}</div>
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, background: "#152C42", padding: "6px 10px", borderRadius: 6 }}>
+                <span style={{ fontSize: 12, color: "#9FB4C7", fontFamily: "IBM Plex Mono" }}>
+                  코드: <strong style={{ color: "#FFF" }}>{cartDetailItem.code}</strong>
+                </span>
+                <button
+                  onClick={() => copyCodeToClipboard(cartDetailItem.code)}
+                  style={{ display: "flex", alignItems: "center", gap: 4, background: "#274460", border: "none", color: copied ? "#35D08C" : "#C9DAE8", padding: "4px 8px", borderRadius: 4, fontSize: 11, cursor: "pointer" }}
+                >
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                  {copied ? "복사됨" : "코드 복사"}
+                </button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, color: "#9FB4C7" }}>
+                <div>현재고: <strong style={{ color: "#E7EEF5" }}>{cartDetailItem.stock ?? "-"} {cartDetailItem.unit || ""}</strong></div>
+                <div>요청자: {cartDetailItem.requester || "-"}</div>
+                <div>호선: {cartDetailItem.shipNo || "-"}</div>
+                <div>프로젝트: {cartDetailItem.project || "-"}</div>
+              </div>
+
+              {cartDetailItem.note && (
+                <div style={{ marginTop: 10, fontSize: 12, color: "#C9DAE8" }}>
+                  <strong>메모/요청수량:</strong> {cartDetailItem.note}
+                </div>
+              )}
+              {cartDetailItem.requestedAt && (
+                <div style={{ marginTop: 6, fontSize: 11, color: "#5E86A3" }}>
+                  요청시각: {new Date(cartDetailItem.requestedAt).toLocaleString()}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn
+                style={{ flex: 1, background: "#35D08C", border: "1px solid #35D08C", color: "#0A1622", fontSize: 13 }}
+                onClick={async () => {
+                  if (cartDetailItem.requestId) {
+                    try { await resolveUrgentRequest(cartDetailItem.requestId); } catch (e) { /* 이미 처리된 경우 무시 */ }
+                  }
+                  removeFromCart(cartDetailItem.code);
+                  notify(`[${cartDetailItem.name}] 발주 처리가 완료되었습니다.`, "ok");
+                  setCartDetailItem(null);
+                }}
+              >
+                <CheckCircle2 size={15} /> 완료처리
+              </Btn>
+              <Btn
+                variant="danger"
+                style={{ flex: 1, fontSize: 13 }}
+                onClick={() => { removeFromCart(cartDetailItem.code); setCartDetailItem(null); }}
+              >
+                <Trash2 size={15} /> 삭제
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
       {qrModalItem && window.innerWidth > 768 && (
         <div className="app-modal-overlay" style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.75)",

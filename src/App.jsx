@@ -6071,10 +6071,10 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   const [columnFilters, setColumnFilters] = useState({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all", inUse: "all" });
   const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
   const clearColumnFilters = () => setColumnFilters({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all", inUse: "all" });
-    useEffect(() => {
+     useEffect(() => {
     if (searchPreset) {
       setMaterialFilter("all");
-      setColumnFilters((prev) => ({ ...prev, code: "", name: searchPreset }));
+      setColumnFilters((prev) => ({ ...prev, code: searchPreset, name: "" }));
       if (onConsumeSearchPreset) onConsumeSearchPreset();
     }
   }, [searchPreset]);

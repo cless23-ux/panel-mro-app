@@ -7383,10 +7383,10 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: 20
           }}
         >
-          <div
+                    <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: "100%", maxWidth: 500, background: "#0F2233", border: "1px solid #38BDF8AA",
+              width: "100%", maxWidth: 580, background: "#0F2233", border: "1px solid #38BDF8AA",
               borderRadius: 14, padding: 22, color: "#E7EEF5", boxShadow: "0 12px 32px rgba(0,0,0,0.6)"
             }}
           >
@@ -7464,40 +7464,40 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   ))}
                 </div>
 
-                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                 <div style={{ display: "flex", gap: 6 }}>
                   <Btn
                     variant="subtle"
                     onClick={exportCartCSV}
                     disabled={cartSelectedCodes.length === 0}
                     style={{
-                      flex: "1 1 130px", fontSize: 12.5,
+                      flex: 1, fontSize: 11.5, padding: "10px 6px", whiteSpace: "nowrap",
                       opacity: cartSelectedCodes.length === 0 ? 0.5 : 1,
                     }}
                   >
-                    <Download size={14} /> 선택 엑셀다운로드{cartSelectedCodes.length ? ` (${cartSelectedCodes.length})` : ""}
+                    <Download size={13} /> 다운로드{cartSelectedCodes.length ? ` (${cartSelectedCodes.length})` : ""}
                   </Btn>
                   <Btn
                     onClick={completeSelectedCartItems}
                     disabled={cartSelectedCodes.length === 0}
                     style={{
-                      flex: "1 1 130px", fontSize: 12.5,
+                      flex: 1, fontSize: 11.5, padding: "10px 6px", whiteSpace: "nowrap",
                       background: cartSelectedCodes.length ? "#35D08C" : "#1F3B54",
                       border: `1px solid ${cartSelectedCodes.length ? "#35D08C" : "#1F3B54"}`,
                       color: cartSelectedCodes.length ? "#0A1622" : "#5E86A3",
                     }}
                   >
-                    <CheckCircle2 size={14} /> 선택 완료처리{cartSelectedCodes.length ? ` (${cartSelectedCodes.length})` : ""}
+                    <CheckCircle2 size={13} /> 완료처리{cartSelectedCodes.length ? ` (${cartSelectedCodes.length})` : ""}
                   </Btn>
                   <Btn
                     variant="danger"
                     onClick={deleteSelectedCartItems}
                     disabled={cartSelectedCodes.length === 0}
                     style={{
-                      flex: "1 1 130px", fontSize: 12.5,
+                      flex: 1, fontSize: 11.5, padding: "10px 6px", whiteSpace: "nowrap",
                       opacity: cartSelectedCodes.length === 0 ? 0.5 : 1,
                     }}
                   >
-                    <Trash2 size={14} /> 선택 삭제{cartSelectedCodes.length ? ` (${cartSelectedCodes.length})` : ""}
+                    <Trash2 size={13} /> 삭제{cartSelectedCodes.length ? ` (${cartSelectedCodes.length})` : ""}
                   </Btn>
                 </div>
               </div>

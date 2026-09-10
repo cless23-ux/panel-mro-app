@@ -6493,11 +6493,18 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     notify(`${cartSelectedCodes.length}개 자재의 발주 처리가 완료되었습니다.`, "ok");
     setCartSelectedCodes([]);
   };
-
-  const exportCartCSV = () => {
-    if (cartItems.length === 0) { notify("다운로드할 장바구니 항목이 없습니다.", "err"); return; }
+  const deleteSelectedCartItems = () => {
+    if (cartSelectedCodes.length === 0) { notify("삭제할 자재를 먼저 선택해주세요.", "err"); return; }
+    if (!window.confirm(`선택한 ${cartSelectedCodes.length}개 자재를 장바구니에서 삭제하시겠습니까?`)) return;
+    cartSelectedCodes.forEach((code) => removeFromCart(code));
+    notify(`선택한 ${cartSelectedCodes.length}개 자재가 장바구니에서 삭제되었습니다.`, "info");
+    setCartSelectedCodes([]);
+  };
+    const exportCartCSV = () => {
+    if (cartSelectedCodes.length === 0) { notify("다운로드할 자재를 먼저 선택해주세요.", "err"); return; }
+    const targetItems = cartItems.filter((c) => cartSelectedCodes.includes(c.code));
     const headers = ["코드,품명,요청자,호선,프로젝트,요청메모/수량,현재고,단위\n"];
-    const rows = cartItems.map((c) =>
+    const rows = targetItems.map((c) =>
       `"${csvSafe(c.code)}","${csvSafe(c.name)}","${csvSafe(c.requester || "")}","${csvSafe(c.shipNo || "")}","${csvSafe(c.project || "")}","${csvSafe(c.note || "")}",${c.stock ?? ""},"${csvSafe(c.unit || "")}"\n`
     );
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
@@ -6505,7 +6512,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     link.href = URL.createObjectURL(blob);
     link.download = `MRO_발주장바구니_${nowStr().split(" ")[0]}.csv`;
     link.click();
-    notify("장바구니 목록이 엑셀(CSV)로 다운로드 되었습니다.", "ok");
+    notify(`선택한 ${targetItems.length}개 항목이 엑셀(CSV)로 다운로드 되었습니다.`, "ok");
   };
   const currentUrgentMasterItem = useMemo(() => {
     if (!selectedUrgent) return null;
@@ -7444,24 +7451,17 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   ))}
                 </div>
 
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <Btn
-                    variant="ghost"
-                    onClick={() => {
-                      const allCodes = cartItems.map(c => c.code).join("\n");
-                      navigator.clipboard.writeText(allCodes);
-                      notify("전체 자재 코드가 복사되었습니다.", "ok");
-                    }}
-                    style={{ flex: "1 1 130px", fontSize: 12.5 }}
-                  >
-                    <Copy size={14} /> 전체 목록 복사
-                  </Btn>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <Btn
                     variant="subtle"
                     onClick={exportCartCSV}
-                    style={{ flex: "1 1 130px", fontSize: 12.5 }}
+                    disabled={cartSelectedCodes.length === 0}
+                    style={{
+                      flex: "1 1 130px", fontSize: 12.5,
+                      opacity: cartSelectedCodes.length === 0 ? 0.5 : 1,
+                    }}
                   >
-                    <Download size={14} /> 엑셀 다운로드
+                    <Download size={14} /> 선택 엑셀다운로드{cartSelectedCodes.length ? ` (${cartSelectedCodes.length})` : ""}
                   </Btn>
                   <Btn
                     onClick={completeSelectedCartItems}
@@ -7477,10 +7477,14 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   </Btn>
                   <Btn
                     variant="danger"
-                    onClick={() => { clearCart(); setCartSelectedCodes([]); notify("장바구니가 비워졌습니다.", "info"); }}
-                    style={{ fontSize: 12.5 }}
+                    onClick={deleteSelectedCartItems}
+                    disabled={cartSelectedCodes.length === 0}
+                    style={{
+                      flex: "1 1 130px", fontSize: 12.5,
+                      opacity: cartSelectedCodes.length === 0 ? 0.5 : 1,
+                    }}
                   >
-                    비우기
+                    <Trash2 size={14} /> 선택 삭제{cartSelectedCodes.length ? ` (${cartSelectedCodes.length})` : ""}
                   </Btn>
                 </div>
               </div>

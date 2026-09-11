@@ -728,11 +728,11 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
 
   const exportCSV = () => {
     const headers = isOut
-      ? ["날짜,자재명,코드,수량,단위,호선,프로젝트,공정구분,불출자\n"]
+      ? ["날짜,자재명,코드,수량,단위,호선,프로젝트,불출자\n"]
       : ["날짜,자재명,코드,수량,단위,담당자\n"];
     const rows = list.map((t) => {
       if (isOut) {
-        return `"${t.at}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.shipNo)}","${csvSafe(t.project)}","${csvSafe(t.process)}","${csvSafe(t.worker)}"\n`;
+        return `"${t.at}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.shipNo)}","${csvSafe(t.project)}","${csvSafe(t.worker)}"\n`;
       }
       return `"${t.at}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.worker)}"\n`;
     });

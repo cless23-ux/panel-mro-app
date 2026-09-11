@@ -2388,26 +2388,26 @@ function AppInner() {
           .out-mode-toggle-desc { display: none; }
 
           .out-section-card {
-            background: none;
-            border: none;
-            box-shadow: none;
-            border-radius: 0;
-            padding-left: 4px;
-            padding-right: 4px;
-            padding-top: 14px;
-            padding-bottom: 14px;
-            border-bottom: 1px solid #1A3146;
+            background: none !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            padding-left: 4px !important;
+            padding-right: 4px !important;
+            padding-top: 14px !important;
+            padding-bottom: 14px !important;
+            border-bottom: 1px solid #1A3146 !important;
           }
           .out-section-card:last-child {
-            border-bottom: none;
+            border-bottom: none !important;
           }
           .out-favorite-bar {
-            background: none;
-            border: none;
-            border-bottom: 1px solid #1A3146;
-            border-radius: 0;
-            padding-left: 4px;
-            padding-right: 4px;
+            background: none !important;
+            border: none !important;
+            border-bottom: 1px solid #1A3146 !important;
+            border-radius: 0 !important;
+            padding-left: 4px !important;
+            padding-right: 4px !important;
           }
 
           /* 실시간 대화 모바일: 입력창이 화면 아래로 밀리지 않도록 채팅 영역 자체를 고정 */

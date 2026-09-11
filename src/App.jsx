@@ -2268,11 +2268,59 @@ function AppInner() {
           margin-top: 3px;
           line-height: 1.45;
         }
-        .out-found-manufacturer {
+                .out-found-manufacturer {
           font-size: 10.5px;
           color: #5E86A3;
           margin-top: 2px;
           line-height: 1.4;
+        }
+        .out-info-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 14px;
+        }
+        .out-info-card {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding: 14px;
+          background: #0B1C2C;
+          border: 1px solid #274460;
+          border-radius: 8px;
+        }
+        .out-info-divider {
+          border-top: 1px solid #1F3B54;
+          padding-top: 10px;
+        }
+        .out-info-actions-row {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 10px;
+        }
+        .out-mode-toggle-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+        .out-mode-toggle-title {
+          font-size: 12.5px;
+          font-weight: 700;
+          font-family: 'IBM Plex Mono', monospace;
+        }
+        .out-mode-toggle-desc {
+          font-size: 10.5px;
+          color: #5E86A3;
+          margin-top: 2px;
+        }
+        .out-field-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+        .out-form-card {
+          padding: 22px;
         }
         .out-found-stock {
           text-align: right;
@@ -2333,6 +2381,11 @@ function AppInner() {
             border-top: 1px solid #1F3B54;
             text-align: left;
           }
+          .out-form-card { padding: 14px; }
+          .out-info-stack { gap: 10px; }
+          .out-info-card { padding: 11px; gap: 8px; }
+          .out-info-divider { padding-top: 8px; }
+          .out-mode-toggle-desc { display: none; }
 
           /* 실시간 대화 모바일: 입력창이 화면 아래로 밀리지 않도록 채팅 영역 자체를 고정 */
           .chat-view {
@@ -3053,9 +3106,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [found, setFound] = useState(null);
 
   // 출고용 입력값 (기존 그대로)
-  const [shipNo, setShipNo] = useState("");
+    const [shipNo, setShipNo] = useState("");
   const [project, setProject] = useState("");
-  const [process, setProcess] = useState("");
   const [qty, setQty] = useState("");
   const [worker, setWorker] = useState("");
   const [outSubmitting, setOutSubmitting] = useState(false);
@@ -3071,16 +3123,14 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
     /* 내 최근기록 모드일 때만 가장 최근 값이 즉시 입력창에 채워지고,
      공유 목록 모드로 전환하면 입력창은 초기화됩니다. */
-  useEffect(() => {
+    useEffect(() => {
     if (outInputMode === "local") {
       setShipNo(outLocalHistory.ship[0] || "");
       setProject(outLocalHistory.project[0] || "");
-      setProcess(outLocalHistory.process[0] || "");
       setWorker(outLocalHistory.worker[0] || "");
     } else {
       setShipNo("");
       setProject("");
-      setProcess("");
       setWorker("");
     }
   }, [outInputMode, found]);
@@ -3149,7 +3199,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
-  const processOptions = outFormSettings?.processes || [];
   const workerOptions = outFormSettings?.workers || [];
 
 
@@ -3305,13 +3354,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     if (!found || !qty || Number(qty) <= 0) { notify("자재를 스캔하고 수량을 입력해주세요.", "err"); return; }
     if (Number(qty) > found.stock) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
 
-    const confirmMsg =
+        const confirmMsg =
       `다음 내용으로 출고하시겠습니까?\n\n` +
       `자재: ${found.name}\n` +
       `수량: ${qty}${found.unit}\n` +
       `호선: ${shipNo || "미입력"}\n` +
       `프로젝트: ${project}\n` +
-      `공정구분: ${process}\n` +
       `불출자: ${worker}`;
     if (!window.confirm(confirmMsg)) return;
 
@@ -3319,7 +3367,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     try {
       const nextItems = items.map((i) => String(i.code).replace(/[\r\n]+/g, "").trim() === String(found.code).replace(/[\r\n]+/g, "").trim() ? { ...i, stock: i.stock - Number(qty) } : i);
 
-      const tx = {
+            const tx = {
         id: uid("OUT"),
         type: "out",
         itemCode: found.code,
@@ -3328,7 +3376,6 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         qty: Number(qty),
         shipNo: shipNo || "미입력",
         project: project,
-        process: process,
         worker: worker,
         at: nowStr(),
         deleted: false,
@@ -3351,13 +3398,11 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
       addOutLocalHistory("ship", shipNo);
       addOutLocalHistory("project", project);
-      addOutLocalHistory("process", process);
       addOutLocalHistory("worker", worker);
 
       setQty("");
       setShipNo("");
       setProject("");
-      setProcess("");
       setWorker("");
       setFound(null);
       setScan("");
@@ -3671,14 +3716,14 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           </div>
         )}
 
-        <Card ref={infoCardRef} neon={txMode === "out" ? "#F5A623" : "#22D3EE"} style={{ padding: 22 }}>
+                <Card ref={infoCardRef} neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-form-card">
           <SectionLabel>{txMode === "out" ? "2. 불출 정보 입력" : "2. 반납 정보 입력"}</SectionLabel>
           {!found ? (
             <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 선택해주세요." color="#5E86A3" />
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, background: "#0B1C2C", borderRadius: 8, border: "1px solid #274460" }}>
-                                <div className="out-found-summary">
+            <div className="out-info-stack">
+              <div className="out-info-card">
+                <div className="out-found-summary">
                   <div className="out-found-product">
                     <button
                       type="button"
@@ -3718,7 +3763,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                     <div style={{ fontSize: 10.5, color: "#5E86A3" }}>현재고</div>
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, borderTop: "1px solid #1F3B54", paddingTop: 10 }}>
+
+                <div className="out-info-divider out-info-actions-row">
                   {txMode === "out" && (
                     <UrgentRequestButton item={found} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
                   )}
@@ -3738,24 +3784,15 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                     />
                   </button>
                 </div>
-              </div>
 
-                                                       {txMode === "out" ? (
-                <>
-                                    <div style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
-                    padding: "10px 12px", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 8,
-                  }}>
+                {txMode === "out" && (
+                  <div className="out-info-divider out-mode-toggle-row">
                     <div>
-                      <div style={{
-                        fontSize: 12.5, fontWeight: 700,
-                        color: outInputMode === "local" ? "#38BDF8" : "#F5A623",
-                        fontFamily: "'IBM Plex Mono', monospace",
-                      }}>
-                        {outInputMode === "local" ? "최근기록 창 (이 기기 전용)" : "Local mode 전환 ☞"}
+                      <div className="out-mode-toggle-title" style={{ color: outInputMode === "local" ? "#38BDF8" : "#F5A623" }}>
+                        {outInputMode === "local" ? "최근기록 (이 기기 전용)" : "저장목록 선택 모드"}
                       </div>
-                      <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>
-                        {outInputMode === "local" ? "내가 입력했던 값이 자동완성으로 남습니다" : "좌측 버튼 활성화하면 이전 기록을 사용할 수 있습니다."}
+                      <div className="out-mode-toggle-desc">
+                        {outInputMode === "local" ? "직접 입력했던 값이 자동완성으로 남습니다" : "등록된 목록에서만 선택 가능합니다"}
                       </div>
                     </div>
                     <button
@@ -3778,8 +3815,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                       }} />
                     </button>
                   </div>
+                )}
+              </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {txMode === "out" ? (
+                <>
+                  <div className="out-field-grid">
                     <Field label="1. 호선">
                       {outInputMode === "shared" ? (
                         <StrictAutocompleteInput
@@ -3816,56 +3857,38 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                     </Field>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                    <Field label="3. 공정구분">
-                      {outInputMode === "shared" ? (
-                        <StrictAutocompleteInput
-                          value={process}
-                          onChange={setProcess}
-                          options={processOptions}
-                          placeholder="공정구분 검색 후 선택"
-                        />
-                      ) : (
-                        <AutocompleteInput
-                          value={process}
-                          onChange={setProcess}
-                          options={outLocalHistory.process}
-                          placeholder="공정구분 입력 (최근 기록에서 선택 가능)"
-                        />
-                      )}
-                    </Field>
-                    <Field label={`4. 불출수량 (${found.unit})`}>
+                  <div className="out-field-grid">
+                    <Field label={`3. 불출수량 (${found.unit})`}>
                       <input
                         style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }}
                         type="number" min="1" max={found.stock} value={qty}
                         onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
                       />
                     </Field>
+                    <Field label="4. 불출자">
+                      {outInputMode === "shared" ? (
+                        <StrictAutocompleteInput
+                          value={worker}
+                          onChange={setWorker}
+                          options={workerOptions}
+                          placeholder="불출자 검색 후 선택"
+                        />
+                      ) : (
+                        <AutocompleteInput
+                          value={worker}
+                          onChange={setWorker}
+                          options={outLocalHistory.worker}
+                          placeholder="불출자 입력 (최근 기록에서 선택 가능)"
+                        />
+                      )}
+                    </Field>
                   </div>
-
-                  <Field label="5. 불출자">
-                    {outInputMode === "shared" ? (
-                      <StrictAutocompleteInput
-                        value={worker}
-                        onChange={setWorker}
-                        options={workerOptions}
-                        placeholder="불출자 검색 후 선택"
-                      />
-                    ) : (
-                      <AutocompleteInput
-                        value={worker}
-                        onChange={setWorker}
-                        options={outLocalHistory.worker}
-                        placeholder="불출자 입력 (최근 기록에서 선택 가능)"
-                      />
-                    )}
-                  </Field>
 
                   <Btn
                     onClick={submit}
                     disabled={outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock}
                     style={{
-                      marginTop: 8, width: "100%",
+                      marginTop: 4, width: "100%",
                       background: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#1F3B54" : "#F5A623",
                       color: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#5E86A3" : "#0A1622",
                       fontWeight: "bold", fontSize: 15

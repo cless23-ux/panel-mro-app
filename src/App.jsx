@@ -2387,6 +2387,29 @@ function AppInner() {
           .out-info-divider { padding-top: 8px; }
           .out-mode-toggle-desc { display: none; }
 
+          .out-section-card {
+            background: none;
+            border: none;
+            box-shadow: none;
+            border-radius: 0;
+            padding-left: 4px;
+            padding-right: 4px;
+            padding-top: 14px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #1A3146;
+          }
+          .out-section-card:last-child {
+            border-bottom: none;
+          }
+          .out-favorite-bar {
+            background: none;
+            border: none;
+            border-bottom: 1px solid #1A3146;
+            border-radius: 0;
+            padding-left: 4px;
+            padding-right: 4px;
+          }
+
           /* 실시간 대화 모바일: 입력창이 화면 아래로 밀리지 않도록 채팅 영역 자체를 고정 */
           .chat-view {
             height: calc(100dvh - 52px - 64px - 24px - 28px);
@@ -3603,7 +3626,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       <div className="outform-grid">
          <input type="file" accept="image/*" capture="environment" ref={foundCameraInputRef} style={{ display: "none" }} onChange={handleFoundImageSelected} />
         <input type="file" accept="image/*" ref={foundGalleryInputRef} style={{ display: "none" }} onChange={handleFoundImageSelected} />
-        <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} style={{ padding: 22 }}>
+        <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
           {!isScanning ? (
             <div style={{
@@ -3667,7 +3690,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         </Card>
 
         {favoriteItems.length > 0 && (
-          <div style={{
+          <div className="out-favorite-bar" style={{
             display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
             padding: "10px 14px", background: "#0F2233", border: "1px solid #1F3B54",
             borderRadius: 10,
@@ -3716,7 +3739,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           </div>
         )}
 
-                <Card ref={infoCardRef} neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-form-card">
+                <Card ref={infoCardRef} neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-form-card out-section-card">
           <SectionLabel>{txMode === "out" ? "2. 불출 정보 입력" : "2. 반납 정보 입력"}</SectionLabel>
           {!found ? (
             <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 선택해주세요." color="#5E86A3" />
@@ -3949,7 +3972,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           )}
         </Card>
 
-        <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} style={{ padding: 16 }}>
+        <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 16 }}>
           <SectionLabel>
             {txMode === "out" ? "최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)" : "최근 등록된 반납 이력 (잘못 등록 시 취소)"}
           </SectionLabel>

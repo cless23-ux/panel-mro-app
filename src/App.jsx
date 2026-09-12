@@ -3150,6 +3150,15 @@ function Header({ title, subtitle }) {
 /* ---------------- 출고/반납 (스캔) ---------------- */
 function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, presetItem, onConsumePreset, urgentRequests, addUrgentRequest }) {
   const [txMode, setTxMode] = useState("out"); // "out" | "return"
+  const [isMobileView, setIsMobileView] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth <= 768 : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => setIsMobileView(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const [scan, setScan] = useState("");
   const [found, setFound] = useState(null);
@@ -3660,92 +3669,136 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
 
           {!isScanning ? (
-            <div style={{
-              position: "relative",
-              border: "2px dashed #274460", borderRadius: 10, padding: "22px 16px",
-              textAlign: "center", marginBottom: 16, background: "#0B1C2C",
-            }}>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={txMode === "return"}
-                onClick={() => setTxMode(txMode === "out" ? "return" : "out")}
-                style={{
-                  position: "absolute", top: 12, right: 12, display: "flex", alignItems: "center", gap: 6,
-                  background: "none", border: "none", padding: 0, cursor: "pointer",
-                }}
-              >
-                <span style={{
-                  fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700,
-                  color: txMode === "out" ? "#F5A623" : "#22D3EE",
-                }}>
-                  {txMode === "out" ? "출고" : "반납"}
-                </span>
-                <span style={{
-                  position: "relative", width: 40, height: 22, borderRadius: 999, flexShrink: 0,
-                  border: "1px solid " + (txMode === "return" ? "#22D3EE" : "#F5A623"),
-                  background: txMode === "return" ? "#22D3EE33" : "#F5A62333",
-                  transition: "background .15s, border-color .15s",
-                }}>
-                  <span style={{
-                    position: "absolute", top: 1.5, left: txMode === "return" ? 19 : 1.5,
-                    width: 17, height: 17, borderRadius: "50%",
-                    background: txMode === "return" ? "#22D3EE" : "#F5A623",
-                    transition: "left .15s",
-                  }} />
-                </span>
-              </button>
-
-              <Camera size={36} color="#5E86A3" style={{ marginBottom: 8, marginTop: 18 }} />
-              <div style={{ fontSize: 13, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
-                버튼을 누르면 스마트폰 카메라가 실행됩니다
-              </div>
-
-              <Btn
-                onClick={() => startCamera(txMode)}
-                style={{
-                  width: "100%", marginBottom: 16,
-                  background: txMode === "out" ? "#F5A623" : "#22D3EE",
-                  border: `1px solid ${txMode === "out" ? "#F5A623" : "#22D3EE"}`,
-                  color: "#0A1622",
-                }}
-              >
-                <Camera size={18} />{txMode === "out" ? "출고 스캔" : "반납 스캔"}
-              </Btn>
-
-              <div style={{ borderTop: "1px solid #1F3B54", paddingTop: 14, marginTop: 10 }}>
+            isMobileView ? (
+              <div style={{
+                position: "relative",
+                border: "2px dashed #274460", borderRadius: 10, padding: "22px 16px",
+                textAlign: "center", marginBottom: 16, background: "#0B1C2C",
+              }}>
                 <button
                   type="button"
-                  onClick={() => setShowManualInput((s) => !s)}
+                  role="switch"
+                  aria-checked={txMode === "return"}
+                  onClick={() => setTxMode(txMode === "out" ? "return" : "out")}
                   style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                    position: "absolute", top: 12, right: 12, display: "flex", alignItems: "center", gap: 6,
                     background: "none", border: "none", padding: 0, cursor: "pointer",
-                    fontSize: 11.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace",
                   }}
                 >
-                  <span>코드 수동 입력 (선택)</span>
-                  <span style={{ fontSize: 10 }}>{showManualInput ? "▲ 접기" : "▼ 펼치기"}</span>
+                  <span style={{
+                    fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700,
+                    color: txMode === "out" ? "#F5A623" : "#22D3EE",
+                  }}>
+                    {txMode === "out" ? "출고" : "반납"}
+                  </span>
+                  <span style={{
+                    position: "relative", width: 40, height: 22, borderRadius: 999, flexShrink: 0,
+                    border: "1px solid " + (txMode === "return" ? "#22D3EE" : "#F5A623"),
+                    background: txMode === "return" ? "#22D3EE33" : "#F5A62333",
+                    transition: "background .15s, border-color .15s",
+                  }}>
+                    <span style={{
+                      position: "absolute", top: 1.5, left: txMode === "return" ? 19 : 1.5,
+                      width: 17, height: 17, borderRadius: "50%",
+                      background: txMode === "return" ? "#22D3EE" : "#F5A623",
+                      transition: "left .15s",
+                    }} />
+                  </span>
                 </button>
 
-                {showManualInput && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>
-                      코드 수동 입력 ({txMode === "out" ? "출고" : "반납"} 대상)
+                <Camera size={36} color="#5E86A3" style={{ marginBottom: 8, marginTop: 18 }} />
+                <div style={{ fontSize: 13, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
+                  버튼을 누르면 스마트폰 카메라가 실행됩니다
+                </div>
+
+                <Btn
+                  onClick={() => startCamera(txMode)}
+                  style={{
+                    width: "100%", marginBottom: 16,
+                    background: txMode === "out" ? "#F5A623" : "#22D3EE",
+                    border: `1px solid ${txMode === "out" ? "#F5A623" : "#22D3EE"}`,
+                    color: "#0A1622",
+                  }}
+                >
+                  <Camera size={18} />{txMode === "out" ? "출고 스캔" : "반납 스캔"}
+                </Btn>
+
+                <div style={{ borderTop: "1px solid #1F3B54", paddingTop: 14, marginTop: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowManualInput((s) => !s)}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                      background: "none", border: "none", padding: 0, cursor: "pointer",
+                      fontSize: 11.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace",
+                    }}
+                  >
+                    <span>코드 수동 입력 (선택)</span>
+                    <span style={{ fontSize: 10 }}>{showManualInput ? "▲ 접기" : "▼ 펼치기"}</span>
+                  </button>
+
+                  {showManualInput && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>
+                        코드 수동 입력 ({txMode === "out" ? "출고" : "반납"} 대상)
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          style={{ ...inputStyle, flex: 1 }}
+                          value={scan}
+                          onChange={(e) => setScan(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && doScan()}
+                          placeholder="예: 2-BOLT-HEX10-206"
+                        />
+                        <Btn onClick={() => doScan()} variant="subtle"><ScanLine size={16} />검색</Btn>
+                      </div>
                     </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input
-                        style={{ ...inputStyle, flex: 1 }}
-                        value={scan}
-                        onChange={(e) => setScan(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && doScan()}
-                        placeholder="예: 2-BOLT-HEX10-206"
-                      />
-                      <Btn onClick={() => doScan()} variant="subtle"><ScanLine size={16} />검색</Btn>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div style={{
+                border: "2px dashed #274460", borderRadius: 10, padding: "22px 16px",
+                textAlign: "center", marginBottom: 16, background: "#0B1C2C",
+              }}>
+                <Camera size={36} color="#5E86A3" style={{ marginBottom: 8 }} />
+                <div style={{ fontSize: 13, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
+                  버튼을 누르면 스마트폰 카메라가 실행됩니다
+                </div>
+
+                <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                  <Btn onClick={() => startCamera("out")} style={{ flex: 1 }}>
+                    <Camera size={18} />출고 스캔
+                  </Btn>
+                  <Btn
+                    onClick={() => startCamera("return")}
+                    style={{ flex: 1, background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622" }}
+                  >
+                    <RotateCcw size={18} />반납 스캔
+                  </Btn>
+                </div>
+
+                <div style={{ borderTop: "1px solid #1F3B54", paddingTop: 14, marginTop: 10 }}>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    <button type="button" onClick={() => setTxMode("out")} style={modeChipStyle(txMode === "out", "#F5A623")}>출고</button>
+                    <button type="button" onClick={() => setTxMode("return")} style={modeChipStyle(txMode === "return", "#22D3EE")}>반납</button>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>
+                    또는 코드 수동 입력 ({txMode === "out" ? "출고" : "반납"} 대상)
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      style={{ ...inputStyle, flex: 1 }}
+                      value={scan}
+                      onChange={(e) => setScan(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && doScan()}
+                      placeholder="예: 2-BOLT-HEX10-206"
+                    />
+                    <Btn onClick={() => doScan()} variant="subtle"><ScanLine size={16} />검색</Btn>
+                  </div>
+                </div>
+              </div>
+            )
           ) : (
             <div style={{ padding: 10, background: "#0B1C2C", borderRadius: 10, textAlign: "center" }}>
               <div style={{

@@ -2288,10 +2288,7 @@ function AppInner() {
           border: 1px solid #274460;
           border-radius: 8px;
         }
-        .out-info-divider {
-          border-top: 1px solid #1F3B54;
-          padding-top: 10px;
-        }
+
         .out-info-actions-row {
           display: flex;
           align-items: center;
@@ -3863,7 +3860,14 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                   </div>
                 </div>
 
-                <div className="out-info-divider out-info-actions-row">
+                <div
+                  className="out-info-actions-row"
+                  style={{
+                    borderTop: `1px solid ${txMode === "out" ? "#F5A623" : "#22D3EE"}`,
+                    boxShadow: `0 1px 8px -2px ${txMode === "out" ? "#F5A623" : "#22D3EE"}`,
+                    paddingTop: 10,
+                  }}
+                >
                   {txMode === "out" && (
                     <UrgentRequestButton item={found} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
                   )}
@@ -3885,7 +3889,14 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                 </div>
 
                 {txMode === "out" && (
-                  <div className="out-info-divider out-mode-toggle-row">
+                  <div
+                    className="out-mode-toggle-row"
+                    style={{
+                      borderTop: `1px solid ${outInputMode === "local" ? "#38BDF8" : "#F5A623"}`,
+                      boxShadow: `0 1px 8px -2px ${outInputMode === "local" ? "#38BDF8" : "#F5A623"}`,
+                      paddingTop: 10,
+                    }}
+                  >
                     <div>
                       <div className="out-mode-toggle-title" style={{ color: outInputMode === "local" ? "#38BDF8" : "#F5A623" }}>
                         {outInputMode === "local" ? "최근기록 (이 기기 전용)" : "저장목록 선택 모드"}

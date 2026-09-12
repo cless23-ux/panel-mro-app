@@ -3174,6 +3174,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [returnSubmitting, setReturnSubmitting] = useState(false);
 
   const [isScanning, setIsScanning] = useState(false);
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const qrScannerRef = useRef(null);
   const infoCardRef = useRef(null);
     const [uploadingFoundImage, setUploadingFoundImage] = useState(false);
@@ -3657,23 +3659,40 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
               </div>
 
               <div style={{ borderTop: "1px solid #1F3B54", paddingTop: 14, marginTop: 10 }}>
-                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                  <button type="button" onClick={() => setTxMode("out")} style={modeChipStyle(txMode === "out", "#F5A623")}>출고</button>
-                  <button type="button" onClick={() => setTxMode("return")} style={modeChipStyle(txMode === "return", "#22D3EE")}>반납</button>
-                </div>
-                <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>
-                  또는 코드 수동 입력 ({txMode === "out" ? "출고" : "반납"} 대상)
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    style={{ ...inputStyle, flex: 1 }}
-                    value={scan}
-                    onChange={(e) => setScan(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && doScan()}
-                    placeholder="예: 2-BOLT-HEX10-206"
-                  />
-                  <Btn onClick={() => doScan()} variant="subtle"><ScanLine size={16} />검색</Btn>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowManualInput((s) => !s)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                    background: "none", border: "none", padding: 0, cursor: "pointer",
+                    fontSize: 11.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace",
+                  }}
+                >
+                  <span>코드 수동 입력 (선택)</span>
+                  <span style={{ fontSize: 10 }}>{showManualInput ? "▲ 접기" : "▼ 펼치기"}</span>
+                </button>
+
+                {showManualInput && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                      <button type="button" onClick={() => setTxMode("out")} style={modeChipStyle(txMode === "out", "#F5A623")}>출고</button>
+                      <button type="button" onClick={() => setTxMode("return")} style={modeChipStyle(txMode === "return", "#22D3EE")}>반납</button>
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>
+                      코드 수동 입력 ({txMode === "out" ? "출고" : "반납"} 대상)
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        style={{ ...inputStyle, flex: 1 }}
+                        value={scan}
+                        onChange={(e) => setScan(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && doScan()}
+                        placeholder="예: 2-BOLT-HEX10-206"
+                      />
+                      <Btn onClick={() => doScan()} variant="subtle"><ScanLine size={16} />검색</Btn>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -3979,11 +3998,23 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         </Card>
 
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 16 }}>
-          <SectionLabel>
-            {txMode === "out" ? "최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)" : "최근 등록된 반납 이력 (잘못 등록 시 취소)"}
-          </SectionLabel>
+          <button
+            type="button"
+            onClick={() => setShowHistoryPanel((s) => !s)}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+              background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: showHistoryPanel ? 12 : 0,
+            }}
+          >
+            <SectionLabel>
+              {txMode === "out" ? "최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)" : "최근 등록된 반납 이력 (잘못 등록 시 취소)"}
+            </SectionLabel>
+            <span style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0, marginLeft: 8 }}>
+              {showHistoryPanel ? "▲ 접기" : "▼ 펼치기"}
+            </span>
+          </button>
 
-          {txMode === "out" ? (
+          {showHistoryPanel && (txMode === "out" ? (
             recentOutTxs.length === 0 ? (
               <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
             ) : (
@@ -4096,7 +4127,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                 ))}
               </div>
             )
-          )}
+          ))}
         </Card>
       </div>
     </div>

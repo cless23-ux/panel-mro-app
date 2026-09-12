@@ -10011,9 +10011,10 @@ function StaleItemsView({ items, txs, notify }) {
     </div>
   );
 }
-function OptionListEditor({ title, description, category, options, saveCategory, notify, placeholder }) {
+function OptionListEditor({ title, description, category, options, saveCategory, notify, placeholder, collapsible = false }) {
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [expanded, setExpanded] = useState(!collapsible);
 
   const addMultiple = async (rawText) => {
     const parts = rawText
@@ -10063,7 +10064,23 @@ function OptionListEditor({ title, description, category, options, saveCategory,
 
   return (
     <Card style={{ padding: 20 }}>
-      <SectionLabel>{title}</SectionLabel>
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((s) => !s)}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+            background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: 12,
+          }}
+        >
+          <SectionLabel>{title} ({options.length}개)</SectionLabel>
+          <span style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0, marginLeft: 8 }}>
+            {expanded ? "▲ 접기" : "▼ 펼치기"}
+          </span>
+        </button>
+      ) : (
+        <SectionLabel>{title}</SectionLabel>
+      )}
       {description && (
         <div style={{ fontSize: 12, color: "#7F97AC", marginTop: -6, marginBottom: 14, fontFamily: "IBM Plex Mono" }}>{description}</div>
       )}
@@ -10081,27 +10098,29 @@ function OptionListEditor({ title, description, category, options, saveCategory,
       <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 14, fontFamily: "IBM Plex Mono" }}>
         여러 개를 한 번에 추가하려면 줄바꿈 또는 쉼표(,)로 구분된 목록을 이 칸에 붙여넣으세요.
       </div>
-      {options.length === 0 ? (
-        <EmptyState icon={Package} text="등록된 항목이 없습니다." color="#5E86A3" />
-      ) : (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {options.map((opt) => (
-            <div key={opt} style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "7px 10px 7px 12px",
-              background: "#0B1C2C", border: "1px solid #274460", borderRadius: 20, fontSize: 13,
-              color: "#E7EEF5", fontFamily: "IBM Plex Mono",
-            }}>
-              <span>{opt}</span>
-              <button
-                onClick={() => removeOption(opt)}
-                disabled={saving}
-                style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
-              >
-                <X size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
+      {(!collapsible || expanded) && (
+        options.length === 0 ? (
+          <EmptyState icon={Package} text="등록된 항목이 없습니다." color="#5E86A3" />
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, maxHeight: collapsible ? 320 : "none", overflowY: collapsible ? "auto" : "visible", paddingRight: collapsible ? 4 : 0 }}>
+            {options.map((opt) => (
+              <div key={opt} style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "7px 10px 7px 12px",
+                background: "#0B1C2C", border: "1px solid #274460", borderRadius: 20, fontSize: 13,
+                color: "#E7EEF5", fontFamily: "IBM Plex Mono",
+              }}>
+                <span>{opt}</span>
+                <button
+                  onClick={() => removeOption(opt)}
+                  disabled={saving}
+                  style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )
       )}
     </Card>
   );
@@ -10178,6 +10197,7 @@ function OutFormSettingsView({ settings, saveCategory, notify, hiddenNavIds, tog
           saveCategory={saveCategory}
           notify={notify}
           placeholder="예: H-2024"
+          collapsible
         />
         <OptionListEditor
           title="프로젝트 목록"

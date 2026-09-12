@@ -2322,6 +2322,12 @@ function AppInner() {
         .out-form-card {
           padding: 22px;
         }
+        .out-history-toggle-btn {
+          cursor: default;
+        }
+        .out-history-toggle-icon {
+          display: none;
+        }
         .out-found-stock {
           text-align: right;
           font-family: "IBM Plex Mono";
@@ -2388,6 +2394,12 @@ function AppInner() {
             text-align: left;
           }
           .out-form-card { padding: 14px; }
+          .out-history-toggle-btn {
+            cursor: pointer;
+          }
+          .out-history-toggle-icon {
+            display: inline;
+          }
           .out-info-stack { gap: 10px; }
           .out-info-card { padding: 11px; gap: 8px; }
           .out-info-divider { padding-top: 8px; }
@@ -3175,7 +3187,9 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
   const [isScanning, setIsScanning] = useState(false);
   const [showManualInput, setShowManualInput] = useState(false);
-  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth > 768 : true
+  );
   const qrScannerRef = useRef(null);
   const infoCardRef = useRef(null);
     const [uploadingFoundImage, setUploadingFoundImage] = useState(false);
@@ -4000,16 +4014,19 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 16 }}>
           <button
             type="button"
-            onClick={() => setShowHistoryPanel((s) => !s)}
+            onClick={() => {
+              if (window.innerWidth <= 768) setShowHistoryPanel((s) => !s);
+            }}
+            className="out-history-toggle-btn"
             style={{
               display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
-              background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: showHistoryPanel ? 12 : 0,
+              background: "none", border: "none", padding: 0, marginBottom: showHistoryPanel ? 12 : 0,
             }}
           >
             <SectionLabel>
               {txMode === "out" ? "최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)" : "최근 등록된 반납 이력 (잘못 등록 시 취소)"}
             </SectionLabel>
-            <span style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0, marginLeft: 8 }}>
+            <span className="out-history-toggle-icon" style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0, marginLeft: 8 }}>
               {showHistoryPanel ? "▲ 접기" : "▼ 펼치기"}
             </span>
           </button>

@@ -2319,6 +2319,13 @@ function AppInner() {
         .out-form-card {
           padding: 22px;
         }
+        .out-section-divider {
+          height: 1px;
+          width: 100%;
+          margin: -4px 0;
+          background: linear-gradient(90deg, transparent, #F5A62399 50%, transparent);
+          box-shadow: 0 0 8px 0 #F5A62366;
+        }
         .out-history-toggle-btn {
           cursor: default;
         }
@@ -3762,6 +3769,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           )}
         </Card>
 
+        <div className="out-section-divider" />
+
         {favoriteItems.length > 0 && (
           <div className="out-favorite-bar" style={{
             display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
@@ -3811,6 +3820,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             })}
           </div>
         )}
+
+        {favoriteItems.length > 0 && <div className="out-section-divider" />}
 
                 <Card ref={infoCardRef} neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-form-card out-section-card">
           <SectionLabel>{txMode === "out" ? "2. 불출 정보 입력" : "2. 반납 정보 입력"}</SectionLabel>
@@ -4058,6 +4069,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             </div>
           )}
         </Card>
+
+        <div className="out-section-divider" />
 
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 16 }}>
           <button

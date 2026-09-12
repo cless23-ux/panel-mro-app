@@ -2203,8 +2203,8 @@ function AppInner() {
 
         .app-container { display: flex; min-height: 100vh; width: 100%; }
         /* 밝은 테마는 기존 기능/인라인 스타일을 변경하지 않고 화면 표현만 전환 */
-        .app-container.light-mode { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.94) saturate(0.88); }
-        .app-container.light-mode img, .app-container.light-mode video, .app-container.light-mode canvas { filter: invert(1) hue-rotate(180deg); }
+        .app-container.light-mode { filter: invert(1) hue-rotate(200deg) brightness(1.06) contrast(0.86) saturate(0.62); }
+        .app-container.light-mode img, .app-container.light-mode video, .app-container.light-mode canvas { filter: invert(1) hue-rotate(200deg); }
         .theme-toggle { border: 1px solid #274460; background: #0F2233; color: #E7EEF5; border-radius: 8px; cursor: pointer; font-family: "IBM Plex Mono", monospace; font-weight: 700; }
         .pc-sidebar { width: 250px; flex-shrink: 0; box-sizing: border-box; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; position: sticky; top: 0; height: 100vh; overflow: hidden; }
         .pc-sidebar .sidebar-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 3px; padding-bottom: 4px; scrollbar-width: thin; }

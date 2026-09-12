@@ -995,11 +995,9 @@ const LAST_REQUESTER_KEY = "panel:lastRequester";
 
 function UrgentRequestButton({ item, requests, addRequest, notify, size = "normal" }) {
   const [open, setOpen] = useState(false);
-  const [requester, setRequester] = useState(() => {
-    try { return localStorage.getItem(LAST_REQUESTER_KEY) || ""; } catch { return ""; }
-  });
+  const [requester, setRequester] = useState("");
   const [shipNo, setShipNo] = useState("");
-  const [project, setProject] = useState("MSBD/LVSB");
+  const [project, setProject] = useState("");
   const [requestQty, setRequestQty] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -1008,11 +1006,7 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
   const projectOptions = outFormSettings?.projects || [];
   const workerOptions = outFormSettings?.workers || [];
 
-  useEffect(() => {
-    if (projectOptions.length > 0 && !projectOptions.includes(project)) {
-      setProject(projectOptions[0]);
-    }
-  }, [projectOptions]);
+
 
   const existingPending = useMemo(() => {
     return (requests || []).find(
@@ -1062,7 +1056,7 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
       project: trimmedProject,
       note: requestQty.trim() ? `요청수량: ${requestQty.trim()}${item.unit || ""}` : ""
     });
-    try { localStorage.setItem(LAST_REQUESTER_KEY, trimmedRequester); } catch {}
+
     setSubmitting(false);
     setOpen(false);
     setRequestQty("");

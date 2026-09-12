@@ -709,8 +709,8 @@ const Card = React.forwardRef(function Card({ children, style, className = "", o
       className={className}
       onClick={onClick}
       style={{
-        background: "linear-gradient(180deg, #122A3F 0%, #0F2233 100%)",
-        border: "1px solid #1F3B54",
+        background: "var(--bg-card-grad)",
+        border: "1px solid var(--border-card)",
         borderRadius: 12,
         ...neonStyle,
         ...style,
@@ -725,7 +725,7 @@ function SectionLabel({ children }) {
   return (
     <div style={{
       fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
-      color: "#5E86A3", textTransform: "uppercase", marginBottom: 12, display: "flex",
+      color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 12, display: "flex",
       alignItems: "center", gap: 8,
     }}>
       <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
@@ -737,9 +737,9 @@ function SectionLabel({ children }) {
 function Btn({ children, onClick, variant = "primary", style, disabled, type = "button" }) {
   const variants = {
     primary: { background: "#F5A623", color: "#0A1622", border: "1px solid #F5A623" },
-    ghost: { background: "transparent", color: "#C9DAE8", border: "1px solid #274460" },
+    ghost: { background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" },
     danger: { background: "transparent", color: "#EF5350", border: "1px solid #4A2A2A" },
-    subtle: { background: "#16324A", color: "#C9DAE8", border: "1px solid #274460" },
+    subtle: { background: "var(--bg-subtle)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" },
   };
   return (
     <button
@@ -763,7 +763,7 @@ function Btn({ children, onClick, variant = "primary", style, disabled, type = "
 function Field({ label, children }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 6, fontFamily: "Inter, sans-serif" }}>
-      <span style={{ fontSize: 13, color: "#9FB4C7", fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 13, color: "var(--text-tertiary)", fontWeight: 600 }}>{label}</span>
       {children}
     </label>
   );
@@ -976,7 +976,7 @@ const thStyle = { textAlign: "left", padding: "8px 10px", color: "#5E86A3", font
 const tdStyle = { padding: "8px 10px", whiteSpace: "nowrap" };
 
 const inputStyle = {
-  background: "#0B1C2C", border: "1px solid #26445F", borderRadius: 8, color: "#E7EEF5",
+  background: "var(--bg-input)", border: "1px solid var(--border-input)", borderRadius: 8, color: "var(--text-primary)",
   padding: "12px 14px", fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", outline: "none", width: "100%",
 };
 
@@ -1655,7 +1655,40 @@ function AccessGate({ children }) {
 
   return (
     <>
-      <style>{`
+      <style>{`        :root, .app-container {
+          --bg-page: #0A1622;
+          --bg-card-grad: linear-gradient(180deg, #122A3F 0%, #0F2233 100%);
+          --bg-card-flat: #0F2233;
+          --border-card: #1F3B54;
+          --bg-input: #0B1C2C;
+          --border-input: #26445F;
+          --bg-subtle: #16324A;
+          --border-subtle: #274460;
+          --text-primary: #E7EEF5;
+          --text-secondary: #C9DAE8;
+          --text-tertiary: #9FB4C7;
+          --text-muted: #7F97AC;
+          --text-faint: #5E86A3;
+          --border-sidebar: #16293C;
+          --table-hover: #0F2030;
+        }
+        .app-container.light-mode {
+          --bg-page: #F3F6FA;
+          --bg-card-grad: #FFFFFF;
+          --bg-card-flat: #FFFFFF;
+          --border-card: #E1E8F0;
+          --bg-input: #F7F9FC;
+          --border-input: #CBD5E1;
+          --bg-subtle: #EDF1F7;
+          --border-subtle: #DCE3EC;
+          --text-primary: #1E293B;
+          --text-secondary: #334155;
+          --text-tertiary: #55627A;
+          --text-muted: #7C8AA0;
+          --text-faint: #94A3B8;
+          --border-sidebar: #E2E8F0;
+          --table-hover: #EEF2F7;
+        }
         .access-gate-box * { box-sizing: border-box; }
       `}</style>
       <div className="access-gate-box" style={{
@@ -2171,7 +2204,7 @@ function AppInner() {
   const ready = itemsLoaded && txsLoaded && outFormSettingsLoaded;
   return (
     <div className={`app-container${lightMode ? " light-mode" : ""}`} style={{
-      background: "#0A1622", color: "#E7EEF5", fontFamily: "Inter, sans-serif",
+      background: "var(--bg-page)", color: "var(--text-primary)", fontFamily: "Inter, sans-serif",
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=${FONT_LINK}&display=swap');
@@ -2184,8 +2217,8 @@ function AppInner() {
         ::selection { background: #F5A62355; }
         table { border-collapse: collapse; width: 100%; }
         th, td { text-align: left; padding: 10px 12px; font-size: 13.5px; }
-        tbody tr { border-top: 1px solid #17293B; }
-        tbody tr:hover { background: #0F2030; }
+        tbody tr { border-top: 1px solid var(--border-sidebar); }
+        tbody tr:hover { background: var(--table-hover); }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-thumb { background: #21405B; border-radius: 4px; }
         @keyframes riseIn { from { opacity:0; transform: translate(-50%,12px);} to {opacity:1; transform: translate(-50%,0);} }
@@ -2196,11 +2229,10 @@ function AppInner() {
         button:active { transform: scale(0.98); }
 
         .app-container { display: flex; min-height: 100vh; width: 100%; }
-        /* 밝은 테마는 기존 기능/인라인 스타일을 변경하지 않고 화면 표현만 전환 */
-        .app-container.light-mode { filter: invert(1) hue-rotate(200deg) brightness(1.06) contrast(0.86) saturate(0.62); }
-        .app-container.light-mode img, .app-container.light-mode video, .app-container.light-mode canvas { filter: invert(1) hue-rotate(200deg); }
+
+
         .theme-toggle { border: 1px solid #274460; background: #0F2233; color: #E7EEF5; border-radius: 8px; cursor: pointer; font-family: "IBM Plex Mono", monospace; font-weight: 700; }
-        .pc-sidebar { width: 250px; flex-shrink: 0; box-sizing: border-box; border-right: 1px solid #16293C; padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; position: sticky; top: 0; height: 100vh; overflow: hidden; }
+        .pc-sidebar { width: 250px; flex-shrink: 0; box-sizing: border-box; border-right: 1px solid var(--border-sidebar); padding: 24px 18px; display: flex; flex-direction: column; gap: 26px; position: sticky; top: 0; height: 100vh; overflow: hidden; }
         .pc-sidebar .sidebar-nav { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 3px; padding-bottom: 4px; scrollbar-width: thin; }
         .pc-sidebar .sidebar-stock-summary { flex: 0 0 auto; position: relative !important; left: auto !important; right: auto !important; bottom: auto !important; z-index: 1; }
         .mobile-header { display: none; }
@@ -2421,7 +2453,7 @@ function AppInner() {
           .app-container { flex-direction: column; height: 100dvh; min-height: 100vh; width: 100%; overflow: hidden; }
           .pc-sidebar { display: none; }
           .mobile-header {
-            height: 52px; padding: 0 16px; border-bottom: 1px solid #16293C; background: #0F2233;
+            height: 52px; padding: 0 16px; border-bottom: 1px solid var(--border-sidebar); background: var(--bg-card-flat);
             display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10;
           }
                     .mobile-bottom-nav {

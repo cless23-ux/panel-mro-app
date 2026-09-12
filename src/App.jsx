@@ -415,6 +415,72 @@ function useFavoriteItems(notify) {
 
   return { favoriteCodes, isFavorite, toggleFavorite };
 }
+
+/* ---------------- PC 사이드바 메뉴 숨김 관리 (Supabase 동기화 · 모든 기기 공통) ---------------- */
+const NAV_VISIBILITY_ROW_ID = 1;
+const NAV_VISIBILITY_CACHE_KEY = "panel:hiddenNavIds";
+
+function useNavVisibility() {
+  const [hiddenNavIds, setHiddenNavIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem(NAV_VISIBILITY_CACHE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const load = useCallback(async (silent = false) => {
+    try {
+      if (supabase) {
+        const { data, error } = await supabase
+          .from("nav_visibility_settings")
+          .select("*")
+          .eq("id", NAV_VISIBILITY_ROW_ID)
+          .maybeSingle();
+        if (!error && data) {
+          const next = Array.isArray(data.hidden_ids) ? data.hidden_ids : [];
+          setHiddenNavIds(next);
+          try { localStorage.setItem(NAV_VISIBILITY_CACHE_KEY, JSON.stringify(next)); } catch {}
+          return;
+        }
+      }
+      const cached = localStorage.getItem(NAV_VISIBILITY_CACHE_KEY);
+      if (cached) setHiddenNavIds(JSON.parse(cached));
+    } catch (e) {
+      console.error("사이드바 메뉴 설정 로드 오류:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(() => load(true), POLL_MS);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const toggleHiddenNav = useCallback((id) => {
+    setHiddenNavIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      try { localStorage.setItem(NAV_VISIBILITY_CACHE_KEY, JSON.stringify(next)); } catch {}
+      (async () => {
+        try {
+          if (supabase) {
+            await supabase
+              .from("nav_visibility_settings")
+              .upsert({ id: NAV_VISIBILITY_ROW_ID, hidden_ids: next }, { onConflict: "id" });
+          }
+        } catch (e) {
+          console.error("사이드바 메뉴 설정 저장 오류:", e);
+        }
+      })();
+      return next;
+    });
+  }, []);
+
+  return { hiddenNavIds, toggleHiddenNav };
+}
+
 /* ---------------- 불출정보 입력 방식 (공유 목록 / 내 최근기록) ---------------- */
 const OUT_INPUT_MODE_KEY = "panel:outInputMode"; // "shared" | "local"
 const OUT_LOCAL_HISTORY_KEY = "panel:outLocalHistory";
@@ -1697,6 +1763,38 @@ function PwaInstallModal({ open, onClose, installApp, canInstall }) {
   );
 }
 
+const NAV = [
+  { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
+  { id: "in", label: "부자재입고", icon: ArrowDownToLine },
+  { id: "out", label: "출고/반납(스캔)", icon: ArrowUpFromLine },
+  { id: "return", label: "원자재반납", icon: RotateCcw, locked: true },
+  { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode, locked: true },
+  { id: "stock", label: "재고조회", icon: Boxes },
+  { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
+  { id: "consumable", label: "소모자재관리", icon: Zap },
+  { id: "shipMaterial", label: "호선자재", icon: Ship },
+  { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
+  { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
+  { id: "stale", label: "장기미사용자재", icon: Clock, pcOnly: true },
+  { id: "chat", label: "실시간 대화", icon: MessageCircle },
+];
+
+/* 탭(메뉴창)별 네온 포인트 컬러 - 테두리/그로우에 사용 */
+const TAB_NEON = {
+  dashboard: "#38BDF8",
+  in: "#35D08C",
+  out: "#F5A623",
+  return: "#22D3EE",
+  rawInbound: "#38BDF8",
+  stock: "#A78BFA",
+  master: "#F472B6",
+  consumable: "#FBBF24",
+  settings: "#2DD4BF",
+  trash: "#EF5350",
+  stale: "#A78BFA",
+  chat: "#22D3EE",
+};
+
 function AppInner() {
   // 화면 테마: 기존 다크 모드는 그대로 유지하고, 사용자 선택 시 밝은 테마로 전환
   const [lightMode, setLightMode] = useState(() => {
@@ -1753,6 +1851,8 @@ function AppInner() {
 
   const [outFormSettings, saveOutFormSettingCategory, outFormSettingsLoaded] = useOutFormSettings();
   const { requests: urgentRequests, addRequest: addUrgentRequest, resolveRequest: resolveUrgentRequest } = useUrgentRequests();
+
+  const { hiddenNavIds, toggleHiddenNav } = useNavVisibility();
   
   /* 발주 장바구니 상태 (자재코드 및 정보 담기) */
   const [cartItems, setCartItems] = useState(() => {
@@ -2039,38 +2139,7 @@ function AppInner() {
     prevPendingCountRef.current = pendingUrgentCount;
   }, [pendingUrgentCount]);
 
-    const NAV = [
-    { id: "dashboard", label: "대시보드", icon: LayoutGrid, pcOnly: true },
-    { id: "in", label: "부자재입고", icon: ArrowDownToLine },
-    { id: "out", label: "출고/반납(스캔)", icon: ArrowUpFromLine },
-    { id: "return", label: "원자재반납", icon: RotateCcw, locked: true },
-    { id: "rawInbound", label: "원자재 명세서입고", icon: QrCode, locked: true },
-    { id: "stock", label: "재고조회", icon: Boxes },
-    { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
-    { id: "consumable", label: "소모자재관리", icon: Zap },
-    { id: "shipMaterial", label: "호선자재", icon: Ship },
-    { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
-    { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
-    { id: "stale", label: "장기미사용자재", icon: Clock, pcOnly: true },
-    { id: "chat", label: "실시간 대화", icon: MessageCircle },
-  ];
   const NAV_IDS = NAV.map((n) => n.id);
-
-  /* 탭(메뉴창)별 네온 포인트 컬러 - 테두리/그로우에 사용 */
-    const TAB_NEON = {
-    dashboard: "#38BDF8",
-    in: "#35D08C",
-    out: "#F5A623",
-    return: "#22D3EE",
-    rawInbound: "#38BDF8",
-    stock: "#A78BFA",
-    master: "#F472B6",
-    consumable: "#FBBF24",
-    settings: "#2DD4BF",
-    trash: "#EF5350",
-    stale: "#A78BFA",
-    chat: "#22D3EE",
-  };
 
   const [slideDir, setSlideDir] = useState(1);
   const [rawManagePresetShip, setRawManagePresetShip] = useState("");
@@ -2201,11 +2270,18 @@ function AppInner() {
 
         .outform-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+          grid-template-columns: 1.15fr 1fr;
+          align-items: start;
           gap: 20px;
           width: 100%;
         }
         .outform-grid > * { min-width: 0; }
+        .outform-main-col {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+          min-width: 0;
+        }
 
         /* 출고(스캔) 불출정보 입력: 제품명/코드/규격 전체 표시 */
         .out-found-summary {
@@ -2384,6 +2460,9 @@ function AppInner() {
             grid-template-columns: 1fr;
             gap: 14px;
           }
+          .outform-main-col {
+            display: contents;
+          }
 
           .out-found-summary {
             align-items: flex-start;
@@ -2543,7 +2622,7 @@ function AppInner() {
         </button>
 
                 <nav className="sidebar-nav" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {NAV.filter((n) => !n.mobileTopOnly).map((n) => {
+          {NAV.filter((n) => !n.mobileTopOnly && (n.id === "settings" || !hiddenNavIds.includes(n.id))).map((n) => {
             const active = tab === n.id;
             const Icon = n.icon;
             return (
@@ -2682,7 +2761,7 @@ function AppInner() {
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
                         {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
             {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
-            {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} />}
+            {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
@@ -3665,6 +3744,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       <div className="outform-grid">
          <input type="file" accept="image/*" capture="environment" ref={foundCameraInputRef} style={{ display: "none" }} onChange={handleFoundImageSelected} />
         <input type="file" accept="image/*" ref={foundGalleryInputRef} style={{ display: "none" }} onChange={handleFoundImageSelected} />
+        <div className="outform-main-col">
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
 
@@ -4104,6 +4184,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             </div>
           )}
         </Card>
+        </div>
 
         <div className="out-section-divider" />
 
@@ -10026,11 +10107,69 @@ function OptionListEditor({ title, description, category, options, saveCategory,
   );
 }
 
-function OutFormSettingsView({ settings, saveCategory, notify }) {
+function SidebarMenuManager({ hiddenNavIds, toggleHiddenNav, notify }) {
+  const manageable = NAV.filter((n) => n.id !== "settings");
+
+  return (
+    <Card style={{ padding: 20 }}>
+      <SectionLabel>PC 사이드바 메뉴 관리</SectionLabel>
+      <div style={{ fontSize: 12, color: "#7F97AC", marginTop: -6, marginBottom: 14, fontFamily: "IBM Plex Mono" }}>
+        당장 사용하지 않는 메뉴는 꺼두면 PC 화면 좌측 사이드바에서 숨길 수 있습니다. (모바일 하단 탭에는 영향 없음, 이 기기에만 저장됨)
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {manageable.map((n) => {
+          const hidden = hiddenNavIds.includes(n.id);
+          const Icon = n.icon;
+          return (
+            <div
+              key={n.id}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                padding: "10px 12px", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 8,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                <Icon size={16} color={hidden ? "#5E86A3" : "#38BDF8"} />
+                <span style={{ fontSize: 13.5, color: hidden ? "#5E86A3" : "#E7EEF5", fontWeight: 600 }}>
+                  {n.label}
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!hidden}
+                onClick={() => {
+                  toggleHiddenNav(n.id);
+                  notify?.(hidden ? `[${n.label}] 메뉴가 다시 표시됩니다.` : `[${n.label}] 메뉴를 숨겼습니다.`, "info");
+                }}
+                style={{
+                  position: "relative", width: 46, height: 26, borderRadius: 999, flexShrink: 0,
+                  border: "1px solid " + (hidden ? "#274460" : "#35D08C"),
+                  background: hidden ? "#0F2233" : "#35D08C33",
+                  cursor: "pointer", transition: "background .15s, border-color .15s",
+                }}
+              >
+                <span style={{
+                  position: "absolute", top: 2, left: hidden ? 2 : 22,
+                  width: 20, height: 20, borderRadius: "50%",
+                  background: hidden ? "#5E86A3" : "#35D08C",
+                  transition: "left .15s",
+                }} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+function OutFormSettingsView({ settings, saveCategory, notify, hiddenNavIds, toggleHiddenNav }) {
   return (
     <div>
       <Header title="불출 설정 관리" subtitle="출고(스캔) 화면의 호선 · 프로젝트 · 공정구분 · 불출자 목록을 관리합니다 (PC 전용 · 전 기기 자동 동기화)" />
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <SidebarMenuManager hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} notify={notify} />
         <OptionListEditor
           title="호선 목록"
           description="출고 화면에서는 직접 입력도 가능하지만, 여기 등록해두면 검색 추천 목록으로 표시됩니다."

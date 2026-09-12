@@ -3688,7 +3688,45 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
               textAlign: "center", marginBottom: 16, background: "#0B1C2C",
             }}>
               <Camera size={36} color="#5E86A3" style={{ marginBottom: 8 }} />
-              <div style={{ fontSize:
+              <div style={{ fontSize: 13, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
+                버튼을 누르면 스마트폰 카메라가 실행됩니다
+              </div>
+
+              <Btn
+                onClick={() => startCamera(txMode)}
+                style={{
+                  width: "100%", marginBottom: 16,
+                  background: txMode === "out" ? "#F5A623" : "#22D3EE",
+                  border: `1px solid ${txMode === "out" ? "#F5A623" : "#22D3EE"}`,
+                  color: "#0A1622",
+                }}
+              >
+                <Camera size={18} />{txMode === "out" ? "출고 스캔" : "반납 스캔"}
+              </Btn>
+
+              <div style={{ borderTop: "1px solid #1F3B54", paddingTop: 14, marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowManualInput((s) => !s)}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                    background: "none", border: "none", padding: 0, cursor: "pointer",
+                    fontSize: 11.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace",
+                  }}
+                >
+                  <span>코드 수동 입력 (선택)</span>
+                  <span style={{ fontSize: 10 }}>{showManualInput ? "▲ 접기" : "▼ 펼치기"}</span>
+                </button>
+
+                {showManualInput && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>
+                      코드 수동 입력 ({txMode === "out" ? "출고" : "반납"} 대상)
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        style={{ ...inputStyle, flex: 1 }}
+                        value={scan}
                         onChange={(e) => setScan(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && doScan()}
                         placeholder="예: 2-BOLT-HEX10-206"

@@ -2348,7 +2348,13 @@ function AppInner() {
             padding-bottom: env(safe-area-inset-bottom, 0px);
           }
           .main-content { flex: 1; padding: 12px 10px calc(68px + env(safe-area-inset-bottom, 0px) + 12px) 10px; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; }
-          .tab-panel { padding: 14px 12px; border-radius: 14px; }
+          .tab-panel {
+            padding: 14px 4px;
+            border-radius: 0;
+            border: none;
+            box-shadow: none;
+            background: none;
+          }
           .toast-box { bottom: 80px; left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 360px; justify-content: center; }
           .mobile-scroll-table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
@@ -2387,28 +2393,6 @@ function AppInner() {
           .out-info-divider { padding-top: 8px; }
           .out-mode-toggle-desc { display: none; }
 
-          .out-section-card {
-            background: none !important;
-            border: none !important;
-            box-shadow: none !important;
-            border-radius: 0 !important;
-            padding-left: 4px !important;
-            padding-right: 4px !important;
-            padding-top: 14px !important;
-            padding-bottom: 14px !important;
-            border-bottom: 1px solid #1A3146 !important;
-          }
-          .out-section-card:last-child {
-            border-bottom: none !important;
-          }
-          .out-favorite-bar {
-            background: none !important;
-            border: none !important;
-            border-bottom: 1px solid #1A3146 !important;
-            border-radius: 0 !important;
-            padding-left: 4px !important;
-            padding-right: 4px !important;
-          }
 
           /* 실시간 대화 모바일: 입력창이 화면 아래로 밀리지 않도록 채팅 영역 자체를 고정 */
           .chat-view {

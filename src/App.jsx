@@ -2207,6 +2207,40 @@ function AppInner() {
       background: "var(--bg-page)", color: "var(--text-primary)", fontFamily: "Inter, sans-serif",
     }}>
       <style>{`
+        :root, .app-container {
+          --bg-page: #0A1622;
+          --bg-card-grad: linear-gradient(180deg, #122A3F 0%, #0F2233 100%);
+          --bg-card-flat: #0F2233;
+          --border-card: #1F3B54;
+          --bg-input: #0B1C2C;
+          --border-input: #26445F;
+          --bg-subtle: #16324A;
+          --border-subtle: #274460;
+          --text-primary: #E7EEF5;
+          --text-secondary: #C9DAE8;
+          --text-tertiary: #9FB4C7;
+          --text-muted: #7F97AC;
+          --text-faint: #5E86A3;
+          --border-sidebar: #16293C;
+          --table-hover: #0F2030;
+        }
+        .app-container.light-mode {
+          --bg-page: #F3F6FA;
+          --bg-card-grad: #FFFFFF;
+          --bg-card-flat: #FFFFFF;
+          --border-card: #E1E8F0;
+          --bg-input: #F7F9FC;
+          --border-input: #CBD5E1;
+          --bg-subtle: #EDF1F7;
+          --border-subtle: #DCE3EC;
+          --text-primary: #1E293B;
+          --text-secondary: #334155;
+          --text-tertiary: #55627A;
+          --text-muted: #7C8AA0;
+          --text-faint: #94A3B8;
+          --border-sidebar: #E2E8F0;
+          --table-hover: #EEF2F7;
+        }
         @import url('https://fonts.googleapis.com/css2?family=${FONT_LINK}&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body, #root { width: 100%; max-width: none; margin: 0; padding: 0; overflow-x: hidden; }

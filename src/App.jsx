@@ -3650,55 +3650,45 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         <input type="file" accept="image/*" ref={foundGalleryInputRef} style={{ display: "none" }} onChange={handleFoundImageSelected} />
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <button
+              type="button"
+              onClick={() => setTxMode("out")}
+              style={{
+                flex: 1, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                border: `1px solid ${txMode === "out" ? "#F5A623" : "#274460"}`,
+                background: txMode === "out" ? "#F5A6231f" : "#0B1C2C",
+                color: txMode === "out" ? "#F5A623" : "#7F97AC",
+                fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}
+            >
+              <ArrowUpFromLine size={15} />출고
+            </button>
+            <button
+              type="button"
+              onClick={() => setTxMode("return")}
+              style={{
+                flex: 1, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
+                border: `1px solid ${txMode === "return" ? "#22D3EE" : "#274460"}`,
+                background: txMode === "return" ? "#22D3EE1f" : "#0B1C2C",
+                color: txMode === "return" ? "#22D3EE" : "#7F97AC",
+                fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}
+            >
+              <RotateCcw size={15} />반납
+            </button>
+          </div>
+
           {!isScanning ? (
             <div style={{
               border: "2px dashed #274460", borderRadius: 10, padding: "22px 16px",
               textAlign: "center", marginBottom: 16, background: "#0B1C2C",
             }}>
               <Camera size={36} color="#5E86A3" style={{ marginBottom: 8 }} />
-              <div style={{ fontSize: 13, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
-                버튼을 누르면 스마트폰 카메라가 실행됩니다
-              </div>
-
-              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                <Btn onClick={() => startCamera("out")} style={{ flex: 1 }}>
-                  <Camera size={18} />출고 스캔
-                </Btn>
-                <Btn
-                  onClick={() => startCamera("return")}
-                  style={{ flex: 1, background: "#22D3EE", border: "1px solid #22D3EE", color: "#0A1622" }}
-                >
-                  <RotateCcw size={18} />반납 스캔
-                </Btn>
-              </div>
-
-              <div style={{ borderTop: "1px solid #1F3B54", paddingTop: 14, marginTop: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowManualInput((s) => !s)}
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
-                    background: "none", border: "none", padding: 0, cursor: "pointer",
-                    fontSize: 11.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace",
-                  }}
-                >
-                  <span>코드 수동 입력 (선택)</span>
-                  <span style={{ fontSize: 10 }}>{showManualInput ? "▲ 접기" : "▼ 펼치기"}</span>
-                </button>
-
-                {showManualInput && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                      <button type="button" onClick={() => setTxMode("out")} style={modeChipStyle(txMode === "out", "#F5A623")}>출고</button>
-                      <button type="button" onClick={() => setTxMode("return")} style={modeChipStyle(txMode === "return", "#22D3EE")}>반납</button>
-                    </div>
-                    <div style={{ fontSize: 11.5, color: "#5E86A3", marginBottom: 8 }}>
-                      코드 수동 입력 ({txMode === "out" ? "출고" : "반납"} 대상)
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <input
-                        style={{ ...inputStyle, flex: 1 }}
-                        value={scan}
+              <div style={{ fontSize:
                         onChange={(e) => setScan(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && doScan()}
                         placeholder="예: 2-BOLT-HEX10-206"

@@ -3651,35 +3651,47 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 14,
+            padding: "12px 0", marginBottom: 16,
+          }}>
+            <span style={{
+              display: "flex", alignItems: "center", gap: 6,
+              fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5,
+              color: txMode === "out" ? "#F5A623" : "#5E86A3",
+              transition: "color .15s",
+            }}>
+              <ArrowUpFromLine size={16} />출고
+            </span>
+
             <button
               type="button"
-              onClick={() => setTxMode("out")}
+              role="switch"
+              aria-checked={txMode === "return"}
+              onClick={() => setTxMode(txMode === "out" ? "return" : "out")}
               style={{
-                flex: 1, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
-                border: `1px solid ${txMode === "out" ? "#F5A623" : "#274460"}`,
-                background: txMode === "out" ? "#F5A6231f" : "#0B1C2C",
-                color: txMode === "out" ? "#F5A623" : "#7F97AC",
-                fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13,
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                position: "relative", width: 56, height: 30, borderRadius: 999, flexShrink: 0,
+                border: "1px solid " + (txMode === "return" ? "#22D3EE" : "#F5A623"),
+                background: txMode === "return" ? "#22D3EE33" : "#F5A62333",
+                cursor: "pointer", transition: "background .15s, border-color .15s",
               }}
             >
-              <ArrowUpFromLine size={15} />출고
+              <span style={{
+                position: "absolute", top: 2, left: txMode === "return" ? 27 : 2,
+                width: 25, height: 25, borderRadius: "50%",
+                background: txMode === "return" ? "#22D3EE" : "#F5A623",
+                transition: "left .15s",
+              }} />
             </button>
-            <button
-              type="button"
-              onClick={() => setTxMode("return")}
-              style={{
-                flex: 1, padding: "10px 12px", borderRadius: 8, cursor: "pointer",
-                border: `1px solid ${txMode === "return" ? "#22D3EE" : "#274460"}`,
-                background: txMode === "return" ? "#22D3EE1f" : "#0B1C2C",
-                color: txMode === "return" ? "#22D3EE" : "#7F97AC",
-                fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13,
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              }}
-            >
-              <RotateCcw size={15} />반납
-            </button>
+
+            <span style={{
+              display: "flex", alignItems: "center", gap: 6,
+              fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5,
+              color: txMode === "return" ? "#22D3EE" : "#5E86A3",
+              transition: "color .15s",
+            }}>
+              <RotateCcw size={16} />반납
+            </span>
           </div>
 
           {!isScanning ? (

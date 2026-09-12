@@ -3651,55 +3651,47 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 22 }}>
           <SectionLabel>1. 자재 QR / 바코드 스캔</SectionLabel>
 
-          <div style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 14,
-            padding: "12px 0", marginBottom: 16,
-          }}>
-            <span style={{
-              display: "flex", alignItems: "center", gap: 6,
-              fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5,
-              color: txMode === "out" ? "#F5A623" : "#5E86A3",
-              transition: "color .15s",
-            }}>
-              <ArrowUpFromLine size={16} />출고
-            </span>
-
-            <button
-              type="button"
-              role="switch"
-              aria-checked={txMode === "return"}
-              onClick={() => setTxMode(txMode === "out" ? "return" : "out")}
-              style={{
-                position: "relative", width: 56, height: 30, borderRadius: 999, flexShrink: 0,
-                border: "1px solid " + (txMode === "return" ? "#22D3EE" : "#F5A623"),
-                background: txMode === "return" ? "#22D3EE33" : "#F5A62333",
-                cursor: "pointer", transition: "background .15s, border-color .15s",
-              }}
-            >
-              <span style={{
-                position: "absolute", top: 2, left: txMode === "return" ? 27 : 2,
-                width: 25, height: 25, borderRadius: "50%",
-                background: txMode === "return" ? "#22D3EE" : "#F5A623",
-                transition: "left .15s",
-              }} />
-            </button>
-
-            <span style={{
-              display: "flex", alignItems: "center", gap: 6,
-              fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 13.5,
-              color: txMode === "return" ? "#22D3EE" : "#5E86A3",
-              transition: "color .15s",
-            }}>
-              <RotateCcw size={16} />반납
-            </span>
-          </div>
-
           {!isScanning ? (
             <div style={{
-              border: "2px dashed #274460", borderRadius: 10, padding: "22px 16px",
+              position: "relative",
+              border: `2px dashed ${txMode === "out" ? "#F5A62366" : "#22D3EE66"}`,
+              borderRadius: 10, padding: "22px 16px",
               textAlign: "center", marginBottom: 16, background: "#0B1C2C",
+              boxShadow: `0 0 18px -10px ${txMode === "out" ? "#F5A623" : "#22D3EE"}`,
+              transition: "border-color .15s, box-shadow .15s",
             }}>
-              <Camera size={36} color="#5E86A3" style={{ marginBottom: 8 }} />
+              <button
+                type="button"
+                role="switch"
+                aria-checked={txMode === "return"}
+                onClick={() => setTxMode(txMode === "out" ? "return" : "out")}
+                style={{
+                  position: "absolute", top: 12, right: 12, display: "flex", alignItems: "center", gap: 6,
+                  background: "none", border: "none", padding: 0, cursor: "pointer",
+                }}
+              >
+                <span style={{
+                  fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700,
+                  color: txMode === "out" ? "#F5A623" : "#22D3EE",
+                }}>
+                  {txMode === "out" ? "출고" : "반납"}
+                </span>
+                <span style={{
+                  position: "relative", width: 40, height: 22, borderRadius: 999, flexShrink: 0,
+                  border: "1px solid " + (txMode === "return" ? "#22D3EE" : "#F5A623"),
+                  background: txMode === "return" ? "#22D3EE33" : "#F5A62333",
+                  transition: "background .15s, border-color .15s",
+                }}>
+                  <span style={{
+                    position: "absolute", top: 1.5, left: txMode === "return" ? 19 : 1.5,
+                    width: 17, height: 17, borderRadius: "50%",
+                    background: txMode === "return" ? "#22D3EE" : "#F5A623",
+                    transition: "left .15s",
+                  }} />
+                </span>
+              </button>
+
+              <Camera size={36} color="#5E86A3" style={{ marginBottom: 8, marginTop: 18 }} />
               <div style={{ fontSize: 13, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
                 버튼을 누르면 스마트폰 카메라가 실행됩니다
               </div>
@@ -3716,7 +3708,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                 <Camera size={18} />{txMode === "out" ? "출고 스캔" : "반납 스캔"}
               </Btn>
 
-              <div style={{ borderTop: "1px solid #1F3B54", paddingTop: 14, marginTop: 10 }}>
+              <div style={{
+                borderTop: `1px solid ${txMode === "out" ? "#F5A623" : "#22D3EE"}`,
+                boxShadow: `0 1px 8px -2px ${txMode === "out" ? "#F5A623" : "#22D3EE"}`,
+                paddingTop: 14, marginTop: 10,
+                transition: "border-color .15s, box-shadow .15s",
+              }}>
                 <button
                   type="button"
                   onClick={() => setShowManualInput((s) => !s)}

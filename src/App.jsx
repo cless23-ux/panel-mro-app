@@ -1824,9 +1824,7 @@ const TAB_NEON = {
 
 function AppInner() {
   // 화면 테마: 기존 다크 모드는 그대로 유지하고, 사용자 선택 시 밝은 테마로 전환
-  const [lightMode, setLightMode] = useState(() => {
-    try { return localStorage.getItem("panel:theme") === "light"; } catch { return false; }
-  });
+  const [lightMode, setLightMode] = useState(false);
   const toggleTheme = useCallback(() => {
     setLightMode((prev) => {
       const next = !prev;
@@ -2671,6 +2669,7 @@ function AppInner() {
           <span>📱 앱 설치 / QR</span><span style={{ color: "#5E86A3", fontSize: 10 }}>공유</span>
         </button>
 
+        {false && (
         <button
           className="theme-toggle"
           onClick={toggleTheme}
@@ -2680,6 +2679,7 @@ function AppInner() {
           <span>{lightMode ? "☀️ 밝은 화면" : "🌙 어두운 화면"}</span>
           <span style={{ fontSize: 10, opacity: 0.7 }}>전환</span>
         </button>
+        )}
 
                 <nav className="sidebar-nav" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {NAV.filter((n) => !n.mobileTopOnly && (n.id === "settings" || !hiddenNavIds.includes(n.id))).map((n) => {
@@ -2737,6 +2737,7 @@ function AppInner() {
           <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
             선박 생산부
           </span>          
+          {false && (
           <button
             className="theme-toggle"
             onClick={toggleTheme}
@@ -2745,6 +2746,7 @@ function AppInner() {
           >
             {lightMode ? "☀️" : "🌙"}
           </button>
+          )}
         </div>
         <button
           onClick={() => goToTab("chat")}

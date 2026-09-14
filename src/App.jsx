@@ -6407,9 +6407,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
-  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all", inUse: "all" });
-  const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
-  const clearColumnFilters = () => setColumnFilters({ code: "", name: "", manufacturer: "", category: "all", unit: "all", stock: "all", inUse: "all" });
+  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", category: "all", unit: "all", stock: "all", inUse: "all" });
+const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
      useEffect(() => {
     if (searchPreset) {
       setMaterialFilter("all");
@@ -6426,7 +6425,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     const text = (value, q) => !q || String(value || "").toLowerCase().includes(q.toLowerCase());
     return items.filter((i) => {
       if (materialFilter !== "all" && getMaterialType(i.code) !== materialFilter) return false;
-      if (!text(i.code, f.code) || !text(i.name, f.name) || !text(i.manufacturer, f.manufacturer)) return false;
+      if (!text(i.code, f.code) || !text(i.name, f.name)) return false;
       if (f.category !== "all" && String(i.category || "").trim() !== f.category) return false;
       if (f.unit !== "all" && String(i.unit || "").trim() !== f.unit) return false;
       if (f.stock === "low" && !(Number(i.stock) <= Number(i.safety))) return false;
@@ -6577,20 +6576,20 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
     setEditingLocationValue("");
   };
 
-  const [editingManufacturerCode, setEditingManufacturerCode] = useState(null);
-  const [editingManufacturerValue, setEditingManufacturerValue] = useState("");
+  const [editingMemoCode, setEditingMemoCode] = useState(null);
+  const [editingMemoValue, setEditingMemoValue] = useState("");
 
-  const startEditManufacturer = (item) => {
-    setEditingManufacturerCode(item.code);
-    setEditingManufacturerValue(item.manufacturer || "");
+  const startEditMemo = (item) => {
+    setEditingMemoCode(item.code);
+    setEditingMemoValue(item.memo || "");
   };
 
-  const commitEditManufacturer = async (code) => {
-    const nextItems = items.map((i) => (i.code === code ? { ...i, manufacturer: editingManufacturerValue.trim() } : i));
+  const commitEditMemo = async (code) => {
+    const nextItems = items.map((i) => (i.code === code ? { ...i, memo: editingMemoValue.trim() } : i));
     await saveItems(nextItems);
-    notify("거래처가 수정되었습니다.", "ok");
-    setEditingManufacturerCode(null);
-    setEditingManufacturerValue("");
+    notify("비고가 수정되었습니다.", "ok");
+    setEditingMemoCode(null);
+    setEditingMemoValue("");
   };
 
   const [editingCategoryCode, setEditingCategoryCode] = useState(null);
@@ -7209,7 +7208,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                             <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
                 <th style={{ width: 42, textAlign: "center" }}>
                   <input type="checkbox" checked={displayedItems.length > 0 && displayedItems.every((i) => selectedQrCodes.includes(i.code))} onChange={toggleAllQrSelection} title="현재 목록 전체 선택" />
-                </th><th>No.</th><th>사진</th><th>구분</th><th>실사용</th><th>코드</th><th>품명 / 규격</th><th>거래처</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>비고</th><th>QR</th><th>삭제</th>
+                </th><th>No.</th><th>사진</th><th>구분</th><th>실사용</th><th>코드</th><th>품명 / 규격</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>비고</th><th>QR</th><th>삭제</th>
               </tr>
                             <tr style={{ background: "#0B1C2C" }}>
                 <th></th><th></th><th></th>
@@ -7224,14 +7223,13 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   </select>
                 </th>
                 <th><input value={columnFilters.code} onChange={(e) => updateColumnFilter("code", e.target.value)} placeholder="코드" style={{ ...inputStyle, width: 105, padding: "4px 6px", fontSize: 10.5 }} /></th>
-                <th><input value={columnFilters.name} onChange={(e) => updateColumnFilter("name", e.target.value)} placeholder="품명" style={{ ...inputStyle, width: 130, padding: "4px 6px", fontSize: 10.5 }} /></th>
-                <th><input value={columnFilters.manufacturer} onChange={(e) => updateColumnFilter("manufacturer", e.target.value)} placeholder="거래처" style={{ ...inputStyle, width: 100, padding: "4px 6px", fontSize: 10.5 }} /></th>
+                <th><input value={columnFilters.name} onChange={(e) => updateColumnFilter("name", e.target.value)} placeholder="품명" style={{ ...inputStyle, width: 130, padding: "4px 6px", fontSize: 10.5 }} /></th>            
                 <th><select value={columnFilters.category} onChange={(e) => updateColumnFilter("category", e.target.value)} style={{ ...inputStyle, width: 95, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.category.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
                 <th><select value={columnFilters.unit} onChange={(e) => updateColumnFilter("unit", e.target.value)} style={{ ...inputStyle, width: 70, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.unit.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
                 <th><select value={columnFilters.stock} onChange={(e) => updateColumnFilter("stock", e.target.value)} style={{ ...inputStyle, width: 82, padding: "4px 6px", fontSize: 10.5 }}><option value="all">재고전체</option><option value="low">부족/주의</option><option value="normal">정상</option></select></th>
                 <th></th>
                 <th></th>
-                <th><button onClick={clearColumnFilters} style={{ border: "1px solid #274460", background: "#16324A", color: "#9FB4C7", borderRadius: 5, padding: "4px 7px", cursor: "pointer", fontSize: 10.5 }}>초기화</button></th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -7291,31 +7289,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                   <td>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{i.name}</div>
                     {i.spec && <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>}
-                  </td>
-                  <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>
-                    {editingManufacturerCode === i.code ? (
-                      <input
-                        type="text"
-                        autoFocus
-                        value={editingManufacturerValue}
-                        onChange={(e) => setEditingManufacturerValue(e.target.value)}
-                        onBlur={() => commitEditManufacturer(i.code)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitEditManufacturer(i.code);
-                          if (e.key === "Escape") setEditingManufacturerCode(null);
-                        }}
-                        style={{ ...inputStyle, width: 110, padding: "4px 8px", fontSize: 13 }}
-                      />
-                    ) : (
-                      <span
-                        onClick={() => startEditManufacturer(i)}
-                        title="클릭하여 거래처 수정"
-                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
-                      >
-                        {i.manufacturer || "-"}
-                      </span>
-                    )}
-                  </td>
+                  </td>                  
                   <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>
                     {editingCategoryCode === i.code ? (
                       <input
@@ -7334,7 +7308,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                       <span
                         onClick={() => startEditCategory(i)}
                         title="클릭하여 카테고리 수정"
-                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
+                        style={{ cursor: "pointer", display: "inline-block", padding: "3px 8px", border: "1px solid #38BDF866", borderRadius: 5, background: "#0B1C2C" }}
                       >
                         {i.category || "-"}
                       </span>
@@ -7360,7 +7334,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                       <span
                         onClick={() => startEditStock(i)}
                         title="클릭하여 현재고 수정"
-                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
+                        style={{ cursor: "pointer", display: "inline-block", padding: "3px 8px", border: "1px solid #F5A62366", borderRadius: 5, background: "#0B1C2C" }}
                       >
                         {i.stock}
                       </span>
@@ -7385,14 +7359,35 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                       <span
                         onClick={() => startEditSafety(i)}
                         title="클릭하여 안전재고 수정"
-                        style={{ cursor: "pointer", borderBottom: "1px dashed #5E86A3" }}
+                        style={{ cursor: "pointer", display: "inline-block", padding: "3px 8px", border: "1px solid #7F97AC66", borderRadius: 5, background: "#0B1C2C" }}
                       >
                         {i.safety}
                       </span>
                     )}
                   </td>
-                  <td style={{ color: "#9FB4C7", fontSize: 12.5, maxWidth: 220, whiteSpace: "normal", wordBreak: "break-word" }} title={i.memo || ""}>
-                    {i.memo || "-"}
+                  <td style={{ color: "#9FB4C7", fontSize: 12.5, maxWidth: 220 }}>
+                    {editingMemoCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingMemoValue}
+                        onChange={(e) => setEditingMemoValue(e.target.value)}
+                        onBlur={() => commitEditMemo(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditMemo(i.code);
+                          if (e.key === "Escape") setEditingMemoCode(null);
+                        }}
+                        style={{ ...inputStyle, width: 180, padding: "4px 8px", fontSize: 13 }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditMemo(i)}
+                        title="클릭하여 비고 수정"
+                        style={{ cursor: "pointer", display: "inline-block", padding: "3px 8px", border: "1px solid #38BDF866", borderRadius: 5, background: "#0B1C2C", maxWidth: 220, whiteSpace: "normal", wordBreak: "break-word" }}
+                      >
+                        {i.memo || "비고 입력"}
+                      </span>
+                    )}
                   </td>
                   <td>
                     <button
@@ -7496,27 +7491,7 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, background: "#0B1C2C", padding: "8px 10px", borderRadius: 6, fontSize: 12, marginBottom: 10 }}>
-                  <div>
-                    <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>거래처</span>
-                    {editingManufacturerCode === i.code ? (
-                      <input
-                        type="text"
-                        autoFocus
-                        value={editingManufacturerValue}
-                        onChange={(e) => setEditingManufacturerValue(e.target.value)}
-                        onBlur={() => commitEditManufacturer(i.code)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitEditManufacturer(i.code);
-                          if (e.key === "Escape") setEditingManufacturerCode(null);
-                        }}
-                        style={{ ...inputStyle, width: "100%", padding: "2px 4px", fontSize: 12 }}
-                      />
-                    ) : (
-                      <span onClick={() => startEditManufacturer(i)} style={{ color: "#E7EEF5", borderBottom: "1px dashed #5E86A3" }}>
-                        {i.manufacturer || "미지정"}
-                      </span>
-                    )}
-                  </div>
+                  
 
                   <div>
                     <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>카테고리</span>
@@ -7534,16 +7509,35 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
                         style={{ ...inputStyle, width: "100%", padding: "2px 4px", fontSize: 12 }}
                       />
                     ) : (
-                      <span onClick={() => startEditCategory(i)} style={{ color: "#E7EEF5", borderBottom: "1px dashed #5E86A3", cursor: "pointer" }}>
+                      <span onClick={() => startEditCategory(i)} style={{ display: "inline-block", color: "#E7EEF5", border: "1px solid #38BDF866", borderRadius: 5, padding: "2px 7px", background: "#0B1C2C", cursor: "pointer" }}>
                         {i.category || "미지정"}
                       </span>
                     )}
                   </div>
                   <div>
                     <span style={{ color: "#5E86A3", display: "block", fontSize: 10.5 }}>비고</span>
-                    <span style={{ color: "#E7EEF5", display: "block", whiteSpace: "pre-wrap", wordBreak: "break-word" }} title={i.memo || ""}>
-                      {i.memo || "-"}
-                    </span>
+                    {editingMemoCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingMemoValue}
+                        onChange={(e) => setEditingMemoValue(e.target.value)}
+                        onBlur={() => commitEditMemo(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditMemo(i.code);
+                          if (e.key === "Escape") setEditingMemoCode(null);
+                        }}
+                        style={{ ...inputStyle, width: "100%", padding: "2px 4px", fontSize: 12 }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditMemo(i)}
+                        style={{ display: "inline-block", color: "#E7EEF5", border: "1px solid #38BDF866", borderRadius: 5, padding: "3px 7px", background: "#0B1C2C", whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                        title={i.memo || ""}
+                      >
+                        {i.memo || "비고 입력"}
+                      </span>
+                    )}
                   </div>
                 </div>
 

@@ -3416,27 +3416,54 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const isReversedOutTx = (tx) =>
     String(tx?.reason || "").includes("MRO_REVERSED_OUT:");
 
-  const recentOutTxs = useMemo(() => {
+  const allOutTxs = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return txs
       .filter((t) => t.type === "out" && t.deleted !== true)
-      .sort((a, b) => parseAt(b) - parseAt(a))
-      .slice(0, 15);
+      .sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
 
-  const recentReturnTxs = useMemo(() => {
+  const allReturnTxs = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return txs
       .filter((t) => t.type === "return" && t.deleted !== true)
-      .sort((a, b) => parseAt(b) - parseAt(a))
-      .slice(0, 15);
+      .sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
+
+  const HISTORY_PAGE_SIZE = 10;
+  const [outHistoryPage, setOutHistoryPage] = useState(1);
+  const [returnHistoryPage, setReturnHistoryPage] = useState(1);
+
+  const outHistoryTotalPages = Math.max(1, Math.ceil(allOutTxs.length / HISTORY_PAGE_SIZE));
+  const returnHistoryTotalPages = Math.max(1, Math.ceil(allReturnTxs.length / HISTORY_PAGE_SIZE));
+
+  useEffect(() => {
+    if (outHistoryPage > outHistoryTotalPages) setOutHistoryPage(outHistoryTotalPages);
+  }, [outHistoryTotalPages, outHistoryPage]);
+
+  useEffect(() => {
+    if (returnHistoryPage > returnHistoryTotalPages) setReturnHistoryPage(returnHistoryTotalPages);
+  }, [returnHistoryTotalPages, returnHistoryPage]);
+
+  // 새 이력이 등록되면 자동으로 1페이지(최신)로 이동
+  useEffect(() => { setOutHistoryPage(1); }, [allOutTxs.length]);
+  useEffect(() => { setReturnHistoryPage(1); }, [allReturnTxs.length]);
+
+  const recentOutTxs = useMemo(
+    () => allOutTxs.slice((outHistoryPage - 1) * HISTORY_PAGE_SIZE, outHistoryPage * HISTORY_PAGE_SIZE),
+    [allOutTxs, outHistoryPage]
+  );
+
+  const recentReturnTxs = useMemo(
+    () => allReturnTxs.slice((returnHistoryPage - 1) * HISTORY_PAGE_SIZE, returnHistoryPage * HISTORY_PAGE_SIZE),
+    [allReturnTxs, returnHistoryPage]
+  );
 
   const { favoriteCodes, isFavorite, toggleFavorite } = useFavoriteItems(notify);
   const favoriteItems = useMemo(() => {
@@ -4251,7 +4278,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         <div className="out-section-divider" />
 
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 16 }}>
-          <button
+           <button
             type="button"
             onClick={() => {
               if (window.innerWidth <= 768) setShowHistoryPanel((s) => !s);

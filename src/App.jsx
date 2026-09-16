@@ -3416,7 +3416,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const isReversedOutTx = (tx) =>
     String(tx?.reason || "").includes("MRO_REVERSED_OUT:");
 
-  const allOutTxs = useMemo(() => {
+   const allOutTxs = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
@@ -3436,7 +3436,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       .sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
 
-  const HISTORY_PAGE_SIZE = 10;
+  const HISTORY_PAGE_SIZE = 10; // 한 페이지에 몇 건씩 보여줄지 (원하는 숫자로 조절 가능)
   const [outHistoryPage, setOutHistoryPage] = useState(1);
   const [returnHistoryPage, setReturnHistoryPage] = useState(1);
 
@@ -3451,7 +3451,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     if (returnHistoryPage > returnHistoryTotalPages) setReturnHistoryPage(returnHistoryTotalPages);
   }, [returnHistoryTotalPages, returnHistoryPage]);
 
-  // 새 이력이 등록되면 자동으로 1페이지(최신)로 이동
+  // 새로 출고/반납이 등록되면 자동으로 1페이지(최신순 맨 앞)로 이동
   useEffect(() => { setOutHistoryPage(1); }, [allOutTxs.length]);
   useEffect(() => { setReturnHistoryPage(1); }, [allReturnTxs.length]);
 
@@ -4278,7 +4278,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         <div className="out-section-divider" />
 
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 16 }}>
-           <button
+          <button
             type="button"
             onClick={() => {
               if (window.innerWidth <= 768) setShowHistoryPanel((s) => !s);
@@ -4290,7 +4290,9 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             }}
           >
             <SectionLabel>
-              {txMode === "out" ? "최근 등록된 출고 이력 (잘못 등록 시 삭제/원복)" : "최근 등록된 반납 이력 (잘못 등록 시 취소)"}
+              {txMode === "out"
+                ? `전체 출고 이력 (총 ${allOutTxs.length}건, 잘못 등록 시 삭제/원복)`
+                : `전체 반납 이력 (총 ${allReturnTxs.length}건, 잘못 등록 시 취소)`}
             </SectionLabel>
             <span className="out-history-toggle-icon" style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0, marginLeft: 8 }}>
               {showHistoryPanel ? "▲ 접기" : "▼ 펼치기"}
@@ -4298,117 +4300,161 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           </button>
 
           {showHistoryPanel && (txMode === "out" ? (
-            recentOutTxs.length === 0 ? (
+            allOutTxs.length === 0 ? (
               <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 560, overflowY: "auto" }}>
-                {recentOutTxs.map((t) => (
-                  <div
-                    key={t.id}
-                    style={{
-                      background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
-                      padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-                    }}
-                  >
-                    <div style={{ flex: "1 1 160px", minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {t.itemName}
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                  {recentOutTxs.map((t) => (
+                    <div
+                      key={t.id}
+                      style={{
+                        background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+                        padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+                      }}
+                    >
+                      <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {t.itemName}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>{t.at}</div>
                       </div>
-                      <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>{t.at}</div>
-                    </div>
 
-                    <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
-                      <div>
-                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
-                        <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>{t.qty} {t.unit}</span>
+                      <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
+                        <div>
+                          <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
+                          <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>{t.qty} {t.unit}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
+                          <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>프로젝트</span>
+                          <span style={{ color: "#9FB4C7" }}>{t.project || "-"}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>불출자</span>
+                          <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
+                        </div>
                       </div>
-                      <div>
-                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
-                        <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
-                      </div>
-                      <div>
-                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>프로젝트</span>
-                        <span style={{ color: "#9FB4C7" }}>{t.project || "-"}</span>
-                      </div>
-                      <div>
-                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>불출자</span>
-                        <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
-                      </div>
-                    </div>
 
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: "auto" }}>
-                      <button
-                        onClick={() => cancelOutTx(t)}
-                        disabled={isReversedOutTx(t)}
-                        style={{
-                          background: isReversedOutTx(t) ? "#26352D" : "#123626",
-                          border: `1px solid ${isReversedOutTx(t) ? "#607D6B" : "#2ECC71"}`,
-                          color: isReversedOutTx(t) ? "#8FA69A" : "#2ECC71",
-                          padding: "5px 11px",
-                          borderRadius: 6,
-                          cursor: isReversedOutTx(t) ? "not-allowed" : "pointer",
-                          fontSize: 11.5,
-                          fontWeight: 600,
-                          opacity: isReversedOutTx(t) ? 0.8 : 1,
-                        }}
-                      >
-                        {isReversedOutTx(t) ? "원복완료" : "원복"}
-                      </button>
-                      <button
-                        onClick={() => deleteHistory(t)}
-                        style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
-                      >
-                        삭제
-                      </button>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: "auto" }}>
+                        <button
+                          onClick={() => cancelOutTx(t)}
+                          disabled={isReversedOutTx(t)}
+                          style={{
+                            background: isReversedOutTx(t) ? "#26352D" : "#123626",
+                            border: `1px solid ${isReversedOutTx(t) ? "#607D6B" : "#2ECC71"}`,
+                            color: isReversedOutTx(t) ? "#8FA69A" : "#2ECC71",
+                            padding: "5px 11px",
+                            borderRadius: 6,
+                            cursor: isReversedOutTx(t) ? "not-allowed" : "pointer",
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            opacity: isReversedOutTx(t) ? 0.8 : 1,
+                          }}
+                        >
+                          {isReversedOutTx(t) ? "원복완료" : "원복"}
+                        </button>
+                        <button
+                          onClick={() => deleteHistory(t)}
+                          style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
+                        >
+                          삭제
+                        </button>
+                      </div>
                     </div>
+                  ))}
+                </div>
+
+                {outHistoryTotalPages > 1 && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
+                    <button
+                      type="button"
+                      onClick={() => setOutHistoryPage((p) => Math.max(1, p - 1))}
+                      disabled={outHistoryPage <= 1}
+                      style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: outHistoryPage <= 1 ? "#395268" : "#9FB4C7", cursor: outHistoryPage <= 1 ? "default" : "pointer" }}
+                    >이전</button>
+                    <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                      {outHistoryPage} / {outHistoryTotalPages} 페이지
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setOutHistoryPage((p) => Math.min(outHistoryTotalPages, p + 1))}
+                      disabled={outHistoryPage >= outHistoryTotalPages}
+                      style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: outHistoryPage >= outHistoryTotalPages ? "#395268" : "#9FB4C7", cursor: outHistoryPage >= outHistoryTotalPages ? "default" : "pointer" }}
+                    >다음</button>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )
           ) : (
-            recentReturnTxs.length === 0 ? (
+            allReturnTxs.length === 0 ? (
               <EmptyState icon={RotateCcw} text="최근 등록된 반납 내역이 없습니다." color="#5E86A3" />
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10, maxHeight: 560, overflowY: "auto" }}>
-                {recentReturnTxs.map((t) => (
-                  <div
-                    key={t.id}
-                    style={{
-                      background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
-                      padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
-                    }}
-                  >
-                    <div style={{ flex: "1 1 160px", minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {t.itemName}
-                      </div>
-                      <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>{t.reason} · {t.at}</div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
-                      <div>
-                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
-                        <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#22D3EE" }}>{t.qty} {t.unit}</span>
-                      </div>
-                      <div>
-                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
-                        <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
-                      </div>
-                      <div>
-                        <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>반납자</span>
-                        <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => cancelReturnTx(t)}
-                      style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600, marginLeft: "auto", flexShrink: 0 }}
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                  {recentReturnTxs.map((t) => (
+                    <div
+                      key={t.id}
+                      style={{
+                        background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+                        padding: "9px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap",
+                      }}
                     >
-                      취소
-                    </button>
+                      <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {t.itemName}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", marginTop: 1 }}>{t.reason} · {t.at}</div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 20, fontSize: 12, flexShrink: 0 }}>
+                        <div>
+                          <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>수량</span>
+                          <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#22D3EE" }}>{t.qty} {t.unit}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>호선</span>
+                          <span style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</span>
+                        </div>
+                        <div>
+                          <span style={{ color: "#5E86A3", fontSize: 10.5, display: "block" }}>반납자</span>
+                          <span style={{ color: "#9FB4C7" }}>{t.worker || "-"}</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => cancelReturnTx(t)}
+                        style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600, marginLeft: "auto", flexShrink: 0 }}
+                      >
+                        취소
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {returnHistoryTotalPages > 1 && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
+                    <button
+                      type="button"
+                      onClick={() => setReturnHistoryPage((p) => Math.max(1, p - 1))}
+                      disabled={returnHistoryPage <= 1}
+                      style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: returnHistoryPage <= 1 ? "#395268" : "#9FB4C7", cursor: returnHistoryPage <= 1 ? "default" : "pointer" }}
+                    >이전</button>
+                    <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                      {returnHistoryPage} / {returnHistoryTotalPages} 페이지
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setReturnHistoryPage((p) => Math.min(returnHistoryTotalPages, p + 1))}
+                      disabled={returnHistoryPage >= returnHistoryTotalPages}
+                      style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: returnHistoryPage >= returnHistoryTotalPages ? "#395268" : "#9FB4C7", cursor: returnHistoryPage >= returnHistoryTotalPages ? "default" : "pointer" }}
+                    >다음</button>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )
           ))}
         </Card>

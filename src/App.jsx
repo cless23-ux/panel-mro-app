@@ -6970,10 +6970,6 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
     <div>
       <style>{`
         .master-table-view { display: block; width: 100%; overflow-x: auto; }
-        .master-table-view > div { scrollbar-gutter: stable; }
-        .master-table-view table { width: 100%; }
-        .master-table-view th:last-child,
-        .master-table-view td:last-child { width: 36px; min-width: 36px; max-width: 36px; padding-left: 6px; padding-right: 6px; text-align: center; }
         .master-cards-view { display: none; flex-direction: column; gap: 12px; }
 
         @media (max-width: 768px) {
@@ -7147,12 +7143,12 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
           </button>
         ))}
       </div>
-<div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-  <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>정렬:</span>
+<div style={{ display: "none" }}>
+  {/* 정렬 기능은 유지하고 화면에서만 숨김 */}
+  <span>정렬:</span>
   <select
     value={sortConfig.key || "none"}
     onChange={(e) => setSortConfig((prev) => ({ ...prev, key: e.target.value === "none" ? null : e.target.value }))}
-    style={{ ...inputStyle, width: 140, padding: "7px 10px", fontSize: 12 }}
   >
     <option value="none">기본순서</option>
     <option value="code">코드</option>
@@ -7166,12 +7162,6 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
     type="button"
     onClick={() => setSortConfig((prev) => ({ ...prev, direction: prev.direction === "asc" ? "desc" : "asc" }))}
     disabled={!sortConfig.key}
-    style={{
-      padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700,
-      border: "1px solid #1F3B54", background: "#0B1C2C",
-      color: sortConfig.key ? "#38BDF8" : "#3E5871",
-      cursor: sortConfig.key ? "pointer" : "not-allowed",
-    }}
   >
     {sortConfig.direction === "asc" ? "오름차순 ▲" : "내림차순 ▼"}
   </button>
@@ -7342,6 +7332,9 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
 <th onClick={() => handleSort("unit")} style={{ cursor: "pointer", userSelect: "none" }}>단위{sortArrow("unit")}</th>
 <th onClick={() => handleSort("stock")} style={{ cursor: "pointer", userSelect: "none" }}>현재고{sortArrow("stock")}</th>
 <th onClick={() => handleSort("safety")} style={{ cursor: "pointer", userSelect: "none" }}>안전재고{sortArrow("safety")}</th>
+                <th style={{ width: 190, whiteSpace: "nowrap" }}>비고</th>
+                <th style={{ width: 62, textAlign: "center", whiteSpace: "nowrap" }}>QR</th>
+                <th style={{ width: 48, textAlign: "center", whiteSpace: "nowrap", paddingLeft: 4, paddingRight: 4 }}>삭제</th>
               </tr>
                             <tr style={{ background: "#0B1C2C" }}>
                 <th></th><th></th><th></th>
@@ -7360,9 +7353,9 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
                 <th><select value={columnFilters.category} onChange={(e) => updateColumnFilter("category", e.target.value)} style={{ ...inputStyle, width: 95, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.category.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
                 <th><select value={columnFilters.unit} onChange={(e) => updateColumnFilter("unit", e.target.value)} style={{ ...inputStyle, width: 70, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.unit.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
                 <th><select value={columnFilters.stock} onChange={(e) => updateColumnFilter("stock", e.target.value)} style={{ ...inputStyle, width: 82, padding: "4px 6px", fontSize: 10.5 }}><option value="all">재고전체</option><option value="low">부족/주의</option><option value="normal">정상</option></select></th>
-                <th></th>
-                <th></th>
-                <th></th>
+                <th style={{ width: 190, paddingLeft: 4, paddingRight: 4 }}></th>
+                <th style={{ width: 62, paddingLeft: 2, paddingRight: 2 }}></th>
+                <th style={{ width: 48, paddingLeft: 2, paddingRight: 2 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -7522,7 +7515,7 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
                       </span>
                     )}
                   </td>
-                  <td>
+                  <td style={{ width: 62, textAlign: "center", paddingLeft: 4, paddingRight: 4 }}>
                     <button
                       onClick={() => setQrModalItem(i)}
                       style={{ background: "#16324A", border: "1px solid #274460", color: "#F5A623", padding: "5px 8px", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, fontFamily: "IBM Plex Mono" }}
@@ -7530,7 +7523,7 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
                       <QrCode size={13} /> QR
                     </button>
                   </td>
-                  <td>
+                  <td style={{ width: 48, textAlign: "center", paddingLeft: 2, paddingRight: 2 }}>
                     <button onClick={() => removeItem(i.code)} style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 4 }}>
                       <Trash2 size={15} />
                     </button>

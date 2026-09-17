@@ -7332,6 +7332,9 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
 <th onClick={() => handleSort("unit")} style={{ cursor: "pointer", userSelect: "none" }}>단위{sortArrow("unit")}</th>
 <th onClick={() => handleSort("stock")} style={{ cursor: "pointer", userSelect: "none" }}>현재고{sortArrow("stock")}</th>
 <th onClick={() => handleSort("safety")} style={{ cursor: "pointer", userSelect: "none" }}>안전재고{sortArrow("safety")}</th>
+                <th>비고</th>
+                <th>QR</th>
+                <th>삭제</th>
               </tr>
                             <tr style={{ background: "#0B1C2C" }}>
                 <th></th><th></th><th></th>

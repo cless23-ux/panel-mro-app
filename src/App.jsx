@@ -7320,8 +7320,8 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
 
       {/* 1) PC/태블릿용 테이블 뷰 */}
       <Card style={{ padding: 8 }} className="master-table-view">
-        <div style={{ maxHeight: "calc(100vh - 240px)", overflowY: "auto" }}>
-          <table>
+        <div style={{ maxHeight: "calc(100vh - 240px)", overflow: "auto", width: "100%" }}>
+          <table style={{ width: "100%", minWidth: 0, tableLayout: "auto" }}>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
                             <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
                 <th style={{ width: 42, textAlign: "center" }}>
@@ -7353,9 +7353,9 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
                 <th><select value={columnFilters.category} onChange={(e) => updateColumnFilter("category", e.target.value)} style={{ ...inputStyle, width: 95, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.category.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
                 <th><select value={columnFilters.unit} onChange={(e) => updateColumnFilter("unit", e.target.value)} style={{ ...inputStyle, width: 70, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.unit.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
                 <th><select value={columnFilters.stock} onChange={(e) => updateColumnFilter("stock", e.target.value)} style={{ ...inputStyle, width: 82, padding: "4px 6px", fontSize: 10.5 }}><option value="all">재고전체</option><option value="low">부족/주의</option><option value="normal">정상</option></select></th>
-                <th style={{ width: 190, paddingLeft: 4, paddingRight: 4 }}></th>
-                <th style={{ width: 62, paddingLeft: 2, paddingRight: 2 }}></th>
-                <th style={{ width: 48, paddingLeft: 2, paddingRight: 2 }}></th>
+                <th style={{ width: 190, minWidth: 190, paddingLeft: 4, paddingRight: 4, boxSizing: "border-box" }}></th>
+                <th style={{ width: 62, minWidth: 62, paddingLeft: 2, paddingRight: 2, boxSizing: "border-box" }}></th>
+                <th style={{ width: 48, minWidth: 48, paddingLeft: 2, paddingRight: 2, boxSizing: "border-box" }}></th>
               </tr>
             </thead>
             <tbody>

@@ -6970,6 +6970,10 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
     <div>
       <style>{`
         .master-table-view { display: block; width: 100%; overflow-x: auto; }
+        .master-table-view > div { scrollbar-gutter: stable; }
+        .master-table-view table { width: 100%; }
+        .master-table-view th:last-child,
+        .master-table-view td:last-child { width: 36px; min-width: 36px; max-width: 36px; padding-left: 6px; padding-right: 6px; text-align: center; }
         .master-cards-view { display: none; flex-direction: column; gap: 12px; }
 
         @media (max-width: 768px) {
@@ -7143,12 +7147,12 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
           </button>
         ))}
       </div>
-<div style={{ display: "none" }}>
-  {/* 정렬 기능은 유지하고 화면에서는 숨김 */}
-  <span>정렬:</span>
+<div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+  <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>정렬:</span>
   <select
     value={sortConfig.key || "none"}
     onChange={(e) => setSortConfig((prev) => ({ ...prev, key: e.target.value === "none" ? null : e.target.value }))}
+    style={{ ...inputStyle, width: 140, padding: "7px 10px", fontSize: 12 }}
   >
     <option value="none">기본순서</option>
     <option value="code">코드</option>
@@ -7162,6 +7166,12 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
     type="button"
     onClick={() => setSortConfig((prev) => ({ ...prev, direction: prev.direction === "asc" ? "desc" : "asc" }))}
     disabled={!sortConfig.key}
+    style={{
+      padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+      border: "1px solid #1F3B54", background: "#0B1C2C",
+      color: sortConfig.key ? "#38BDF8" : "#3E5871",
+      cursor: sortConfig.key ? "pointer" : "not-allowed",
+    }}
   >
     {sortConfig.direction === "asc" ? "오름차순 ▲" : "내림차순 ▼"}
   </button>
@@ -7332,9 +7342,6 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
 <th onClick={() => handleSort("unit")} style={{ cursor: "pointer", userSelect: "none" }}>단위{sortArrow("unit")}</th>
 <th onClick={() => handleSort("stock")} style={{ cursor: "pointer", userSelect: "none" }}>현재고{sortArrow("stock")}</th>
 <th onClick={() => handleSort("safety")} style={{ cursor: "pointer", userSelect: "none" }}>안전재고{sortArrow("safety")}</th>
-                <th>비고</th>
-                <th>QR</th>
-                <th>삭제</th>
               </tr>
                             <tr style={{ background: "#0B1C2C" }}>
                 <th></th><th></th><th></th>

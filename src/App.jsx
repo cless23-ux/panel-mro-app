@@ -6482,6 +6482,17 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
   const [columnFilters, setColumnFilters] = useState({ code: "", name: "", category: "all", unit: "all", stock: "all", inUse: "all" });
 const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
+
+// ↓↓↓ 여기 추가 ↓↓↓
+const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" }); // key: code|name|category|unit|stock|safety
+const handleSort = (key) => {
+  setSortConfig((prev) => {
+    if (prev.key !== key) return { key, direction: "asc" };
+    if (prev.direction === "asc") return { key, direction: "desc" };
+    return { key: null, direction: "asc" }; // 다시 클릭하면 정렬 해제
+  });
+};
+const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "asc" ? " ▲" : " ▼") : "");
      useEffect(() => {
     if (searchPreset) {
       setMaterialFilter("all");
@@ -6496,7 +6507,7 @@ const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev
  const displayedItems = useMemo(() => {
     const f = columnFilters;
     const text = (value, q) => !q || String(value || "").toLowerCase().includes(q.toLowerCase());
-    return items.filter((i) => {
+    const filtered = items.filter((i) => {
       if (materialFilter !== "all" && getMaterialType(i.code) !== materialFilter) return false;
       if (!text(i.code, f.code) || !text(i.name, f.name)) return false;
       if (f.category !== "all" && String(i.category || "").trim() !== f.category) return false;
@@ -6507,7 +6518,19 @@ const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev
       if (f.inUse === "no" && i.in_use) return false;
       return true;
     });
-  }, [items, materialFilter, columnFilters]);
+
+    if (!sortConfig.key) return filtered;
+    const numericKeys = ["stock", "safety"];
+    const dir = sortConfig.direction === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      if (numericKeys.includes(sortConfig.key)) {
+        return ((Number(a[sortConfig.key]) || 0) - (Number(b[sortConfig.key]) || 0)) * dir;
+      }
+      const av = String(a[sortConfig.key] || "").toLowerCase();
+      const bv = String(b[sortConfig.key] || "").toLowerCase();
+      return av.localeCompare(bv, "ko") * dir;
+    });
+  }, [items, materialFilter, columnFilters, sortConfig]);
 
   // 전체 1만 행을 한 번에 렌더링하지 않고 200행씩 표시
   const visibleMasterItems = useMemo(
@@ -6517,7 +6540,7 @@ const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev
 
   useEffect(() => {
     setMasterRenderLimit(200);
-  }, [materialFilter, columnFilters]);
+  }, [materialFilter, columnFilters, sortConfig]);
 
   /* 경고 및 정보창(모달), 장바구니 모달 상태 */
   const [selectedUrgent, setSelectedUrgent] = useState(null);
@@ -7120,7 +7143,35 @@ const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev
           </button>
         ))}
       </div>
-
+<div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+  <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>정렬:</span>
+  <select
+    value={sortConfig.key || "none"}
+    onChange={(e) => setSortConfig((prev) => ({ ...prev, key: e.target.value === "none" ? null : e.target.value }))}
+    style={{ ...inputStyle, width: 140, padding: "7px 10px", fontSize: 12 }}
+  >
+    <option value="none">기본순서</option>
+    <option value="code">코드</option>
+    <option value="name">품명</option>
+    <option value="category">카테고리</option>
+    <option value="unit">단위</option>
+    <option value="stock">현재고</option>
+    <option value="safety">안전재고</option>
+  </select>
+  <button
+    type="button"
+    onClick={() => setSortConfig((prev) => ({ ...prev, direction: prev.direction === "asc" ? "desc" : "asc" }))}
+    disabled={!sortConfig.key}
+    style={{
+      padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+      border: "1px solid #1F3B54", background: "#0B1C2C",
+      color: sortConfig.key ? "#38BDF8" : "#3E5871",
+      cursor: sortConfig.key ? "pointer" : "not-allowed",
+    }}
+  >
+    {sortConfig.direction === "asc" ? "오름차순 ▲" : "내림차순 ▼"}
+  </button>
+</div>
       {/* 긴급요청 경고 바 */}
       <div style={{
         background: pendingUrgentList.length > 0 ? "linear-gradient(90deg, #2A1010 0%, #150B0B 100%)" : "#0B1C2C",
@@ -7281,7 +7332,12 @@ const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev
                             <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
                 <th style={{ width: 42, textAlign: "center" }}>
                   <input type="checkbox" checked={displayedItems.length > 0 && displayedItems.every((i) => selectedQrCodes.includes(i.code))} onChange={toggleAllQrSelection} title="현재 목록 전체 선택" />
-                </th><th>No.</th><th>사진</th><th>구분</th><th>실사용</th><th>코드</th><th>품명 / 규격</th><th>카테고리</th><th>단위</th><th>현재고</th><th>안전재고</th><th>비고</th><th>QR</th><th>삭제</th>
+                </th><th>No.</th><th>사진</th><th>구분</th><th>실사용</th><th onClick={() => handleSort("code")} style={{ cursor: "pointer", userSelect: "none" }}>코드{sortArrow("code")}</th>
+<th onClick={() => handleSort("name")} style={{ cursor: "pointer", userSelect: "none" }}>품명 / 규격{sortArrow("name")}</th>
+<th onClick={() => handleSort("category")} style={{ cursor: "pointer", userSelect: "none" }}>카테고리{sortArrow("category")}</th>
+<th onClick={() => handleSort("unit")} style={{ cursor: "pointer", userSelect: "none" }}>단위{sortArrow("unit")}</th>
+<th onClick={() => handleSort("stock")} style={{ cursor: "pointer", userSelect: "none" }}>현재고{sortArrow("stock")}</th>
+<th onClick={() => handleSort("safety")} style={{ cursor: "pointer", userSelect: "none" }}>안전재고{sortArrow("safety")}</th>
               </tr>
                             <tr style={{ background: "#0B1C2C" }}>
                 <th></th><th></th><th></th>

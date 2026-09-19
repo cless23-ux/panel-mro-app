@@ -6464,7 +6464,8 @@ function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentReq
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
   const [selectedQrCodes, setSelectedQrCodes] = useState([]);
-  const [masterRenderLimit, setMasterRenderLimit] = useState(200);
+  const [masterPage, setMasterPage] = useState(1);
+const [masterPageSize, setMasterPageSize] = useState(100);
 
   const toggleQrSelection = (code) => {
     setSelectedQrCodes((prev) => prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]);
@@ -6532,15 +6533,43 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
     });
   }, [items, materialFilter, columnFilters, sortConfig]);
 
-  // 전체 1만 행을 한 번에 렌더링하지 않고 200행씩 표시
-  const visibleMasterItems = useMemo(
-    () => displayedItems.slice(0, masterRenderLimit),
-    [displayedItems, masterRenderLimit]
-  );
+  // 페이지 단위로 나눠서 표시 (전체 자재를 페이지로 모두 조회 가능)
+const masterTotalPages = Math.max(1, Math.ceil(displayedItems.length / masterPageSize));
+const safeMasterPage = Math.min(masterPage, masterTotalPages);
+const masterPageStart = (safeMasterPage - 1) * masterPageSize;
 
-  useEffect(() => {
-    setMasterRenderLimit(200);
-  }, [materialFilter, columnFilters, sortConfig]);
+const visibleMasterItems = useMemo(
+  () => displayedItems.slice(masterPageStart, masterPageStart + masterPageSize),
+  [displayedItems, masterPageStart, masterPageSize]
+);
+
+// 필터/정렬/페이지크기가 바뀌면 1페이지로
+useEffect(() => {
+  setMasterPage(1);
+}, [materialFilter, columnFilters, sortConfig, masterPageSize]);
+
+// 자재 삭제 등으로 총 페이지가 줄어들었을 때 보정
+useEffect(() => {
+  if (masterPage > masterTotalPages) setMasterPage(masterTotalPages);
+}, [masterPage, masterTotalPages]);
+
+const goMasterPage = (p) => {
+  const next = Math.min(Math.max(1, p), masterTotalPages);
+  setMasterPage(next);
+  document.querySelector(".main-content")?.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+// 1 ... 4 5 [6] 7 8 ... 20 형태의 페이지 번호 목록
+const masterPageNumbers = useMemo(() => {
+  const set = new Set([1, masterTotalPages, safeMasterPage - 2, safeMasterPage - 1, safeMasterPage, safeMasterPage + 1, safeMasterPage + 2]);
+  const nums = [...set].filter((n) => n >= 1 && n <= masterTotalPages).sort((a, b) => a - b);
+  const out = [];
+  nums.forEach((n, i) => {
+    if (i > 0 && n - nums[i - 1] > 1) out.push(`gap-${n}`);
+    out.push(n);
+  });
+  return out;
+}, [masterTotalPages, safeMasterPage]);
 
   /* 경고 및 정보창(모달), 장바구니 모달 상태 */
   const [selectedUrgent, setSelectedUrgent] = useState(null);
@@ -7367,7 +7396,7 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
                   <td style={{ textAlign: "center" }}>
                     <input type="checkbox" checked={selectedQrCodes.includes(i.code)} onChange={() => toggleQrSelection(i.code)} />
                   </td>
-                  <td>{index + 1}</td>
+                  <td>{masterPageStart + index + 1}</td>
                   <td>
                     {i.image_url ? (
                       <img
@@ -7722,6 +7751,59 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
           })
         )}
       </div>
+      {displayedItems.length > 0 && (
+  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 16 }}>
+    <div style={{ fontSize: 12, color: "#7F97AC", fontFamily: "'IBM Plex Mono', monospace" }}>
+      전체 {displayedItems.length.toLocaleString()}개 중 {(masterPageStart + 1).toLocaleString()}–{Math.min(masterPageStart + masterPageSize, displayedItems.length).toLocaleString()}번 표시
+    </div>
+
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
+      <button
+        type="button"
+        onClick={() => goMasterPage(safeMasterPage - 1)}
+        disabled={safeMasterPage <= 1}
+        style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: safeMasterPage <= 1 ? "#395268" : "#9FB4C7", cursor: safeMasterPage <= 1 ? "default" : "pointer" }}
+      >이전</button>
+
+      {masterPageNumbers.map((p) =>
+        typeof p === "string" ? (
+          <span key={p} style={{ color: "#5E86A3", padding: "0 2px" }}>…</span>
+        ) : (
+          <button
+            key={p}
+            type="button"
+            onClick={() => goMasterPage(p)}
+            style={{
+              minWidth: 34, padding: "7px 8px", borderRadius: 7, fontWeight: 700, fontSize: 12.5,
+              fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
+              border: p === safeMasterPage ? "1px solid #38BDF8" : "1px solid #274460",
+              background: p === safeMasterPage ? "#38BDF822" : "#0B1C2C",
+              color: p === safeMasterPage ? "#38BDF8" : "#9FB4C7",
+            }}
+          >{p}</button>
+        )
+      )}
+
+      <button
+        type="button"
+        onClick={() => goMasterPage(safeMasterPage + 1)}
+        disabled={safeMasterPage >= masterTotalPages}
+        style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: safeMasterPage >= masterTotalPages ? "#395268" : "#9FB4C7", cursor: safeMasterPage >= masterTotalPages ? "default" : "pointer" }}
+      >다음</button>
+    </div>
+
+    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7F97AC" }}>
+      페이지당
+      <select
+        value={masterPageSize}
+        onChange={(e) => setMasterPageSize(Number(e.target.value))}
+        style={{ ...inputStyle, width: 84, padding: "4px 6px", fontSize: 12 }}
+      >
+        {[50, 100, 200, 500].map((n) => <option key={n} value={n}>{n}개</option>)}
+      </select>
+    </label>
+  </div>
+)}
 
       {/* 긴급 요청 상세 정보 모달 */}
       {selectedUrgent && (

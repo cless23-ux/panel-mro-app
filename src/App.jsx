@@ -6832,6 +6832,7 @@ const masterPageNumbers = useMemo(() => {
   }, [urgentRequests]);
 
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [zoomedImage, setZoomedImage] = useState(null);
   const liveCameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
@@ -7712,24 +7713,46 @@ const masterPageNumbers = useMemo(() => {
                   </td>
                   <td>{masterPageStart + index + 1}</td>
                   <td>
-                    {i.image_url ? (
-                      <img
-                        src={i.image_url}
-                        alt={i.name}
-                        onClick={() => triggerPhotoUpload(i.code)}
-                        style={{ width: 38, height: 38, borderRadius: 6, objectFit: "cover", cursor: "pointer" }}
-                        title="클릭하여 사진 변경"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => triggerPhotoUpload(i.code)}
-                        style={{ background: "#0B1C2C", border: "1px solid #274460", color: "#5E86A3", padding: "6px", borderRadius: 6, cursor: "pointer" }}
-                        title="사진 첨부"
-                      >
-                        <Camera size={14} />
-                      </button>
-                    )}
-                  </td>
+  <div style={{ position: "relative", width: 38, height: 38, margin: "0 auto" }}>
+    {i.image_url ? (
+      <img
+        src={i.image_url}
+        alt={i.name}
+        onClick={() => setZoomedImage(i.image_url)}
+        title="클릭하여 사진 확대"
+        style={{
+          width: 38, height: 38, borderRadius: 6, objectFit: "cover", display: "block",
+          border: "1px solid #274460", cursor: "zoom-in",
+        }}
+      />
+    ) : (
+      <div
+        onClick={() => triggerPhotoUpload(i.code)}
+        title="사진 없음 · 클릭하여 등록"
+        style={{
+          width: 38, height: 38, borderRadius: 6, boxSizing: "border-box",
+          border: "1px dashed #274460", background: "#0B1C2C", color: "#3E5975",
+          display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+        }}
+      >
+        <ImageIcon size={16} />
+      </div>
+    )}
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); triggerPhotoUpload(i.code); }}
+      title={i.image_url ? "사진 수정" : "사진 등록"}
+      style={{
+        position: "absolute", right: -7, bottom: -7, width: 20, height: 20, padding: 0,
+        borderRadius: "50%", border: "1px solid #F5A623", background: "#0F2233",
+        fontSize: 11, lineHeight: 1, cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}
+    >
+      📷
+    </button>
+  </div>
+</td>
                                     <td>
                     <span style={{
                       display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 10.5, fontWeight: 700,
@@ -8448,6 +8471,31 @@ const masterPageNumbers = useMemo(() => {
               </Btn>
             </div>
           </div>
+        </div>
+      )}
+            {zoomedImage && (
+        <div
+          onClick={() => setZoomedImage(null)}
+          className="app-modal-overlay"
+          style={{
+            position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,0.86)",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 20, cursor: "zoom-out",
+          }}
+        >
+          <img
+            src={zoomedImage}
+            alt="확대 사진"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "94vw", maxHeight: "90vh", objectFit: "contain", borderRadius: 10, boxShadow: "0 10px 40px rgba(0,0,0,0.65)", cursor: "default" }}
+          />
+          <button
+            type="button"
+            onClick={() => setZoomedImage(null)}
+            aria-label="확대 사진 닫기"
+            style={{ position: "fixed", top: 18, right: 18, width: 42, height: 42, borderRadius: 999, border: "1px solid #5E86A3", background: "#0F2233", color: "#E7EEF5", fontSize: 24, cursor: "pointer" }}
+          >
+            ×
+          </button>
         </div>
       )}
       {qrModalItem && window.innerWidth > 768 && (

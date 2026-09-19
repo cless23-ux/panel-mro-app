@@ -2831,7 +2831,6 @@ function AppInner() {
             {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
-            {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
             {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
           </div>
@@ -2902,10 +2901,202 @@ function AppInner() {
     </div>
   );
 }
+/* ---------------- 안전재고 미달 품목 모아보기 ---------------- */
+function ShortageModal({ items, onClose, onSelectItem }) {
+  const [level, setLevel] = useState("danger"); // "danger" = 부족만 / "all" = 부족 + 주의
+  const [search, setSearch] = useState("");
 
+  const dangerCount = useMemo(() => items.filter((i) => statusOf(i) === "danger").length, [items]);
+  const warnCount = useMemo(() => items.filter((i) => statusOf(i) === "warn").length, [items]);
+
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return items
+      .filter((i) => {
+        const st = statusOf(i);
+        if (level === "danger" ? st !== "danger" : st === "ok") return false;
+        if (!q) return true;
+        return [i.code, i.name, i.spec].some((v) => String(v || "").toLowerCase().includes(q));
+      })
+      .sort((a, b) => (Number(a.stock) / (Number(a.safety) || 1)) - (Number(b.stock) / (Number(b.safety) || 1)));
+  }, [items, level, search]);
+
+  const exportExcel = () => {
+    if (list.length === 0) { alert("저장할 품목이 없습니다."); return; }
+    const rows = list.map((i) => ({
+      "자재코드": i.code,
+      "품명": i.name,
+      "규격/사양": i.spec || "",
+      "단위": i.unit || "",
+      "현재고": Number(i.stock) || 0,
+      "안전재고": Number(i.safety) || 0,
+      "부족수량": Math.max(0, (Number(i.safety) || 0) - (Number(i.stock) || 0)),
+      "상태": STATUS_META[statusOf(i)].label,
+    }));
+    const fileBase = `MRO_안전재고미달_${nowStr().split(" ")[0]}`;
+
+    if (window.XLSX) {
+      const ws = window.XLSX.utils.json_to_sheet(rows);
+      ws["!cols"] = [{ wch: 24 }, { wch: 32 }, { wch: 38 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 8 }];
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, ws, "안전재고미달");
+      window.XLSX.writeFile(wb, `${fileBase}.xlsx`);
+      return;
+    }
+
+    // 엑셀 라이브러리를 아직 못 불러왔으면 CSV로 대신 저장
+    const header = Object.keys(rows[0]).join(",") + "\n";
+    const body = rows
+      .map((r) => Object.values(r).map((v) => `"${csvSafe(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob(["\uFEFF" + header + body], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${fileBase}.csv`;
+    link.click();
+  };
+
+  const chip = (id, label, color) => {
+    const on = level === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        onClick={() => setLevel(id)}
+        style={{
+          height: 32, padding: "0 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+          border: `1px solid ${on ? color : "#1F3B54"}`,
+          background: on ? `${color}1f` : "#0B1C2C",
+          color: on ? color : "#7F97AC",
+        }}
+      >
+        {label}
+      </button>
+    );
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      className="app-modal-overlay"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)",
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 960, maxHeight: "85vh", display: "flex", flexDirection: "column",
+          background: "#0F2233", border: "1px solid #EF535066", borderRadius: 14, padding: 22,
+          boxShadow: "0 0 26px -10px #EF5350",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 16, fontWeight: 700, color: "#FF6B6B" }}>
+              <AlertTriangle size={18} /> 안전재고 미달 품목
+            </div>
+            <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 3 }}>
+              총 {list.length}종 · 행을 누르면 자재마스터에서 해당 코드를 검색합니다
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={exportExcel}
+              disabled={list.length === 0}
+              style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8,
+                border: "1px solid #35D08C88", background: "#35D08C1f", color: "#35D08C",
+                fontSize: 12.5, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace",
+                cursor: list.length === 0 ? "not-allowed" : "pointer", opacity: list.length === 0 ? 0.45 : 1,
+              }}
+            >
+              <Download size={14} />엑셀 저장
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="닫기"
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#7F97AC", display: "flex", padding: 6 }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+          {chip("danger", `부족 (${dangerCount})`, "#EF5350")}
+          {chip("all", `부족 + 주의 (${dangerCount + warnCount})`, "#F5A623")}
+          <input
+            style={{ ...inputStyle, flex: 1, minWidth: 180, height: 34, padding: "4px 12px", fontSize: 13 }}
+            placeholder="코드, 품명, 규격 검색"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", border: "1px solid #1F3B54", borderRadius: 8 }}>
+          {list.length === 0 ? (
+            <EmptyState icon={CheckCircle2} text="조건에 해당하는 안전재고 미달 품목이 없습니다." color="#35D08C" />
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <thead style={{ position: "sticky", top: 0, background: "#0B1C2C", zIndex: 1 }}>
+                <tr>
+                  <th style={thStyle}>상태</th>
+                  <th style={thStyle}>자재코드</th>
+                  <th style={thStyle}>품명</th>
+                  <th style={thStyle}>규격/사양</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>현재고</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>안전재고</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>부족수량</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((i) => {
+                  const st = statusOf(i);
+                  const shortage = Math.max(0, (Number(i.safety) || 0) - (Number(i.stock) || 0));
+                  return (
+                    <tr
+                      key={i.code}
+                      onClick={() => onSelectItem && onSelectItem(i)}
+                      style={{ borderTop: "1px solid #14283A", cursor: onSelectItem ? "pointer" : "default" }}
+                    >
+                      <td style={tdStyle}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <Led status={st} size={9} />
+                          <span style={{ color: STATUS_META[st].color, fontWeight: 700, fontSize: 11.5 }}>{STATUS_META[st].label}</span>
+                        </span>
+                      </td>
+                      <td style={{ ...tdStyle, color: "#9FB4C7", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>{i.code}</td>
+                      <td style={{ ...tdStyle, whiteSpace: "normal", wordBreak: "break-word", color: "#38BDF8", fontWeight: 600 }}>{i.name}</td>
+                      <td style={{ ...tdStyle, whiteSpace: "normal", wordBreak: "break-word", color: "#9FB4C7" }}>{i.spec || "-"}</td>
+                      <td style={{ ...tdStyle, textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700, color: STATUS_META[st].color }}>
+                        {i.stock} {i.unit}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: "right", fontFamily: "IBM Plex Mono", color: "#7F97AC" }}>
+                        {i.safety} {i.unit}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#EF5350" }}>
+                        {shortage} {i.unit}
+                      </td>
+                                          </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 /* ---------------- Dashboard ---------------- */
 function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onSelectAlertItem }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
+  const [shortageModal, setShortageModal] = useState(false);
   const [cumulativeOutTxs, setCumulativeOutTxs] = useState([]);
   const [recentPage, setRecentPage] = useState(1);
   const RECENT_PAGE_SIZE = 10;
@@ -3015,7 +3206,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
         <StatCard label="관리 품목 수" value={items.length} unit="종" icon={Package} color="#5EC8FF" />
         <StatCard label="누적 입고" value={totalInQty.toLocaleString()} unit="" icon={ArrowDownToLine} color="#35D08C" onClick={() => setHistoryModal("in")} />
         <StatCard label="누적 출고" value={totalOutQty.toLocaleString()} unit="" icon={ArrowUpFromLine} color="#F5A623" onClick={() => setHistoryModal("out")} />
-        <StatCard label="안전재고 미달" value={items.filter((i) => statusOf(i) === "danger").length} unit="종" icon={AlertTriangle} color="#EF5350" />
+        <StatCard label="안전재고 미달" value={items.filter((i) => statusOf(i) === "danger").length} unit="종" icon={AlertTriangle} color="#EF5350" onClick={() => setShortageModal(true)} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 20 }}>
@@ -3245,6 +3436,16 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
 
       {historyModal && (
         <TxHistoryModal type={historyModal} txs={historyModal === "out" ? cumulativeOutTxs : txs} showDeleted={historyModal === "out"} onDeleteTransactions={onDeleteTransactions} onClose={() => setHistoryModal(null)} />
+      )}
+            {shortageModal && (
+        <ShortageModal
+          items={items}
+          onClose={() => setShortageModal(false)}
+          onSelectItem={(item) => {
+            setShortageModal(false);
+            if (onSelectAlertItem) onSelectAlertItem(item);
+          }}
+        />
       )}
     </div>
   );

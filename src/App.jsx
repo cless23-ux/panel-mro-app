@@ -2821,7 +2821,7 @@ function AppInner() {
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
-                        {tab === "master" && <MasterView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
+                        {tab === "master" && <MasterView items={items} txs={txs} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
             {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
@@ -6455,11 +6455,37 @@ async function buildQrLabelWorkbook(items) {
 }
 
 /* ---------------- 자재 마스터 관리 ---------------- */
-function MasterView({ items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart, searchPreset, onConsumeSearchPreset }) {
+/* 마지막 입출고 이후 미사용 일수 → 이모티콘 */
+function getIdleInfo(lastActivityMap, code) {
+  const rec = lastActivityMap[String(code || "").trim()];
+  if (!rec) return { emoji: "⚪", days: null, title: "입출고 이력 없음" };
+  const days = Math.max(0, Math.floor((Date.now() - rec.time) / 86400000));
+  const emoji = days >= 180 ? "🔴" : days >= 90 ? "🟠" : days >= 30 ? "🟡" : "🟢";
+  const typeLabel = rec.type === "in" ? "입고" : rec.type === "out" ? "출고" : "반납";
+  return { emoji, days, title: `마지막 ${typeLabel}: ${rec.at} (${days}일 전)` };
+}
+
+function IdleBadge({ info }) {
+  return (
+    <span
+      title={info.title}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 2, marginLeft: 6,
+        fontSize: 10, fontWeight: 400, color: "#7F97AC", whiteSpace: "nowrap",
+        fontFamily: "'IBM Plex Mono', monospace", verticalAlign: "middle", cursor: "help",
+      }}
+    >
+      <span style={{ fontSize: 11, lineHeight: 1 }}>{info.emoji}</span>
+      {info.days !== null ? `${info.days}일` : "-"}
+    </span>
+  );
+}
+function MasterView({ txs, items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart, searchPreset, onConsumeSearchPreset }) {
   const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", memo: "", image_url: "", in_use: false };
   const MATERIAL_PREFIX_BY_TYPE = { raw: "1", sub: "2", consumable: "4" };
   const MATERIAL_LABEL_BY_TYPE = { raw: "원자재", sub: "부자재", consumable: "소모자재" };
   const [form, setForm] = useState(blank);
+  const lastActivityMap = useMemo(() => computeLastActivityMap(txs), [txs]);
   const [formMaterialType, setFormMaterialType] = useState("raw"); // "raw"(원자재) | "sub"(부자재)
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
@@ -7236,6 +7262,9 @@ const masterPageNumbers = useMemo(() => {
     {sortConfig.direction === "asc" ? "오름차순 ▲" : "내림차순 ▼"}
   </button>
 </div>
+<div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 12 }}>
+  마지막 입출고 이후: 🟢 30일 미만 · 🟡 30~89일 · 🟠 90~179일 · 🔴 180일 이상 · ⚪ 이력 없음
+</div>
       {/* 긴급요청 경고 바 */}
       <div style={{
         background: pendingUrgentList.length > 0 ? "linear-gradient(90deg, #2A1010 0%, #150B0B 100%)" : "#0B1C2C",
@@ -7507,7 +7536,10 @@ const masterPageNumbers = useMemo(() => {
                   </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
                   <td>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{i.name}</div>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>
+  {i.name}
+  <IdleBadge info={getIdleInfo(lastActivityMap, i.code)} />
+</div>
                     {i.spec && <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>}
                   </td>                  
                   <td style={{ color: "#9FB4C7", fontSize: 12.5 }}>
@@ -7670,8 +7702,9 @@ const masterPageNumbers = useMemo(() => {
                         {MATERIAL_TYPE_META[mType].label}
                       </span>
                       <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", wordBreak: "break-all" }}>
-                        {i.name}
-                      </div>
+  {i.name}
+  <IdleBadge info={getIdleInfo(lastActivityMap, i.code)} />
+</div>
                     </div>
                     <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
                       {i.code} {i.spec ? `| ${i.spec}` : ""}

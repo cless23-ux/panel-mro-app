@@ -1879,7 +1879,7 @@ function AppInner() {
 
   const { hiddenNavIds, toggleHiddenNav } = useNavVisibility();
   
-  /* 발주 장바구니 상태 (자재코드 및 정보 담기) */
+  /* 발주 보관함 상태 (자재코드 및 정보 담기) */
   const [cartItems, setCartItems] = useState(() => {
     try {
       const saved = localStorage.getItem("panel:orderCart");
@@ -6571,7 +6571,7 @@ const masterPageNumbers = useMemo(() => {
   return out;
 }, [masterTotalPages, safeMasterPage]);
 
-  /* 경고 및 정보창(모달), 장바구니 모달 상태 */
+  /* 경고 및 정보창(모달), 보관함 모달 상태 */
   const [selectedUrgent, setSelectedUrgent] = useState(null);
   const [showCartModal, setShowCartModal] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -7095,7 +7095,7 @@ const masterPageNumbers = useMemo(() => {
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {/* 발주 장바구니 버튼 */}
+          {/* 발주 보관함 버튼 */}
           <button
             onClick={() => setShowCartModal(true)}
             style={{
@@ -7105,7 +7105,7 @@ const masterPageNumbers = useMemo(() => {
             }}
           >
             <ShoppingCart size={16} />
-            발주 장바구니
+            발주 보관함
             {cartItems.length > 0 && (
               <span style={{
                 background: "#38BDF8", color: "#0A1622", borderRadius: 999,
@@ -7954,7 +7954,7 @@ const masterPageNumbers = useMemo(() => {
                   setSelectedUrgent(null);
                 }}
               >
-                <ShoppingCart size={15} /> 발주 장바구니 담기
+                <ShoppingCart size={15} /> 발주 보관함 담기
               </Btn>
               <Btn
                 style={{ flex: 1, background: "#35D08C", border: "1px solid #35D08C", color: "#0A1622", fontSize: 13 }}
@@ -7971,7 +7971,7 @@ const masterPageNumbers = useMemo(() => {
         </div>
       )}
 
-            {/* 발주 장바구니 모달 */}
+            {/* 발주 보관함 모달 */}
       {showCartModal && (
         <div
           onClick={() => setShowCartModal(false)}
@@ -7991,7 +7991,7 @@ const masterPageNumbers = useMemo(() => {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#38BDF8", fontWeight: 700, fontSize: 16 }}>
                 <ShoppingCart size={20} />
-                한번에 몰아서 발주하기 (장바구니)
+                한번에 몰아서 발주하기 (보관함)
               </div>
               <button onClick={() => setShowCartModal(false)} style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4 }}>
                 <X size={20} />
@@ -8103,7 +8103,7 @@ const masterPageNumbers = useMemo(() => {
           </div>
         </div>
       )}
-      {/* 장바구니 항목 상세보기 모달 */}
+      {/* 보관함 항목 상세보기 모달 */}
       {cartDetailItem && (
         <div
           onClick={() => setCartDetailItem(null)}
@@ -8122,7 +8122,7 @@ const masterPageNumbers = useMemo(() => {
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#38BDF8", fontWeight: 700, fontSize: 16 }}>
-                <ShoppingCart size={20} /> 장바구니 항목 상세
+                <ShoppingCart size={20} /> 보관함 항목 상세
               </div>
               <button onClick={() => setCartDetailItem(null)} style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4 }}>
                 <X size={20} />

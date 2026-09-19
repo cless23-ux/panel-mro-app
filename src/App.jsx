@@ -2259,6 +2259,12 @@ function AppInner() {
         @keyframes tabSlideInFromLeft { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: translateX(0); } }
         input:focus, select:focus { border-color: #F5A623 !important; }
         button:active { transform: scale(0.98); }
+                .stat-clickable { transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
+        .stat-clickable:hover {
+          transform: translateY(-2px);
+          border-color: var(--stat-neon) !important;
+          box-shadow: 0 0 0 1px var(--stat-neon), 0 0 22px -4px var(--stat-neon) !important;
+        }
 
         .app-container { display: flex; min-height: 100vh; width: 100%; }
 
@@ -3148,7 +3154,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
               <table>
                 <thead>
                   <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                    <th>구분</th><th>자재</th><th>수량</th><th>일시</th>
+                    <th>구분</th><th>자재</th><th>수량</th><th>호선</th><th>프로젝트</th><th>불출자</th><th>일시</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3166,6 +3172,9 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
                       </td>
                       <td style={{ fontWeight: 600 }}>{t.itemName}</td>
                       <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600 }}>{t.qty}{t.unit}</td>
+                      <td style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</td>
+                      <td style={{ color: "#9FB4C7" }}>{t.project || "-"}</td>
+                      <td style={{ color: "#9FB4C7" }}>{t.worker || "-"}</td>
                       <td style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>{t.at}</td>
                     </tr>
                   ))}
@@ -3242,9 +3251,19 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
 }
 
 function StatCard({ label, value, unit, icon: Icon, color, onClick }) {
+  const clickable = !!onClick;
   return (
     <Card
-      style={{ padding: "16px 18px", cursor: onClick ? "pointer" : "default" }}
+      className={clickable ? "stat-clickable" : ""}
+      style={{
+        padding: "16px 18px",
+        cursor: clickable ? "pointer" : "default",
+        ...(clickable ? {
+          border: `1px solid ${color}66`,
+          boxShadow: `0 0 0 1px ${color}22, 0 0 16px -8px ${color}99, inset 0 0 22px -18px ${color}`,
+          "--stat-neon": color,
+        } : null),
+      }}
       onClick={onClick}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -3264,7 +3283,7 @@ function StatCard({ label, value, unit, icon: Icon, color, onClick }) {
         )}
       </div>
       {onClick && (
-        <div style={{ fontSize: 10, color: "#5E86A3", marginTop: 8 }}>클릭해서 상세 기록 보기 →</div>
+        <div style={{ fontSize: 10, color: `${color}cc`, marginTop: 8 }}>클릭해서 상세 기록 보기 →</div>
       )}
     </Card>
   );

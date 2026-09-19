@@ -3281,7 +3281,7 @@ function EmptyState({ icon: Icon, text, color }) {
 
 function Header({ title, subtitle }) {
   return (
-    <div style={{ marginBottom: 20 }}>
+    <div style={{ marginBottom: 20, textAlign: "left" }}>
       <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 26, fontWeight: 700, margin: 0 }}>{title}</h1>
       <div style={{ color: "#7F97AC", fontSize: 13, marginTop: 2, fontFamily: "IBM Plex Mono" }}>{subtitle}</div>
     </div>
@@ -7025,6 +7025,47 @@ const masterPageNumbers = useMemo(() => {
         .urgent-stack-item:hover {
           transform: translateY(-2px);
         }
+                  /* ---- 표 정렬 ---- */
+        .master-table-view th { white-space: nowrap; }
+        .master-table-view :is(th, td):is(:nth-child(1), :nth-child(2), :nth-child(3), :nth-child(4), :nth-child(5), :nth-child(9), :nth-child(10), :nth-child(11), :nth-child(13), :nth-child(14)) {
+          text-align: center;
+        }
+        .master-table-view td:nth-child(13) button { margin: 0 auto; }
+        .master-table-view td:nth-child(6) { overflow-wrap: anywhere; }
+        .master-table-view td:nth-child(7) { overflow-wrap: anywhere; line-height: 1.4; }
+        .master-table-view th select,
+        .master-table-view th input:not([type="checkbox"]) {
+          width: 100% !important;
+          height: 30px;
+          font-size: 11.5px !important;
+        }
+        .master-table-view td input[type="text"],
+        .master-table-view td input[type="number"] {
+          width: 100% !important;
+          box-sizing: border-box;
+        }
+
+        /* ---- 상단 버튼 높이 통일 ---- */
+        .master-toolbar button,
+        .master-toolbar label > span {
+          height: 40px !important;
+          padding: 0 16px !important;
+          box-sizing: border-box !important;
+          display: inline-flex !important;
+          align-items: center;
+          font-size: 13.5px !important;
+          white-space: nowrap;
+        }
+
+        /* ---- 필터 칩 크기 통일 ---- */
+        .master-chips button {
+          height: 32px;
+          padding: 0 14px !important;
+          font-size: 12.5px !important;
+          display: inline-flex !important;
+          align-items: center;
+          white-space: nowrap;
+        }
       `}</style>
 
       <Header title="자재 마스터" subtitle="신규 자재 등록 · QR 생성 · 사진 관리 및 백업" />
@@ -7045,7 +7086,7 @@ const masterPageNumbers = useMemo(() => {
         onChange={(e) => handleImageFileSelected(e, targetItemForPhoto)}
       />
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", justifyContent: "space-between" }}>
+      <div className="master-toolbar" style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", justifyContent: "space-between" }}>
         <div style={{ display: "flex", gap: 8 }}>
           <Btn onClick={() => setShowForm((s) => !s)} variant={showForm ? "ghost" : "primary"}>
             {showForm ? <X size={16} /> : <Plus size={16} />}
@@ -7128,8 +7169,8 @@ const masterPageNumbers = useMemo(() => {
         </div>
       </div>
 
-      {/* 원자재 / 부자재 구분 필터 탭 */}
-       <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+      {/* 원자재 / 부자재 구분 필터 탭 */}       
+       <div className="master-chips" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
         {[
           { id: "all", label: `전체 (${items.length})` },        
           { id: "sub", label: `부자재 (${items.filter((i) => getMaterialType(i.code) === "sub").length})` },
@@ -7150,7 +7191,7 @@ const masterPageNumbers = useMemo(() => {
           </button>
         ))}
       </div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+            <div className="master-chips" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>실사용 여부:</span>
         {[
           { id: "all", label: "전체" },
@@ -7350,7 +7391,23 @@ const masterPageNumbers = useMemo(() => {
       {/* 1) PC/태블릿용 테이블 뷰 */}
       <Card style={{ padding: 8 }} className="master-table-view">
         <div style={{ maxHeight: "calc(100vh - 240px)", overflow: "auto", width: "100%" }}>
-          <table style={{ width: "100%", minWidth: 0, tableLayout: "auto" }}>
+          <table style={{ width: "100%", minWidth: 1440, tableLayout: "fixed" }}>
+  <colgroup>
+    <col style={{ width: 44 }} />
+    <col style={{ width: 52 }} />
+    <col style={{ width: 62 }} />
+    <col style={{ width: 88 }} />
+    <col style={{ width: 88 }} />
+    <col style={{ width: 190 }} />
+    <col />
+    <col style={{ width: 110 }} />
+    <col style={{ width: 70 }} />
+    <col style={{ width: 100 }} />
+    <col style={{ width: 100 }} />
+    <col style={{ width: 150 }} />
+    <col style={{ width: 72 }} />
+    <col style={{ width: 56 }} />
+  </colgroup>
             <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
                             <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
                 <th style={{ width: 42, textAlign: "center" }}>

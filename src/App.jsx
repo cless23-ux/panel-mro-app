@@ -6481,7 +6481,7 @@ const [masterPageSize, setMasterPageSize] = useState(100);
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
-  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", category: "all", unit: "all", stock: "all", inUse: "all" });
+  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", memo: "", category: "all", unit: "all", stock: "all", inUse: "all" });
 const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
 
 // ↓↓↓ 여기 추가 ↓↓↓
@@ -6510,7 +6510,7 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
     const text = (value, q) => !q || String(value || "").toLowerCase().includes(q.toLowerCase());
     const filtered = items.filter((i) => {
       if (materialFilter !== "all" && getMaterialType(i.code) !== materialFilter) return false;
-      if (!text(i.code, f.code) || !text(i.name, f.name)) return false;
+      if (!text(i.code, f.code) || !text(i.name, f.name) || !text(i.memo, f.memo)) return false;
       if (f.category !== "all" && String(i.category || "").trim() !== f.category) return false;
       if (f.unit !== "all" && String(i.unit || "").trim() !== f.unit) return false;
       if (f.stock === "low" && !(Number(i.stock) <= Number(i.safety))) return false;
@@ -7437,11 +7437,19 @@ const masterPageNumbers = useMemo(() => {
                 <th><input value={columnFilters.code} onChange={(e) => updateColumnFilter("code", e.target.value)} placeholder="코드" style={{ ...inputStyle, width: 105, padding: "4px 6px", fontSize: 10.5 }} /></th>
                 <th><input value={columnFilters.name} onChange={(e) => updateColumnFilter("name", e.target.value)} placeholder="품명" style={{ ...inputStyle, width: 130, padding: "4px 6px", fontSize: 10.5 }} /></th>            
                 <th><select value={columnFilters.category} onChange={(e) => updateColumnFilter("category", e.target.value)} style={{ ...inputStyle, width: 95, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.category.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
-                <th><select value={columnFilters.unit} onChange={(e) => updateColumnFilter("unit", e.target.value)} style={{ ...inputStyle, width: 70, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.unit.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
-                <th><select value={columnFilters.stock} onChange={(e) => updateColumnFilter("stock", e.target.value)} style={{ ...inputStyle, width: 82, padding: "4px 6px", fontSize: 10.5 }}><option value="all">재고전체</option><option value="low">부족/주의</option><option value="normal">정상</option></select></th>
-                <th style={{ width: 190, minWidth: 190, paddingLeft: 4, paddingRight: 4, boxSizing: "border-box" }}></th>
-                <th style={{ width: 62, minWidth: 62, paddingLeft: 2, paddingRight: 2, boxSizing: "border-box" }}></th>
-                <th style={{ width: 48, minWidth: 48, paddingLeft: 2, paddingRight: 2, boxSizing: "border-box" }}></th>
+                <th></th>{/* 단위 */}
+<th></th>{/* 현재고 */}
+<th></th>{/* 안전재고 */}
+<th>
+  <input
+    value={columnFilters.memo}
+    onChange={(e) => updateColumnFilter("memo", e.target.value)}
+    placeholder="비고"
+    style={{ ...inputStyle, width: "100%", padding: "4px 6px", fontSize: 10.5 }}
+  />
+</th>
+<th></th>{/* QR */}
+<th></th>{/* 삭제 */}
               </tr>
             </thead>
             <tbody>

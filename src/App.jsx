@@ -2088,21 +2088,34 @@ function AppInner() {
   }, []);
   /* 모바일에서 입력창 포커스 시 키보드에 가리지 않도록 자동 스크롤 */
   useEffect(() => {
-    const handleFocusIn = (e) => {
-      const target = e.target;
-      if (!target) return;
-      const tag = target.tagName;
-      if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
-      // 키보드가 올라오는 애니메이션 시간을 기다린 뒤 스크롤
-      setTimeout(() => {
-        try {
+  const handleFocusIn = (e) => {
+    // PC 화면에서는 스크롤 조정 안 함
+    if (window.innerWidth > 768) return;
+
+    const target = e.target;
+    if (!target) return;
+    const tag = target.tagName;
+    if (tag !== "INPUT" && tag !== "TEXTAREA" && tag !== "SELECT") return;
+
+    // 표 안에서 바로 수정하는 입력창은 제외
+    if (target.closest("table")) return;
+
+    // 키보드가 올라오는 애니메이션 시간을 기다린 뒤, 실제로 가려질 때만 스크롤
+    setTimeout(() => {
+      try {
+        const rect = target.getBoundingClientRect();
+        const viewportH = window.visualViewport?.height || window.innerHeight;
+        const hiddenByKeyboard = rect.bottom > viewportH - 8;
+        const aboveScreen = rect.top < 0;
+        if (hiddenByKeyboard || aboveScreen) {
           target.scrollIntoView({ behavior: "smooth", block: "center" });
-        } catch {}
-      }, 300);
-    };
-    document.addEventListener("focusin", handleFocusIn);
-    return () => document.removeEventListener("focusin", handleFocusIn);
-  }, []);
+        }
+      } catch {}
+    }, 300);
+  };
+  document.addEventListener("focusin", handleFocusIn);
+  return () => document.removeEventListener("focusin", handleFocusIn);
+}, []);
   const refreshAll = async () => {
     setRefreshing(true);
     await Promise.all([reloadItems(), reloadTxs()]);

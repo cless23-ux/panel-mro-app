@@ -3194,10 +3194,6 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
   }, [recentAll, recentPage, recentTotalPages]);
 
   useEffect(() => {
-    setRecentPage(1);
-  }, [txs]);
-
-  useEffect(() => {
     if (recentPage > recentTotalPages) setRecentPage(recentTotalPages);
   }, [recentPage, recentTotalPages]);
 

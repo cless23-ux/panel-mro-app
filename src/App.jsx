@@ -3812,7 +3812,10 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     if (outSubmitting) return;
     if (!found || !qty || Number(qty) <= 0) { notify("자재를 스캔하고 수량을 입력해주세요.", "err"); return; }
     if (Number(qty) > found.stock) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
-
+    if (!String(shipNo).trim() || !String(project).trim() || !String(worker).trim()) {
+    notify("호선, 프로젝트, 불출자를 모두 입력해주세요.", "err");
+    return;
+  }
         const confirmMsg =
       `다음 내용으로 출고하시겠습니까?\n\n` +
       `자재: ${found.name}\n` +
@@ -4042,7 +4045,15 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       notify("반납 취소 중 오류가 발생했습니다.", "err");
     }
   };
+// 불출정보 1~4번(호선·프로젝트·불출수량·불출자) 모두 입력되었는지
+const isOutFormComplete =
+  !!String(shipNo).trim() &&
+  !!String(project).trim() &&
+  Number(qty) > 0 &&
+  Number(qty) <= Number(found?.stock ?? 0) &&
+  !!String(worker).trim();
 
+const canSubmitOut = !outSubmitting && isOutFormComplete;
   const modeChipStyle = (active, color) => ({
     flex: 1,
     padding: "9px 12px",
@@ -4439,17 +4450,17 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
                   </div>
 
                   <Btn
-                    onClick={submit}
-                    disabled={outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock}
-                    style={{
-                      marginTop: 4, width: "100%",
-                      background: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#1F3B54" : "#F5A623",
-                      color: (outSubmitting || !qty || Number(qty) <= 0 || Number(qty) > found.stock) ? "#5E86A3" : "#0A1622",
-                      fontWeight: "bold", fontSize: 15
-                    }}
-                  >
-                    <ArrowUpFromLine size={18} />{outSubmitting ? "처리 중..." : "출고 확정"}
-                  </Btn>
+  onClick={submit}
+  disabled={!canSubmitOut}
+  style={{
+    marginTop: 4, width: "100%",
+    background: canSubmitOut ? "#F5A623" : "#1F3B54",
+    color: canSubmitOut ? "#0A1622" : "#5E86A3",
+    fontWeight: "bold", fontSize: 15
+  }}
+>
+  <ArrowUpFromLine size={18} />{outSubmitting ? "처리 중..." : "출고 확정"}
+</Btn>
                 </>
               ) : (
                 <>

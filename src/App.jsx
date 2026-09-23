@@ -3733,7 +3733,9 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   // 3순위: 품명 완전일치
   hit = items.find((i) => getName(i) === cleanScan);
   if (hit) return hit;
-
+// 품목번호 완전일치
+  hit = items.find((i) => String(i.item_no || "").trim().toLowerCase() === cleanScan);
+  if (hit) return hit;
   // 4순위(최후 수단): 포함 관계 - 완전일치가 하나도 없을 때만 사용
   hit = items.find((i) => {
     const code = getCode(i);
@@ -5594,11 +5596,12 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       const matchSearch =
-        !search ||
-        item.name.toLowerCase().includes(search.toLowerCase()) ||
-        item.code.toLowerCase().includes(search.toLowerCase()) ||
-        (item.manufacturer && item.manufacturer.toLowerCase().includes(search.toLowerCase())) ||
-        (item.memo && item.memo.toLowerCase().includes(search.toLowerCase()));
+  !search ||
+  item.name.toLowerCase().includes(search.toLowerCase()) ||
+  item.code.toLowerCase().includes(search.toLowerCase()) ||
+  (item.item_no && String(item.item_no).toLowerCase().includes(search.toLowerCase())) ||
+  (item.manufacturer && item.manufacturer.toLowerCase().includes(search.toLowerCase())) ||
+  (item.memo && item.memo.toLowerCase().includes(search.toLowerCase()));
 
       const itemCategory = String(item.category || "").trim();
       const matchCategory =
@@ -6658,10 +6661,11 @@ async function buildQrLabelWorkbook(items) {
   for (const item of items) {
     const startRow = row;
     const rows = [
-      ["자재코드 :", item.code],
-      ["품명   :", item.name],
-      ["규격/사양:", item.spec || ""],
-    ];
+  ["품목번호 :", item.item_no || "-"],
+  ["자재코드 :", item.code],
+  ["품명   :", item.name],
+  ["규격/사양:", item.spec || ""],
+];
     rows.forEach(([label, value]) => {
       sheet.getRow(row).height = 35;
       sheet.getCell(`B${row}`).value = label;
@@ -6721,11 +6725,15 @@ function IdleBadge({ info }) {
   );
 }
 function MasterView({ txs, items, saveItems, notify, urgentRequests, resolveUrgentRequest, cartItems, addToCart, removeFromCart, clearCart, searchPreset, onConsumeSearchPreset }) {
-  const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", memo: "", image_url: "", in_use: false };
+  const blank = { code: "", name: "", spec: "", unit: "EA", stock: 0, safety: 0, location: "", manufacturer: "", category: "", memo: "", image_url: "", in_use: false, item_no: "" };
   const MATERIAL_PREFIX_BY_TYPE = { raw: "1", sub: "2", consumable: "4" };
   const MATERIAL_LABEL_BY_TYPE = { raw: "원자재", sub: "부자재", consumable: "소모자재" };
   const [form, setForm] = useState(blank);
   const lastActivityMap = useMemo(() => computeLastActivityMap(txs), [txs]);
+   const nextItemNo = useMemo(() => {
+    const nums = items.map((i) => Number(i.item_no)).filter((n) => Number.isFinite(n) && n > 0);
+    return (nums.length ? Math.max(...nums) : 0) + 1;
+  }, [items]);
   const [formMaterialType, setFormMaterialType] = useState("raw"); // "raw"(원자재) | "sub"(부자재)
   const [showForm, setShowForm] = useState(false);
   const [qrModalItem, setQrModalItem] = useState(null);
@@ -7022,12 +7030,13 @@ const masterPageNumbers = useMemo(() => {
     }
 
         const newItem = {
-      ...form,
-      stock: Number(form.stock) || 0,
-      safety: Number(form.safety) || 0,
-      in_use: !!form.in_use,
-      deleted: false,
-    };
+  ...form,
+  item_no: form.item_no.trim() || String(nextItemNo),
+  stock: Number(form.stock) || 0,
+  safety: Number(form.safety) || 0,
+  in_use: !!form.in_use,
+  deleted: false,
+};
 
     const nextItems = [...items, newItem];
     await saveItems(nextItems);
@@ -7081,8 +7090,8 @@ const masterPageNumbers = useMemo(() => {
     setSelectedQrCodes([]);
   };
     const exportCSV = () => {
-    const headers = ["코드,품명,규격,카테고리,단위,현재고,안전재고,거래처,비고,이미지주소,실사용\n"];
-    const rows = items.map(i => `"${csvSafe(i.code)}","${csvSafe(i.name)}","${csvSafe(i.spec)}","${csvSafe(i.category)}","${i.unit}",${i.stock},${i.safety},"${csvSafe(i.manufacturer)}","${csvSafe(i.memo)}","${csvSafe(i.image_url)}","${i.in_use ? "Y" : ""}"\n`);
+    const headers = ["코드,품명,규격,카테고리,단위,현재고,안전재고,거래처,비고,이미지주소,실사용,품목번호\n"];
+    const rows = items.map(i => `"${csvSafe(i.code)}","${csvSafe(i.name)}","${csvSafe(i.spec)}","${csvSafe(i.category)}","${i.unit}",${i.stock},${i.safety},"${csvSafe(i.manufacturer)}","${csvSafe(i.memo)}","${csvSafe(i.image_url)}","${i.in_use ? "Y" : ""}","${csvSafe(i.item_no)}"\n`);
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -7148,8 +7157,9 @@ const masterPageNumbers = useMemo(() => {
           const stock = Number(getCol('현재고', '재고', '수량', '입고수량', '재고수량', 'stock', 'qty')) || 0;
           const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
           const location = getCol('위치', 'location');
-          const imageUrl = getCol('이미지', 'image_url', '사진');
-
+          const imageUrl = getCol('이미지주소', '이미지', 'image_url', '사진');
+          const itemNo = getCol('품목번호', 'item_no', '번호');
+          
           if (!code && !fullName) return null;
 
           return {
@@ -7164,6 +7174,7 @@ const masterPageNumbers = useMemo(() => {
             manufacturer: manufacturer,
             memo: memo || "",
             image_url: imageUrl || "",
+            item_no: itemNo || "",
             deleted: false,
           };
         }).filter(Boolean);
@@ -7177,16 +7188,19 @@ const masterPageNumbers = useMemo(() => {
           saveItems(parsed);
           notify(`전체교체 완료: 기존 목록을 지우고 ${parsed.length}개 자재로 교체했습니다.`, "ok");
         } else {
-          // 병합: 기존 자재는 유지하고, 코드가 겹치면 엑셀 값으로 갱신, 새 코드는 추가
-          const byCode = new Map(items.map((i) => [String(i.code).trim(), i]));
-          parsed.forEach((p) => {
-            const key = String(p.code).trim();
-            byCode.set(key, { ...(byCode.get(key) || {}), ...p });
-          });
-          const merged = Array.from(byCode.values());
-          saveItems(merged);
-          notify(`병합 완료: 엑셀 ${parsed.length}개 항목 반영 (전체 ${merged.length}개)`, "ok");
-        }
+  // 병합: 기존 자재는 유지하고, 코드가 겹치면 엑셀 값으로 갱신, 새 코드는 추가
+  // 단, 엑셀에 이미지 URL이 비어 있으면 기존에 등록해둔 사진은 지우지 않고 유지합니다.
+  const byCode = new Map(items.map((i) => [String(i.code).trim(), i]));
+  parsed.forEach((p) => {
+    const key = String(p.code).trim();
+    const prev = byCode.get(key) || {};
+    const nextImageUrl = p.image_url && p.image_url.trim() ? p.image_url : prev.image_url;
+    byCode.set(key, { ...prev, ...p, image_url: nextImageUrl });
+  });
+  const merged = Array.from(byCode.values());
+  saveItems(merged);
+  notify(`병합 완료: 엑셀 ${parsed.length}개 항목 반영 (전체 ${merged.length}개)`, "ok");
+}
       } catch (err) {
         console.error(err);
         notify("엑셀 파일을 처리하는 중 오류가 발생했습니다.", "err");
@@ -7603,7 +7617,17 @@ const masterPageNumbers = useMemo(() => {
             <Field label="초기 재고"><input style={inputStyle} type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: e.target.value })} /></Field>
             <Field label="안전재고 기준"><input style={inputStyle} type="number" value={form.safety} onChange={(e) => setForm({ ...form, safety: e.target.value })} /></Field>
             <Field label="저장 위치"><input style={inputStyle} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="예: A-03" /></Field>
-            
+            <Field label="품목번호 (검색·QR태그용, 비워두면 자동채번)">
+  <div style={{ display: "flex", gap: 6 }}>
+    <input
+      style={inputStyle}
+      value={form.item_no}
+      onChange={(e) => setForm({ ...form, item_no: e.target.value })}
+      placeholder={`예: ${nextItemNo}`}
+    />
+    <Btn variant="subtle" onClick={() => setForm({ ...form, item_no: String(nextItemNo) })}>자동채번</Btn>
+  </div>
+</Field>
             <div style={{ gridColumn: "1 / -1", background: "#0B1C2C", padding: 14, borderRadius: 8, border: "1px dashed #274460" }}>
               <span style={{ fontSize: 13, color: "#9FB4C7", fontWeight: 600, display: "block", marginBottom: 8 }}>
                 자재 사진 첨부 (자동 압축)

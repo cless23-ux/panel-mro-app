@@ -6755,7 +6755,7 @@ const [masterPageSize, setMasterPageSize] = useState(100);
 
   /* 원자재 / 부자재 구분 탭 (자재코드 접두사 1-/2- 기준으로 필터링) */
   const [materialFilter, setMaterialFilter] = useState("all"); // "all" | "raw" | "sub"
-  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", memo: "", category: "all", unit: "all", stock: "all", inUse: "all" });
+  const [columnFilters, setColumnFilters] = useState({ code: "", name: "", itemNo: "", memo: "", category: "all", unit: "all", stock: "all", inUse: "all" });
 const updateColumnFilter = (key, value) => setColumnFilters((prev) => ({ ...prev, [key]: value }));
 
 // ↓↓↓ 여기 추가 ↓↓↓
@@ -6783,8 +6783,8 @@ const sortArrow = (key) => (sortConfig.key === key ? (sortConfig.direction === "
     const f = columnFilters;
     const text = (value, q) => !q || String(value || "").toLowerCase().includes(q.toLowerCase());
     const filtered = items.filter((i) => {
-      if (materialFilter !== "all" && getMaterialType(i.code) !== materialFilter) return false;
-      if (!text(i.code, f.code) || !text(i.name, f.name) || !text(i.memo, f.memo)) return false;
+  if (materialFilter !== "all" && getMaterialType(i.code) !== materialFilter) return false;
+  if (!text(i.code, f.code) || !text(i.name, f.name) || !text(i.memo, f.memo) || !text(i.item_no, f.itemNo)) return false;
       if (f.category !== "all" && String(i.category || "").trim() !== f.category) return false;
       if (f.unit !== "all" && String(i.unit || "").trim() !== f.unit) return false;
       if (f.stock === "low" && !(Number(i.stock) <= Number(i.safety))) return false;
@@ -7707,6 +7707,7 @@ const masterPageNumbers = useMemo(() => {
                 <th style={{ width: 42, textAlign: "center" }}>
                   <input type="checkbox" checked={displayedItems.length > 0 && displayedItems.every((i) => selectedQrCodes.includes(i.code))} onChange={toggleAllQrSelection} title="현재 목록 전체 선택" />
                 </th><th>No.</th><th>사진</th><th>구분</th><th>실사용</th><th onClick={() => handleSort("code")} style={{ cursor: "pointer", userSelect: "none" }}>코드{sortArrow("code")}</th>
+<th onClick={() => handleSort("item_no")} style={{ cursor: "pointer", userSelect: "none" }}>품목번호{sortArrow("item_no")}</th>
 <th onClick={() => handleSort("name")} style={{ cursor: "pointer", userSelect: "none" }}>품명 / 규격{sortArrow("name")}</th>
 <th onClick={() => handleSort("category")} style={{ cursor: "pointer", userSelect: "none" }}>카테고리{sortArrow("category")}</th>
 <th onClick={() => handleSort("unit")} style={{ cursor: "pointer", userSelect: "none" }}>단위{sortArrow("unit")}</th>
@@ -7729,6 +7730,7 @@ const masterPageNumbers = useMemo(() => {
                   </select>
                 </th>
                 <th><input value={columnFilters.code} onChange={(e) => updateColumnFilter("code", e.target.value)} placeholder="코드" style={{ ...inputStyle, width: 105, padding: "4px 6px", fontSize: 10.5 }} /></th>
+                <th><input value={columnFilters.itemNo} onChange={(e) => updateColumnFilter("itemNo", e.target.value)} placeholder="번호" style={{ ...inputStyle, width: 70, padding: "4px 6px", fontSize: 10.5 }} /></th>
                 <th><input value={columnFilters.name} onChange={(e) => updateColumnFilter("name", e.target.value)} placeholder="품명" style={{ ...inputStyle, width: 130, padding: "4px 6px", fontSize: 10.5 }} /></th>            
                 <th><select value={columnFilters.category} onChange={(e) => updateColumnFilter("category", e.target.value)} style={{ ...inputStyle, width: 95, padding: "4px 6px", fontSize: 10.5 }}><option value="all">전체</option>{masterFilterOptions.category.map(v => <option key={v} value={v}>{v}</option>)}</select></th>
                 <th></th>{/* 단위 */}
@@ -7822,7 +7824,13 @@ const masterPageNumbers = useMemo(() => {
                     </button>
                   </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", color: "#F5A623", fontWeight: 700, textAlign: "center" }}>{i.item_no || "-"}</td>
                   <td>
+                  {i.item_no && (
+    <div style={{ fontSize: 10.5, color: "#F5A623", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>
+      №{i.item_no}
+    </div>
+  )}
                     <div style={{ fontWeight: 600, fontSize: 14 }}>
   {i.name}
   <IdleBadge info={getIdleInfo(lastActivityMap, i.code)} />

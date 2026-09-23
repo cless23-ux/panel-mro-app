@@ -7692,7 +7692,8 @@ const masterPageNumbers = useMemo(() => {
     <col style={{ width: 62 }} />
     <col style={{ width: 88 }} />
     <col style={{ width: 88 }} />
-    <col style={{ width: 190 }} />
+    <col style={{ width: 90 }} />    {/* 품목번호 - 새로 추가 */}
+    <col style={{ width: 150 }} />   {/* 코드 - 폭 살짝 줄임 */}
     <col />
     <col style={{ width: 110 }} />
     <col style={{ width: 70 }} />
@@ -7706,7 +7707,7 @@ const masterPageNumbers = useMemo(() => {
                             <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
                 <th style={{ width: 42, textAlign: "center" }}>
                   <input type="checkbox" checked={displayedItems.length > 0 && displayedItems.every((i) => selectedQrCodes.includes(i.code))} onChange={toggleAllQrSelection} title="현재 목록 전체 선택" />
-                </th><th>No.</th><th>사진</th><th>구분</th><th>실사용</th><th onClick={() => handleSort("code")} style={{ cursor: "pointer", userSelect: "none" }}>코드{sortArrow("code")}</th>
+                </th><th>No.</th><th>사진</th><th>구분</th><th>실사용</th><th onClick={() => handleSort("item_no")} style={{ cursor: "pointer", userSelect: "none" }}>품목번호{sortArrow("item_no")}</th><th onClick={() => handleSort("code")} style={{ cursor: "pointer", userSelect: "none" }}>코드{sortArrow("code")}</th>
 <th onClick={() => handleSort("item_no")} style={{ cursor: "pointer", userSelect: "none" }}>품목번호{sortArrow("item_no")}</th>
 <th onClick={() => handleSort("name")} style={{ cursor: "pointer", userSelect: "none" }}>품명 / 규격{sortArrow("name")}</th>
 <th onClick={() => handleSort("category")} style={{ cursor: "pointer", userSelect: "none" }}>카테고리{sortArrow("category")}</th>
@@ -7729,6 +7730,7 @@ const masterPageNumbers = useMemo(() => {
                     <option value="all">전체</option><option value="yes">실사용</option><option value="no">미사용</option>
                   </select>
                 </th>
+                <th><input value={columnFilters.itemNo} onChange={(e) => updateColumnFilter("itemNo", e.target.value)} placeholder="번호" style={{ ...inputStyle, width: 78, padding: "4px 6px", fontSize: 10.5 }} /></th>
                 <th><input value={columnFilters.code} onChange={(e) => updateColumnFilter("code", e.target.value)} placeholder="코드" style={{ ...inputStyle, width: 105, padding: "4px 6px", fontSize: 10.5 }} /></th>
                 <th><input value={columnFilters.itemNo} onChange={(e) => updateColumnFilter("itemNo", e.target.value)} placeholder="번호" style={{ ...inputStyle, width: 70, padding: "4px 6px", fontSize: 10.5 }} /></th>
                 <th><input value={columnFilters.name} onChange={(e) => updateColumnFilter("name", e.target.value)} placeholder="품명" style={{ ...inputStyle, width: 130, padding: "4px 6px", fontSize: 10.5 }} /></th>            
@@ -7823,8 +7825,8 @@ const masterPageNumbers = useMemo(() => {
                       <CheckCircle2 size={14} />
                     </button>
                   </td>
-                  <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#F5A623", fontWeight: 700, textAlign: "center" }}>{i.item_no || "-"}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
                   <td>
                   {i.item_no && (
     <div style={{ fontSize: 10.5, color: "#F5A623", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>

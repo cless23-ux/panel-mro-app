@@ -3177,7 +3177,24 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
 
     return Object.values(map);
   }, [txs, selectedShip, selectedProject]);
+const [materialSearch, setMaterialSearch] = useState("");
 
+const filteredConsumption = useMemo(() => {
+  const q = materialSearch.trim().toLowerCase();
+  if (!q) return shipMaterialConsumption;
+  return shipMaterialConsumption.filter(
+    (m) =>
+      String(m.name || "").toLowerCase().includes(q) ||
+      String(m.code || "").toLowerCase().includes(q)
+  );
+}, [shipMaterialConsumption, materialSearch]);
+
+const filteredTotalText = useMemo(() => {
+  const units = Array.from(new Set(filteredConsumption.map((m) => m.unit)));
+  if (units.length !== 1) return null;
+  const total = filteredConsumption.reduce((s, m) => s + m.qty, 0);
+  return `${total.toLocaleString()} ${units[0]}`;
+}, [filteredConsumption]);
   const recentAll = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
@@ -3255,48 +3272,85 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
           </div>
 
           {shipMaterialConsumption.length === 0 ? (
-            <EmptyState
-              icon={ScanLine}
-              text={
-                selectedProject === ALL_PROJECTS
-                  ? `[${selectedShip}] 호선에 출고된 자재 이력이 없습니다.`
-                  : `[${selectedShip} / ${selectedProject}] 조건에 출고된 자재 이력이 없습니다.`
-              }
-              color="#5E86A3"
-            />
-          ) : (
-            <div>
-              <div style={{ height: 200, marginBottom: 16 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={shipMaterialConsumption} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid stroke="#17293B" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={{ stroke: "#1F3B54" }} tickLine={false} />
-                    <YAxis tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <Tooltip
-                      cursor={{ fill: "#F5A62311" }}
-                      contentStyle={{ background: "#0F2233", border: "1px solid #274460", borderRadius: 8, fontSize: 12 }}
-                      formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
-                    />
-                    <Bar dataKey="qty" radius={[6, 6, 0, 0]}>
-                      {shipMaterialConsumption.map((_, idx) => (
-                        <Cell key={idx} fill={["#F5A623", "#38BDF8", "#35D08C", "#EF5350", "#A855F7"][idx % 5]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+  <EmptyState
+    icon={ScanLine}
+    text={
+      selectedProject === ALL_PROJECTS
+        ? `[${selectedShip}] 호선에 출고된 자재 이력이 없습니다.`
+        : `[${selectedShip} / ${selectedProject}] 조건에 출고된 자재 이력이 없습니다.`
+    }
+    color="#5E86A3"
+  />
+) : (
+  <div>
+    <div style={{ position: "relative", marginBottom: 12 }}>
+      <Search
+        size={15}
+        color="#5E86A3"
+        style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+      />
+      <input
+        style={{ ...inputStyle, paddingLeft: 36, paddingRight: materialSearch ? 34 : 14, height: 38, fontSize: 13 }}
+        placeholder="자재 코드 또는 품명으로 검색"
+        value={materialSearch}
+        onChange={(e) => setMaterialSearch(e.target.value)}
+      />
+      {materialSearch && (
+        <button
+          type="button"
+          onClick={() => setMaterialSearch("")}
+          aria-label="검색 지우기"
+          style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", color: "#7F97AC" }}
+        >
+          <X size={16} />
+        </button>
+      )}
+    </div>
 
-              <div style={{ background: "#0B1C2C", borderRadius: 8, padding: 10, maxHeight: 120, overflowY: "auto", border: "1px solid #1F3B54" }}>
-                <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 6, fontWeight: 600 }}>사용 자재 상세 목록</div>
-                {shipMaterialConsumption.map((item) => (
-                  <div key={item.code} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0", borderBottom: "1px solid #16293C" }}>
-                    <span style={{ color: "#E7EEF5", fontWeight: 500 }}>{item.name} <span style={{ fontSize: 10, color: "#7F97AC" }}>({item.code})</span></span>
-                    <span style={{ color: "#F5A623", fontWeight: 700, fontFamily: "IBM Plex Mono" }}>{item.qty} {item.unit}</span>
-                  </div>
+    {materialSearch.trim() && (
+      <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 10 }}>
+        검색 결과 <b style={{ color: "#38BDF8" }}>{filteredConsumption.length}</b>종
+        {filteredTotalText && <> · 총 사용량 <b style={{ color: "#F5A623" }}>{filteredTotalText}</b></>}
+      </div>
+    )}
+
+    {filteredConsumption.length === 0 ? (
+      <EmptyState icon={Search} text={`"${materialSearch.trim()}"에 해당하는 사용 자재가 없습니다.`} color="#5E86A3" />
+    ) : (
+      <>
+        <div style={{ height: 200, marginBottom: 16 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={filteredConsumption} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid stroke="#17293B" vertical={false} />
+              <XAxis dataKey="name" interval={0} tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={{ stroke: "#1F3B54" }} tickLine={false} />
+              <YAxis tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip
+                cursor={{ fill: "#F5A62311" }}
+                contentStyle={{ background: "#0F2233", border: "1px solid #274460", borderRadius: 8, fontSize: 12 }}
+                formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
+              />
+              <Bar dataKey="qty" radius={[6, 6, 0, 0]}>
+                {filteredConsumption.map((_, idx) => (
+                  <Cell key={idx} fill={["#F5A623", "#38BDF8", "#35D08C", "#EF5350", "#A855F7"][idx % 5]} />
                 ))}
-              </div>
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div style={{ background: "#0B1C2C", borderRadius: 8, padding: 10, maxHeight: 120, overflowY: "auto", border: "1px solid #1F3B54" }}>
+          <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 6, fontWeight: 600 }}>사용 자재 상세 목록</div>
+          {filteredConsumption.map((item) => (
+            <div key={item.code} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0", borderBottom: "1px solid #16293C" }}>
+              <span style={{ color: "#E7EEF5", fontWeight: 500 }}>{item.name} <span style={{ fontSize: 10, color: "#7F97AC" }}>({item.code})</span></span>
+              <span style={{ color: "#F5A623", fontWeight: 700, fontFamily: "IBM Plex Mono" }}>{item.qty} {item.unit}</span>
             </div>
-          )}
+          ))}
+        </div>
+      </>
+    )}
+  </div>
+)}
         </Card>
 
         <Card style={{ padding: 20 }}>

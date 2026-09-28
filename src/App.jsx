@@ -3268,6 +3268,33 @@ const filteredTotalText = useMemo(() => {
                   <option key={proj} value={proj}>{proj}</option>
                 ))}
               </select>
+                            <div style={{ position: "relative" }}>
+                <Search
+                  size={13}
+                  color="#5E86A3"
+                  style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+                />
+                <input
+                  value={materialSearch}
+                  onChange={(e) => setMaterialSearch(e.target.value)}
+                  placeholder="코드/품명 검색"
+                  style={{
+                    background: "#0B1C2C", border: "1px solid #274460", color: "#E7EEF5",
+                    padding: "6px 24px 6px 26px", borderRadius: 6, fontSize: 13,
+                    outline: "none", width: 140,
+                  }}
+                />
+                {materialSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setMaterialSearch("")}
+                    aria-label="검색 지우기"
+                    style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", color: "#7F97AC" }}
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -3283,30 +3310,7 @@ const filteredTotalText = useMemo(() => {
   />
 ) : (
   <div>
-    <div style={{ position: "relative", marginBottom: 12 }}>
-      <Search
-        size={15}
-        color="#5E86A3"
-        style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-      />
-      <input
-        style={{ ...inputStyle, paddingLeft: 36, paddingRight: materialSearch ? 34 : 14, height: 38, fontSize: 13 }}
-        placeholder="자재 코드 또는 품명으로 검색"
-        value={materialSearch}
-        onChange={(e) => setMaterialSearch(e.target.value)}
-      />
-      {materialSearch && (
-        <button
-          type="button"
-          onClick={() => setMaterialSearch("")}
-          aria-label="검색 지우기"
-          style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", color: "#7F97AC" }}
-        >
-          <X size={16} />
-        </button>
-      )}
-    </div>
-
+    
     {materialSearch.trim() && (
       <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 10 }}>
         검색 결과 <b style={{ color: "#38BDF8" }}>{filteredConsumption.length}</b>종

@@ -503,6 +503,8 @@ const OUT_LOCAL_HISTORY_LIMIT = 20;
 ----------------------------------------------------------------------- */
 const OUT_MY_TX_IDS_KEY = "panel:myOutTxIds";
 const OUT_MY_TX_IDS_LIMIT = 5000;
+// 원복/삭제/복원 여부와 관계없이 내가 등록한 출고 TX를 계속 추적합니다.
+// 실제 출고 데이터와 원복 결과는 항상 Supabase의 공유 transactions 데이터를 사용합니다.
 
 function readMyOutTxIds() {
   try {
@@ -910,7 +912,7 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
                   fontSize: 12.5, fontWeight: 700, cursor: "pointer",
                   fontFamily: "'IBM Plex Mono', monospace",
                 }}
-                title="이 기기에서 내가 등록한 출고 이력만 표시"
+                title="이 기기에서 내가 등록한 출고 이력만 표시합니다. 원복·삭제된 기록도 내가 등록한 건이면 계속 표시됩니다."
               >
                 {myOnly ? "전체 출고 보기" : "내가 등록한 목록 보기"}
               </button>

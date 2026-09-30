@@ -890,7 +890,7 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: isOut ? "#F5A623" : "#35D08C" }}>
-              {isOut ? "전체 출고 상세기록" : "전체 입고 상세기록"}
+              {isOut ? (myOnly ? "내가 등록한 출고 상세기록" : "전체 출고 상세기록") : "전체 입고 상세기록"}
             </div>
             <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
               총 {list.length}건 · 합계 {totalQty.toLocaleString()}
@@ -898,24 +898,43 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
             {isOut && (
-              <button
-                type="button"
-                onClick={() => {
-                  setMyOnly((prev) => !prev);
-                  setSelectedIds([]);
-                }}
+              <label
+                title="전체 출고이력과 내가 등록한 출고이력을 전환합니다. 원복·삭제된 기록도 내가 등록한 건이면 계속 표시됩니다."
                 style={{
-                  display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8,
-                  border: `1px solid ${myOnly ? "#38BDF8" : "#274460"}`,
-                  background: myOnly ? "#38BDF81f" : "#0B1C2C",
-                  color: myOnly ? "#38BDF8" : "#9FB4C7",
-                  fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-                  fontFamily: "'IBM Plex Mono', monospace",
+                  display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
+                  border: "1px solid #274460", borderRadius: 999, background: "#0B1C2C",
+                  color: myOnly ? "#38BDF8" : "#9FB4C7", cursor: "pointer", userSelect: "none",
+                  fontSize: 12, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace",
                 }}
-                title="이 기기에서 내가 등록한 출고 이력만 표시합니다. 원복·삭제된 기록도 내가 등록한 건이면 계속 표시됩니다."
               >
-                {myOnly ? "전체 출고 보기" : "내가 등록한 목록 보기"}
-              </button>
+                <span style={{ whiteSpace: "nowrap" }}>내 등록 목록</span>
+                <input
+                  type="checkbox"
+                  checked={myOnly}
+                  onChange={(e) => {
+                    setMyOnly(e.target.checked);
+                    setSelectedIds([]);
+                  }}
+                  style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+                  aria-label="내가 등록한 목록 보기"
+                />
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "relative", width: 38, height: 21, borderRadius: 999,
+                    background: myOnly ? "#38BDF8" : "#284055",
+                    transition: "background 0.18s ease", flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute", top: 3, left: myOnly ? 20 : 3,
+                      width: 15, height: 15, borderRadius: "50%", background: "#fff",
+                      transition: "left 0.18s ease", boxShadow: "0 1px 4px rgba(0,0,0,.35)",
+                    }}
+                  />
+                </span>
+              </label>
             )}
             <button
               type="button"

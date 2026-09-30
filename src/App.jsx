@@ -3835,7 +3835,17 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [outHistoryPage, setOutHistoryPage] = useState(1);
   const [returnHistoryPage, setReturnHistoryPage] = useState(1);
 
-  const outHistoryTotalPages = Math.max(1, Math.ceil(allOutTxs.length / HISTORY_PAGE_SIZE));
+  // 출고이력 화면에서만 사용하는 "내가 등록한 목록" 토글
+  // 실제 출고 데이터는 계속 공유 DB를 사용하며, 여기서는 표시 대상만 필터링합니다.
+  const [outMineOnly, setOutMineOnly] = useState(false);
+
+  const filteredOutTxs = useMemo(() => {
+    if (!outMineOnly) return allOutTxs;
+    const myIds = new Set(readMyOutTxIds());
+    return allOutTxs.filter((t) => myIds.has(String(t.id)));
+  }, [allOutTxs, outMineOnly]);
+
+  const outHistoryTotalPages = Math.max(1, Math.ceil(filteredOutTxs.length / HISTORY_PAGE_SIZE));
   const returnHistoryTotalPages = Math.max(1, Math.ceil(allReturnTxs.length / HISTORY_PAGE_SIZE));
 
   useEffect(() => {
@@ -3846,13 +3856,13 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     if (returnHistoryPage > returnHistoryTotalPages) setReturnHistoryPage(returnHistoryTotalPages);
   }, [returnHistoryTotalPages, returnHistoryPage]);
 
-  // 새로 출고/반납이 등록되면 자동으로 1페이지(최신순 맨 앞)로 이동
-  useEffect(() => { setOutHistoryPage(1); }, [allOutTxs.length]);
+  // 새로 출고/반납이 등록되거나 목록 모드가 바뀌면 최신 페이지로 이동
+  useEffect(() => { setOutHistoryPage(1); }, [allOutTxs.length, outMineOnly]);
   useEffect(() => { setReturnHistoryPage(1); }, [allReturnTxs.length]);
 
   const recentOutTxs = useMemo(
-    () => allOutTxs.slice((outHistoryPage - 1) * HISTORY_PAGE_SIZE, outHistoryPage * HISTORY_PAGE_SIZE),
-    [allOutTxs, outHistoryPage]
+    () => filteredOutTxs.slice((outHistoryPage - 1) * HISTORY_PAGE_SIZE, outHistoryPage * HISTORY_PAGE_SIZE),
+    [filteredOutTxs, outHistoryPage]
   );
 
   const recentReturnTxs = useMemo(
@@ -4714,6 +4724,97 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
               <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
             ) : (
               <>
+                {/* 출고이력 전용 목록 전환 토글 */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    margin: "0 0 12px",
+                    padding: "10px 12px",
+                    background: "#0B1C2C",
+                    border: "1px solid #274460",
+                    borderRadius: 8,
+                  }}
+                >
+                  <div>
+                    <div style={{
+                      color: "#E7EEF5",
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      marginBottom: 3,
+                    }}>
+                      출고이력 목록
+                    </div>
+                    <div style={{
+                      color: "#5E86A3",
+                      fontSize: 10.5,
+                      fontFamily: "'IBM Plex Mono', monospace",
+                    }}>
+                      {outMineOnly
+                        ? `내가 등록한 목록 · ${filteredOutTxs.length}건`
+                        : `전체 출고 목록 · ${allOutTxs.length}건`}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOutMineOnly((prev) => !prev);
+                      setOutHistoryPage(1);
+                    }}
+                    aria-pressed={outMineOnly}
+                    title={outMineOnly ? "전체 출고 목록 보기" : "내가 등록한 출고 목록 보기"}
+                    style={{
+                      position: "relative",
+                      width: 104,
+                      height: 34,
+                      flexShrink: 0,
+                      borderRadius: 18,
+                      border: `1px solid ${outMineOnly ? "#22C55E" : "#31506A"}`,
+                      background: outMineOnly ? "#123626" : "#102638",
+                      cursor: "pointer",
+                      padding: 0,
+                      transition: "all .15s",
+                    }}
+                  >
+                    <span style={{
+                      position: "absolute",
+                      top: 3,
+                      left: outMineOnly ? 72 : 3,
+                      width: 26,
+                      height: 26,
+                      borderRadius: "50%",
+                      background: outMineOnly ? "#22C55E" : "#5E86A3",
+                      transition: "left .15s",
+                      boxShadow: outMineOnly ? "0 0 10px #22C55E55" : "none",
+                    }} />
+                    <span style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: outMineOnly ? "flex-start" : "flex-end",
+                      padding: "0 9px",
+                      color: outMineOnly ? "#86EFAC" : "#9FB4C7",
+                      fontSize: 10.5,
+                      fontWeight: 700,
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      pointerEvents: "none",
+                    }}>
+                      {outMineOnly ? "내 목록" : "전체"}
+                    </span>
+                  </button>
+                </div>
+
+                {filteredOutTxs.length === 0 ? (
+                  <EmptyState
+                    icon={ScanLine}
+                    text={outMineOnly ? "내가 등록한 출고 내역이 없습니다." : "최근 등록된 출고 내역이 없습니다."}
+                    color="#5E86A3"
+                  />
+                ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
                   {recentOutTxs.map((t) => (
                     <div
@@ -4771,6 +4872,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                     </div>
                   ))}
                 </div>
+                )}
 
                 {outHistoryTotalPages > 1 && (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>

@@ -496,6 +496,36 @@ const OUT_INPUT_MODE_KEY = "panel:outInputMode"; // "shared" | "local"
 const OUT_LOCAL_HISTORY_KEY = "panel:outLocalHistory";
 const OUT_LOCAL_HISTORY_LIMIT = 20;
 
+/* ---------------- 내가 등록한 출고 이력 (기기 로컬 전용) ----------------
+   Supabase의 전체 출고이력은 여러 사용자가 공유하므로,
+   이 기기에서 직접 등록한 출고 TX의 ID만 별도로 저장합니다.
+   "내가 등록한 목록 보기"는 이 로컬 ID를 기준으로 필터링합니다.
+----------------------------------------------------------------------- */
+const OUT_MY_TX_IDS_KEY = "panel:myOutTxIds";
+const OUT_MY_TX_IDS_LIMIT = 5000;
+
+function readMyOutTxIds() {
+  try {
+    const raw = localStorage.getItem(OUT_MY_TX_IDS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberMyOutTxId(id) {
+  const clean = String(id || "").trim();
+  if (!clean) return;
+  try {
+    const prev = readMyOutTxIds().filter((x) => x !== clean);
+    localStorage.setItem(
+      OUT_MY_TX_IDS_KEY,
+      JSON.stringify([clean, ...prev].slice(0, OUT_MY_TX_IDS_LIMIT))
+    );
+  } catch {}
+}
+
 function readOutLocalHistory() {
   try {
     const raw = localStorage.getItem(OUT_LOCAL_HISTORY_KEY);
@@ -785,9 +815,15 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
   const [search, setSearch] = useState("");
   const isOut = type === "out";
   const isReturn = type === "return";
+  const [myOnly, setMyOnly] = useState(false);
 
   const list = useMemo(() => {
-    const filtered = (txs || []).filter((t) => t.type === type && (showDeleted || t.deleted !== true));
+    const myTxIds = myOnly && isOut ? new Set(readMyOutTxIds()) : null;
+    const filtered = (txs || []).filter((t) =>
+      t.type === type &&
+      (showDeleted || t.deleted !== true) &&
+      (!myTxIds || myTxIds.has(String(t.id)))
+    );
     const q = search.trim().toLowerCase();
     const searched = q
       ? filtered.filter((t) =>
@@ -798,7 +834,7 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
         )
       : filtered;
     return [...searched].sort((a, b) => String(b.at).localeCompare(String(a.at)));
-  }, [txs, type, search, showDeleted]);
+  }, [txs, type, search, showDeleted, myOnly, isOut]);
 
   const totalQty = useMemo(() => list.reduce((s, t) => s + (Number(t.qty) || 0), 0), [list]);
 
@@ -858,7 +894,27 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
               총 {list.length}건 · 합계 {totalQty.toLocaleString()}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {isOut && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMyOnly((prev) => !prev);
+                  setSelectedIds([]);
+                }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8,
+                  border: `1px solid ${myOnly ? "#38BDF8" : "#274460"}`,
+                  background: myOnly ? "#38BDF81f" : "#0B1C2C",
+                  color: myOnly ? "#38BDF8" : "#9FB4C7",
+                  fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "'IBM Plex Mono', monospace",
+                }}
+                title="이 기기에서 내가 등록한 출고 이력만 표시"
+              >
+                {myOnly ? "전체 출고 보기" : "내가 등록한 목록 보기"}
+              </button>
+            )}
             <button
               type="button"
               onClick={exportCSV}
@@ -3949,6 +4005,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             const remain = found.stock - Number(qty);
       notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
 
+      // 이 기기에서 내가 등록한 출고임을 로컬에 기록
+      rememberMyOutTxId(tx.id);
       addOutLocalHistory("ship", shipNo);
       addOutLocalHistory("project", project);
       addOutLocalHistory("worker", worker);

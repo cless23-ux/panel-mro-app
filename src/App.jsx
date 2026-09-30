@@ -496,15 +496,13 @@ const OUT_INPUT_MODE_KEY = "panel:outInputMode"; // "shared" | "local"
 const OUT_LOCAL_HISTORY_KEY = "panel:outLocalHistory";
 const OUT_LOCAL_HISTORY_LIMIT = 20;
 
-/* ---------------- 내가 등록한 출고 이력 (기기 로컬 전용) ----------------
-   Supabase의 전체 출고이력은 여러 사용자가 공유하므로,
-   이 기기에서 직접 등록한 출고 TX의 ID만 별도로 저장합니다.
-   "내가 등록한 목록 보기"는 이 로컬 ID를 기준으로 필터링합니다.
+/* ---------------- 출고이력: 내가 등록한 목록용 로컬 ID ----------------
+   실제 출고 데이터는 기존처럼 Supabase에서 공유합니다.
+   이 기기에서 직접 등록한 출고 TX의 ID만 로컬에 기억하여
+   출고/반납 화면의 "내 목록" 필터에서 빠르게 찾을 수 있게 합니다.
 ----------------------------------------------------------------------- */
 const OUT_MY_TX_IDS_KEY = "panel:myOutTxIds";
 const OUT_MY_TX_IDS_LIMIT = 5000;
-// 원복/삭제/복원 여부와 관계없이 내가 등록한 출고 TX를 계속 추적합니다.
-// 실제 출고 데이터와 원복 결과는 항상 Supabase의 공유 transactions 데이터를 사용합니다.
 
 function readMyOutTxIds() {
   try {
@@ -817,15 +815,9 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
   const [search, setSearch] = useState("");
   const isOut = type === "out";
   const isReturn = type === "return";
-  const [myOnly, setMyOnly] = useState(false);
 
   const list = useMemo(() => {
-    const myTxIds = myOnly && isOut ? new Set(readMyOutTxIds()) : null;
-    const filtered = (txs || []).filter((t) =>
-      t.type === type &&
-      (showDeleted || t.deleted !== true) &&
-      (!myTxIds || myTxIds.has(String(t.id)))
-    );
+    const filtered = (txs || []).filter((t) => t.type === type && (showDeleted || t.deleted !== true));
     const q = search.trim().toLowerCase();
     const searched = q
       ? filtered.filter((t) =>
@@ -836,7 +828,7 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
         )
       : filtered;
     return [...searched].sort((a, b) => String(b.at).localeCompare(String(a.at)));
-  }, [txs, type, search, showDeleted, myOnly, isOut]);
+  }, [txs, type, search, showDeleted]);
 
   const totalQty = useMemo(() => list.reduce((s, t) => s + (Number(t.qty) || 0), 0), [list]);
 
@@ -890,52 +882,13 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: isOut ? "#F5A623" : "#35D08C" }}>
-              {isOut ? (myOnly ? "내가 등록한 출고 상세기록" : "전체 출고 상세기록") : "전체 입고 상세기록"}
+              {isOut ? "전체 출고 상세기록" : "전체 입고 상세기록"}
             </div>
             <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>
               총 {list.length}건 · 합계 {totalQty.toLocaleString()}
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {isOut && (
-              <label
-                title="전체 출고이력과 내가 등록한 출고이력을 전환합니다. 원복·삭제된 기록도 내가 등록한 건이면 계속 표시됩니다."
-                style={{
-                  display: "flex", alignItems: "center", gap: 8, padding: "6px 10px",
-                  border: "1px solid #274460", borderRadius: 999, background: "#0B1C2C",
-                  color: myOnly ? "#38BDF8" : "#9FB4C7", cursor: "pointer", userSelect: "none",
-                  fontSize: 12, fontWeight: 700, fontFamily: "'IBM Plex Mono', monospace",
-                }}
-              >
-                <span style={{ whiteSpace: "nowrap" }}>내 등록 목록</span>
-                <input
-                  type="checkbox"
-                  checked={myOnly}
-                  onChange={(e) => {
-                    setMyOnly(e.target.checked);
-                    setSelectedIds([]);
-                  }}
-                  style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
-                  aria-label="내가 등록한 목록 보기"
-                />
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "relative", width: 38, height: 21, borderRadius: 999,
-                    background: myOnly ? "#38BDF8" : "#284055",
-                    transition: "background 0.18s ease", flexShrink: 0,
-                  }}
-                >
-                  <span
-                    style={{
-                      position: "absolute", top: 3, left: myOnly ? 20 : 3,
-                      width: 15, height: 15, borderRadius: "50%", background: "#fff",
-                      transition: "left 0.18s ease", boxShadow: "0 1px 4px rgba(0,0,0,.35)",
-                    }}
-                  />
-                </span>
-              </label>
-            )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
               type="button"
               onClick={exportCSV}
@@ -3835,10 +3788,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [outHistoryPage, setOutHistoryPage] = useState(1);
   const [returnHistoryPage, setReturnHistoryPage] = useState(1);
 
-  // 출고이력 화면에서만 사용하는 "내가 등록한 목록" 토글
-  // 실제 출고 데이터는 계속 공유 DB를 사용하며, 여기서는 표시 대상만 필터링합니다.
+  // 출고이력 화면 전용: 전체 목록 / 내가 등록한 목록 전환
   const [outMineOnly, setOutMineOnly] = useState(false);
-
   const filteredOutTxs = useMemo(() => {
     if (!outMineOnly) return allOutTxs;
     const myIds = new Set(readMyOutTxIds());
@@ -3856,7 +3807,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
     if (returnHistoryPage > returnHistoryTotalPages) setReturnHistoryPage(returnHistoryTotalPages);
   }, [returnHistoryTotalPages, returnHistoryPage]);
 
-  // 새로 출고/반납이 등록되거나 목록 모드가 바뀌면 최신 페이지로 이동
+  // 새로 출고가 등록되거나 목록 모드가 바뀌면 1페이지로 이동
   useEffect(() => { setOutHistoryPage(1); }, [allOutTxs.length, outMineOnly]);
   useEffect(() => { setReturnHistoryPage(1); }, [allReturnTxs.length]);
 
@@ -4036,7 +3987,8 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
             const remain = found.stock - Number(qty);
       notify(`${found.name} ${qty}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < found.safety ? "info" : "ok");
 
-      // 이 기기에서 내가 등록한 출고임을 로컬에 기록
+      // 이 기기에서 내가 등록한 출고건의 ID만 로컬에 기록합니다.
+      // 실제 데이터와 원복 결과는 기존처럼 Supabase의 공유 transactions를 사용합니다.
       rememberMyOutTxId(tx.id);
       addOutLocalHistory("ship", shipNo);
       addOutLocalHistory("project", project);
@@ -4724,37 +4676,19 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
               <EmptyState icon={ScanLine} text="최근 등록된 출고 내역이 없습니다." color="#5E86A3" />
             ) : (
               <>
-                {/* 출고이력 전용 목록 전환 토글 */}
                 <div
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    margin: "0 0 12px",
-                    padding: "10px 12px",
-                    background: "#0B1C2C",
-                    border: "1px solid #274460",
-                    borderRadius: 8,
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                    margin: "0 0 12px", padding: "10px 12px",
+                    background: "#0B1C2C", border: "1px solid #274460", borderRadius: 8,
                   }}
                 >
                   <div>
-                    <div style={{
-                      color: "#E7EEF5",
-                      fontSize: 12.5,
-                      fontWeight: 700,
-                      marginBottom: 3,
-                    }}>
+                    <div style={{ color: "#E7EEF5", fontSize: 12.5, fontWeight: 700, marginBottom: 3 }}>
                       출고이력 목록
                     </div>
-                    <div style={{
-                      color: "#5E86A3",
-                      fontSize: 10.5,
-                      fontFamily: "'IBM Plex Mono', monospace",
-                    }}>
-                      {outMineOnly
-                        ? `내가 등록한 목록 · ${filteredOutTxs.length}건`
-                        : `전체 출고 목록 · ${allOutTxs.length}건`}
+                    <div style={{ color: "#5E86A3", fontSize: 10.5, fontFamily: "'IBM Plex Mono', monospace" }}>
+                      {outMineOnly ? `내가 등록한 목록 · ${filteredOutTxs.length}건` : `전체 출고 목록 · ${allOutTxs.length}건`}
                     </div>
                   </div>
 
@@ -4767,41 +4701,23 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                     aria-pressed={outMineOnly}
                     title={outMineOnly ? "전체 출고 목록 보기" : "내가 등록한 출고 목록 보기"}
                     style={{
-                      position: "relative",
-                      width: 104,
-                      height: 34,
-                      flexShrink: 0,
-                      borderRadius: 18,
+                      position: "relative", width: 104, height: 34, flexShrink: 0, borderRadius: 18,
                       border: `1px solid ${outMineOnly ? "#22C55E" : "#31506A"}`,
                       background: outMineOnly ? "#123626" : "#102638",
-                      cursor: "pointer",
-                      padding: 0,
-                      transition: "all .15s",
+                      cursor: "pointer", padding: 0, transition: "all .15s",
                     }}
                   >
                     <span style={{
-                      position: "absolute",
-                      top: 3,
-                      left: outMineOnly ? 72 : 3,
-                      width: 26,
-                      height: 26,
-                      borderRadius: "50%",
+                      position: "absolute", top: 3, left: outMineOnly ? 72 : 3,
+                      width: 26, height: 26, borderRadius: "50%",
                       background: outMineOnly ? "#22C55E" : "#5E86A3",
-                      transition: "left .15s",
-                      boxShadow: outMineOnly ? "0 0 10px #22C55E55" : "none",
+                      transition: "left .15s", boxShadow: outMineOnly ? "0 0 10px #22C55E55" : "none",
                     }} />
                     <span style={{
-                      position: "absolute",
-                      inset: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: outMineOnly ? "flex-start" : "flex-end",
-                      padding: "0 9px",
-                      color: outMineOnly ? "#86EFAC" : "#9FB4C7",
-                      fontSize: 10.5,
-                      fontWeight: 700,
-                      fontFamily: "'IBM Plex Mono', monospace",
-                      pointerEvents: "none",
+                      position: "absolute", inset: 0, display: "flex", alignItems: "center",
+                      justifyContent: outMineOnly ? "flex-start" : "flex-end", padding: "0 9px",
+                      color: outMineOnly ? "#86EFAC" : "#9FB4C7", fontSize: 10.5, fontWeight: 700,
+                      fontFamily: "'IBM Plex Mono', monospace", pointerEvents: "none",
                     }}>
                       {outMineOnly ? "내 목록" : "전체"}
                     </span>
@@ -4809,11 +4725,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                 </div>
 
                 {filteredOutTxs.length === 0 ? (
-                  <EmptyState
-                    icon={ScanLine}
-                    text={outMineOnly ? "내가 등록한 출고 내역이 없습니다." : "최근 등록된 출고 내역이 없습니다."}
-                    color="#5E86A3"
-                  />
+                  <EmptyState icon={ScanLine} text="내가 등록한 출고 내역이 없습니다." color="#5E86A3" />
                 ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
                   {recentOutTxs.map((t) => (

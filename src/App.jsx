@@ -116,7 +116,17 @@ async function compressAndUploadImage(file, itemCode) {
 }
 
 const POLL_MS = 8000;
+/* ---------------- 출고이력 자동 휴지통 (7일) ---------------- */
+const OUT_TRASH_DAYS = 7;
+const OUT_KEEP_MARKER = "MRO_KEEP_OUT"; // 휴지통에서 '복원'한 기록은 다시 자동이동하지 않음
 
+function isOutTxExpired(t) {
+  if (!t || t.type !== "out") return false;
+  if (String(t.reason || "").includes(OUT_KEEP_MARKER)) return false;
+  const d = new Date(String(t.at || "").replace(" ", "T"));
+  if (Number.isNaN(d.getTime())) return false;
+  return Date.now() - d.getTime() >= OUT_TRASH_DAYS * 24 * 60 * 60 * 1000;
+}
 /* ---------------- Supabase 연동 useStorage Hook ---------------- */
 function useStorage(key, initial) {
   const [value, setValue] = useState(initial);
@@ -2211,7 +2221,28 @@ function AppInner() {
   setSlideDir(nextIdx >= curIdx ? 1 : -1);
   setTab(next);
 };
-
+  /* 출고 후 7일이 지난 이력은 자동으로 휴지통(deleted=true)으로 이동 */
+  const autoTrashedIdsRef = useRef(new Set());
+  useEffect(() => {
+    if (!txsLoaded || !supabase) return;
+    const ids = (txs || [])
+      .filter((t) => t.deleted !== true && isOutTxExpired(t) && !autoTrashedIdsRef.current.has(t.id))
+      .map((t) => t.id);
+    if (!ids.length) return;
+    ids.forEach((id) => autoTrashedIdsRef.current.add(id));
+    (async () => {
+      try {
+        for (let i = 0; i < ids.length; i += 200) {
+          const chunk = ids.slice(i, i + 200);
+          const { error } = await supabase.from("transactions").update({ deleted: true }).in("id", chunk);
+          if (error) throw error;
+        }
+      } catch (e) {
+        console.error("출고이력 자동 휴지통 이동 실패:", e);
+        ids.forEach((id) => autoTrashedIdsRef.current.delete(id)); // 다음 기회에 재시도
+      }
+    })();
+  }, [txsLoaded, txs]);
   const ready = itemsLoaded && txsLoaded && outFormSettingsLoaded;
   return (
     <div className={`app-container${lightMode ? " light-mode" : ""}`} style={{
@@ -2843,7 +2874,7 @@ function AppInner() {
                         {tab === "master" && <MasterView items={items} txs={txs} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
             {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
-            {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} />}
+            {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} reloadTxs={reloadTxs} />}
             {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
           </div>
@@ -3709,7 +3740,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       return Number.isNaN(d.getTime()) ? 0 : d.getTime();
     };
     return txs
-      .filter((t) => t.type === "out" && t.deleted !== true)
+      .filter((t) => t.type === "out" && t.deleted !== true && !isOutTxExpired(t))
       .sort((a, b) => parseAt(b) - parseAt(a));
   }, [txs]);
 
@@ -4591,7 +4622,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
           >
             <SectionLabel>
               {txMode === "out"
-                ? `전체 출고 이력 (총 ${allOutTxs.length}건, 잘못 등록 시 삭제/원복)`
+                ? `전체 출고 이력 (총 ${allOutTxs.length}건 · 7일 경과 시 자동으로 휴지통 이동, 잘못 등록 시 원복)`
                 : `전체 반납 이력 (총 ${allReturnTxs.length}건, 잘못 등록 시 취소)`}
             </SectionLabel>
             <span className="out-history-toggle-icon" style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0, marginLeft: 8 }}>
@@ -4656,13 +4687,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                           }}
                         >
                           {isReversedOutTx(t) ? "원복완료" : "원복"}
-                        </button>
-                        <button
-                          onClick={() => deleteHistory(t)}
-                          style={{ background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350", padding: "5px 11px", borderRadius: 6, cursor: "pointer", fontSize: 11.5, fontWeight: 600 }}
-                        >
-                          삭제
-                        </button>
+                        </button>                        
                       </div>
                     </div>
                   ))}
@@ -10324,8 +10349,155 @@ keyCode = String(keyCode)
     </div>
   );
 }
+/* ---------------- 휴지통: 자재 / 출고이력 탭 ---------------- */
+function TrashView({ items, saveItems, notify, reloadTxs }) {
+  const [trashTab, setTrashTab] = useState("items");
+  const tabBtn = (id, label) => (
+    <button
+      key={id}
+      onClick={() => setTrashTab(id)}
+      style={{
+        padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer",
+        fontFamily: "'IBM Plex Mono', monospace",
+        border: trashTab === id ? "1px solid #EF5350" : "1px solid #1F3B54",
+        background: trashTab === id ? "#EF53501f" : "#0B1C2C",
+        color: trashTab === id ? "#EF5350" : "#7F97AC",
+      }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, padding: "20px 20px 0" }}>
+        {tabBtn("items", "🗑 삭제된 자재")}
+        {tabBtn("outTx", "📦 출고이력 (7일 경과)")}
+      </div>
+      {trashTab === "items"
+        ? <ItemTrashPanel items={items} saveItems={saveItems} notify={notify} />
+        : <OutTxTrashPanel notify={notify} reloadTxs={reloadTxs} />}
+    </div>
+  );
+}
 
-function TrashView({ items, saveItems, notify }) {
+function OutTxTrashPanel({ notify, reloadTxs }) {
+  const [rows, setRows] = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("transactions")
+      .select("*")
+      .eq("type", "out")
+      .eq("deleted", true)
+      .order("at", { ascending: false });
+    if (error) {
+      console.error(error);
+      notify("출고이력 휴지통 조회 실패", "err");
+    } else {
+      setRows(data || []);
+    }
+    setSelected([]);
+    setLoading(false);
+  }, [notify]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const allChecked = rows.length > 0 && selected.length === rows.length;
+  const toggle = (id) => setSelected((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const toggleAll = () => setSelected(allChecked ? [] : rows.map((r) => r.id));
+
+  const restoreSelected = async () => {
+    if (!selected.length) { notify("복원할 이력을 선택해주세요.", "err"); return; }
+    if (!window.confirm(`선택한 ${selected.length}건을 출고이력으로 복원할까요?\n복원된 이력은 다시 자동 이동되지 않습니다.`)) return;
+    try {
+      const targets = rows.filter((r) => selected.includes(r.id));
+      await Promise.all(targets.map(async (r) => {
+        const base = String(r.reason || "").trim();
+        const reason = base.includes(OUT_KEEP_MARKER) ? base : `${base}${base ? " | " : ""}${OUT_KEEP_MARKER}`;
+        const { error } = await supabase.from("transactions").update({ deleted: false, reason }).eq("id", r.id);
+        if (error) throw error;
+      }));
+      notify(`${targets.length}건이 복원되었습니다.`, "ok");
+      await load();
+      if (reloadTxs) await reloadTxs();
+    } catch (e) {
+      console.error(e);
+      notify(`복원 실패: ${e?.message || e}`, "err");
+    }
+  };
+
+  const deleteSelectedForever = async () => {
+    if (!selected.length) { notify("영구삭제할 이력을 선택해주세요.", "err"); return; }
+    if (!window.confirm(
+      `선택한 ${selected.length}건을 영구삭제할까요?\n\n※ 되돌릴 수 없으며 누적 출고 집계에서도 제외됩니다.\n(재고 수량은 변경되지 않습니다.)`
+    )) return;
+    try {
+      const { error } = await supabase.from("transactions").delete().in("id", selected);
+      if (error) throw error;
+      notify(`${selected.length}건이 영구삭제되었습니다.`, "ok");
+      await load();
+    } catch (e) {
+      console.error(e);
+      notify(`영구삭제 실패: ${e?.message || e}`, "err");
+    }
+  };
+
+  return (
+    <div style={{ padding: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+        <h2 style={{ margin: 0 }}>📦 출고이력 휴지통</h2>
+        {rows.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{selected.length}건 선택됨</span>
+            <Btn onClick={restoreSelected} variant="subtle" disabled={!selected.length}>선택 복원</Btn>
+            <Btn onClick={deleteSelectedForever} variant="danger" disabled={!selected.length}>
+              <Trash2 size={15} />선택 영구삭제
+            </Btn>
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: "#7F97AC", marginBottom: 14, fontFamily: "IBM Plex Mono" }}>
+        출고 후 {OUT_TRASH_DAYS}일이 지난 이력이 자동으로 이곳에 보관됩니다. 복원 또는 영구삭제를 선택하세요.
+      </div>
+
+      {loading ? (
+        <div style={{ opacity: 0.6 }}>불러오는 중...</div>
+      ) : rows.length === 0 ? (
+        <div style={{ opacity: 0.6 }}>휴지통이 비어 있습니다.</div>
+      ) : (
+        <div className="mobile-scroll-table">
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: 36 }}><input type="checkbox" checked={allChecked} onChange={toggleAll} /></th>
+                <th>출고일</th><th>자재명</th><th>코드</th><th>수량</th><th>호선</th><th>프로젝트</th><th>불출자</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td><input type="checkbox" checked={selected.includes(r.id)} onChange={() => toggle(r.id)} /></td>
+                  <td style={{ fontFamily: "IBM Plex Mono", fontSize: 12 }}>{r.at}</td>
+                  <td style={{ fontWeight: 600 }}>{r.itemName}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", fontSize: 12, color: "#9FB4C7" }}>{r.itemCode}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#F5A623" }}>{r.qty} {r.unit}</td>
+                  <td>{r.shipNo || "-"}</td>
+                  <td>{r.project || "-"}</td>
+                  <td>{r.worker || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+   function ItemTrashPanel({ items, saveItems, notify }) {
   const [trashItems, setTrashItems] = useState([]);
   const [selectedCodes, setSelectedCodes] = useState([]);
 

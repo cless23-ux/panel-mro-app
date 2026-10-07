@@ -2688,6 +2688,26 @@ function AppInner() {
             min-height: 46px !important;
           }
         }
+                  /* ===== PC 전용: 100% 배율에서 모든 메뉴/기능이 한 화면에 보이도록 컴팩트하게 ===== */
+        @media (min-width: 769px) {
+          /* 사이드바 */
+          .pc-sidebar { width: 210px; padding: 14px 12px; gap: 12px; }
+          .pc-sidebar > button { padding: 7px 10px !important; font-size: 11px !important; }
+          .pc-sidebar .sidebar-nav { gap: 2px !important; }
+          .pc-sidebar .sidebar-nav button {
+            padding: 7px 10px !important; font-size: 13px !important; gap: 8px !important;
+          }
+          .pc-sidebar .sidebar-nav button svg { width: 15px; height: 15px; }
+          .pc-sidebar .sidebar-stock-summary > div { padding: 10px !important; }
+
+          /* 본문 */
+          .main-content { padding: 16px 20px; }
+          .tab-panel { padding: 12px 14px; }
+          .main-content h1 { font-size: 22px !important; }
+
+          /* 표 */
+          th, td { padding: 6px 9px; font-size: 12.5px; }
+        }
       `}</style>
 
       {/* PC 사이드바 */}

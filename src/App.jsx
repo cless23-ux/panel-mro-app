@@ -5919,24 +5919,47 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                 style={{ padding: 14, cursor: "pointer" }}
                 onClick={() => handleCardClick(item)}
               >
-                {/* PC: 기존 배치 그대로 유지 */}
-                <div className="stock-card-pc-layout" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                {/* PC: 품목 정보를 한 줄 중심 구조로 정리 */}
+                <div
+                  className="stock-card-pc-layout stock-card-pc-clean"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "56px minmax(0, 1fr) 180px 34px",
+                    alignItems: "center",
+                    gap: 14,
+                  }}
+                >
                   {item.image_url ? (
                     <img
                       src={item.image_url}
                       alt={item.name}
                       onClick={(e) => { e.stopPropagation(); setZoomedImage(item.image_url); }}
                       title="사진 확대 보기"
-                      style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover", flexShrink: 0, cursor: "zoom-in" }}
+                      style={{
+                        width: 56, height: 56, borderRadius: 8, objectFit: "cover",
+                        flexShrink: 0, cursor: "zoom-in",
+                      }}
                     />
                   ) : (
-                    <div style={{ width: 50, height: 50, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <div
+                      style={{
+                        width: 56, height: 56, borderRadius: 8, background: "#0B1C2C",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
                       <ImageIcon size={20} color="#5E86A3" />
                     </div>
                   )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                      <Led status={st} size={10} />
+
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: "flex", alignItems: "center", gap: 7,
+                        minWidth: 0, marginBottom: 5,
+                      }}
+                    >
+                      <Led status={st} size={9} />
                       <span
                         className="stock-item-name"
                         title={item.name}
@@ -5944,88 +5967,151 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                           fontWeight: 700,
                           fontSize: 14,
                           color: "#38BDF8",
-                          lineHeight: 1.35,
-                          display: "block",
-                          overflow: "visible",
-                          wordBreak: "break-word",
-                          whiteSpace: "normal",
+                          lineHeight: 1.25,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          minWidth: 0,
                         }}
                       >
                         {item.name}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-word", whiteSpace: "normal" }}>코드: {item.code}</div>
-                    <div style={{ fontSize: 11.5, color: "#9FB4C7", marginTop: 3, lineHeight: 1.4, wordBreak: "break-word", whiteSpace: "normal" }}>
-                      규격/사양: {item.spec || "-"}
-                    </div>
-                    {item.manufacturer && (
-                      <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>제조사: {item.manufacturer}</div>
-                    )}
-                  </div>
 
-                  <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flexShrink: 0 }}>
-                    <div style={{
-                      fontSize: 16, fontWeight: 700,
-                      color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C",
-                    }}>
-                      {item.stock} <span style={{ fontSize: 11 }}>{item.unit}</span>
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>안전재고: {item.safety} {item.unit}</div>
-                  </div>
-                </div>
-
-                <div className="stock-card-pc-layout" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderTop: "1px solid #1F3B54", marginTop: 10, paddingTop: 10 }}>
-                  <div className="stock-pc-note-wrap" onClick={(e) => e.stopPropagation()}>
-                    {editingMemos[item.code] ? (
-                      <input
-                        type="text"
-                        className="stock-pc-note"
-                        placeholder="명칭 / 메모 입력"
-                        aria-label={`${item.name} 명칭 또는 메모 입력`}
-                        autoFocus
-                        value={Object.prototype.hasOwnProperty.call(memoDrafts, item.code) ? memoDrafts[item.code] : (item.memo || "")}
-                        onChange={(e) => handleMemoChange(item.code, e.target.value)}
-                        onBlur={(e) => handleMemoSave(item, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            e.currentTarget.blur();
-                          }
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <div className="stock-pc-note-closed">
-                        <span className={item.memo ? "stock-pc-note-text" : "stock-pc-note-empty"} title={item.memo || "명칭 / 메모 없음"}>
-                          {item.memo || "명칭 / 메모 없음"}
-                        </span>
-                        <button
-                          type="button"
-                          className="stock-pc-note-edit"
-                          onClick={(e) => { e.stopPropagation(); handleMemoEdit(item.code); }}
-                        >
-                          수정
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
-                      aria-label="즐겨찾기 토글"
+                    <div
                       style={{
-                        flexShrink: 0, background: "none", border: "none", cursor: "pointer",
-                        padding: 6, display: "flex", alignItems: "center", justifyContent: "center",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 14,
+                        minWidth: 0,
+                        flexWrap: "wrap",
+                        fontSize: 11,
+                        lineHeight: 1.35,
                       }}
                     >
-                      <Star
-                        size={19}
-                        color={isFavorite(item.code) ? "#F5A623" : "#3E5975"}
-                        fill={isFavorite(item.code) ? "#F5A623" : "none"}
-                      />
-                    </button>
+                      <span
+                        style={{
+                          color: "#7F97AC",
+                          fontFamily: "IBM Plex Mono",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        코드 <b style={{ color: "#AFC4D5", fontWeight: 500 }}>{item.code}</b>
+                      </span>
+
+                      <span
+                        style={{
+                          color: "#9FB4C7",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          minWidth: 0,
+                        }}
+                        title={item.spec || "-"}
+                      >
+                        규격 <b style={{ color: "#C9DAE8", fontWeight: 500 }}>{item.spec || "-"}</b>
+                      </span>
+
+                      {item.manufacturer && (
+                        <span
+                          style={{
+                            color: "#5E86A3",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            minWidth: 0,
+                          }}
+                          title={item.manufacturer}
+                        >
+                          제조사 <b style={{ color: "#8FA7BA", fontWeight: 500 }}>{item.manufacturer}</b>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="stock-pc-note-wrap stock-pc-note-inline" onClick={(e) => e.stopPropagation()}>
+                      {editingMemos[item.code] ? (
+                        <input
+                          type="text"
+                          className="stock-pc-note"
+                          placeholder="명칭 / 메모 입력"
+                          aria-label={`${item.name} 명칭 또는 메모 입력`}
+                          autoFocus
+                          value={Object.prototype.hasOwnProperty.call(memoDrafts, item.code) ? memoDrafts[item.code] : (item.memo || "")}
+                          onChange={(e) => handleMemoChange(item.code, e.target.value)}
+                          onBlur={(e) => handleMemoSave(item, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <div className="stock-pc-note-closed">
+                          <span
+                            className={item.memo ? "stock-pc-note-text" : "stock-pc-note-empty"}
+                            title={item.memo || "명칭 / 메모 없음"}
+                          >
+                            {item.memo || "명칭 / 메모 없음"}
+                          </span>
+                          <button
+                            type="button"
+                            className="stock-pc-note-edit"
+                            onClick={(e) => { e.stopPropagation(); handleMemoEdit(item.code); }}
+                          >
+                            수정
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  <div
+                    style={{
+                      textAlign: "right",
+                      fontFamily: "IBM Plex Mono",
+                      borderLeft: "1px solid #1F3B54",
+                      paddingLeft: 18,
+                      minWidth: 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 18,
+                        fontWeight: 700,
+                        color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C",
+                        lineHeight: 1.15,
+                      }}
+                    >
+                      {item.stock} <span style={{ fontSize: 11 }}>{item.unit}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 4 }}>
+                      안전재고 {item.safety} {item.unit}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
+                    aria-label="즐겨찾기 토글"
+                    style={{
+                      flexShrink: 0,
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 5,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Star
+                      size={18}
+                      color={isFavorite(item.code) ? "#F5A623" : "#3E5975"}
+                      fill={isFavorite(item.code) ? "#F5A623" : "none"}
+                    />
+                  </button>
                 </div>
 
                 {/* 모바일 전용: 사진 → 품명 / 사양·규격 → 메모·수량·즐겨찾기 */}
@@ -6141,6 +6227,34 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
           border-radius: 5px; padding: 4px 8px; font-size: 12px; cursor: pointer;
         }
         .stock-pc-note-edit:hover { border-color: #38BDF8; color: #38BDF8; }
+        .stock-pc-note-inline {
+          margin-top: 7px;
+          max-width: min(100%, 760px);
+        }
+        .stock-pc-note-inline .stock-pc-note-closed {
+          height: 28px;
+          padding: 0 4px 0 8px;
+          background: #0B1C2C;
+        }
+        .stock-pc-note-inline .stock-pc-note-text,
+        .stock-pc-note-inline .stock-pc-note-empty {
+          font-size: 11.5px;
+        }
+        .stock-pc-note-inline .stock-pc-note-edit {
+          padding: 3px 7px;
+          font-size: 11px;
+        }
+        @media (max-width: 1050px) and (min-width: 769px) {
+          .stock-card-pc-clean {
+            grid-template-columns: 50px minmax(0, 1fr) 145px 30px !important;
+            gap: 10px !important;
+          }
+          .stock-card-pc-clean > img,
+          .stock-card-pc-clean > div:first-child {
+            width: 50px !important;
+            height: 50px !important;
+          }
+        }
 
         @media (max-width: 768px) {
           .stock-card-pc-layout { display: none !important; }

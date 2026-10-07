@@ -2384,14 +2384,6 @@ function AppInner() {
         .raw-manage-actions > * { min-width: 0; }
         .raw-manage-table { display:block; }
         .raw-manage-cards { display:none; }
-        .dashboard-consumption-grid {
-          align-items: stretch;
-        }
-        @media (max-width: 1100px) and (min-width: 769px) {
-          .dashboard-consumption-grid {
-            grid-template-columns: minmax(0, 1fr) !important;
-          }
-        }
         @media (max-width: 768px) {
           .raw-manage-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
           .raw-manage-actions > * { width:100%; min-height:42px; }
@@ -2417,17 +2409,39 @@ function AppInner() {
 
         .outform-grid {
           display: grid;
-          grid-template-columns: 1.15fr 1fr;
+          grid-template-columns: minmax(0, 1.05fr) minmax(380px, 0.95fr);
           align-items: start;
           gap: 20px;
           width: 100%;
         }
-        .outform-grid > * { min-width: 0; }
+        .outform-grid > * {
+          min-width: 0;
+        }
         .outform-main-col {
           display: flex;
           flex-direction: column;
           gap: 20px;
           min-width: 0;
+        }
+        .out-history-panel {
+          min-width: 0;
+          position: sticky;
+          top: 14px;
+          align-self: start;
+        }
+        .out-history-panel .out-section-card {
+          max-height: calc(100vh - 110px);
+          overflow: hidden;
+        }
+        .out-history-panel .out-section-card > div,
+        .out-history-panel .out-section-card > div > div {
+          min-width: 0;
+        }
+        @media (max-width: 1100px) and (min-width: 769px) {
+          .outform-grid {
+            grid-template-columns: minmax(0, 1fr) minmax(330px, 0.82fr);
+            gap: 14px;
+          }
         }
 
         /* 출고(스캔) 불출정보 입력: 제품명/코드/규격 전체 표시 */
@@ -2606,6 +2620,13 @@ function AppInner() {
           .outform-grid {
             grid-template-columns: 1fr;
             gap: 14px;
+          }
+          .out-history-panel {
+            position: static;
+          }
+          .out-history-panel .out-section-card {
+            max-height: none;
+            overflow: visible;
           }
           .outform-main-col {
             display: contents;
@@ -3325,141 +3346,53 @@ const filteredTotalText = useMemo(() => {
         <StatCard label="안전재고 미달" value={items.filter((i) => statusOf(i) === "danger").length} unit="종" icon={AlertTriangle} color="#EF5350" onClick={() => setShortageModal(true)} />
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1.65fr) minmax(320px, 0.9fr)",
-          gap: 16,
-          marginBottom: 20,
-        }}
-        className="dashboard-consumption-grid"
-      >
-        <Card style={{ padding: 18 }}>
-          {/* 호선별 부자재 소모 현황 - 정돈된 헤더 */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 14,
-              marginBottom: 14,
-              paddingBottom: 12,
-              borderBottom: "1px solid #1F3B54",
-            }}
-          >
-            <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  color: "#E7EEF5",
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}
-              >
-                <span
-                  style={{
-                    width: 3,
-                    height: 18,
-                    borderRadius: 3,
-                    background: "#38BDF8",
-                    display: "inline-block",
-                    boxShadow: "0 0 10px #38BDF855",
-                  }}
-                />
-                호선별 부자재 소모 현황
-              </div>
-              <div
-                style={{
-                  marginTop: 4,
-                  color: "#5E86A3",
-                  fontSize: 10.5,
-                }}
-              >
-                선택 조건에 따른 자재별 누적 소모량
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-                flexWrap: "wrap",
-                justifyContent: "flex-end",
-              }}
-            >
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20, marginBottom: 20 }}>
+        <Card style={{ padding: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <SectionLabel>호선별 부자재 소모 현황</SectionLabel>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>호선 선택:</span>
               <select
                 value={selectedShip}
                 onChange={(e) => setSelectedShip(e.target.value)}
-                aria-label="호선 선택"
                 style={{
-                  background: "#0B1C2C",
-                  border: "1px solid #315775",
-                  color: "#38BDF8",
-                  padding: "7px 28px 7px 10px",
-                  borderRadius: 7,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  outline: "none",
-                  cursor: "pointer",
-                  minWidth: 92,
+                  background: "#0B1C2C", border: "1px solid #274460", color: "#38BDF8",
+                  padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
+                  outline: "none", cursor: "pointer"
                 }}
               >
                 {availableShips.map((ship) => (
                   <option key={ship} value={ship}>{ship}</option>
                 ))}
               </select>
-
+              <span style={{ fontSize: 12, color: "#7F97AC", fontWeight: 600 }}>프로젝트:</span>
               <select
                 value={selectedProject}
                 onChange={(e) => setSelectedProject(e.target.value)}
-                aria-label="프로젝트 선택"
                 style={{
-                  background: "#0B1C2C",
-                  border: "1px solid #315775",
-                  color: "#F5A623",
-                  padding: "7px 28px 7px 10px",
-                  borderRadius: 7,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  outline: "none",
-                  cursor: "pointer",
-                  minWidth: 76,
+                  background: "#0B1C2C", border: "1px solid #274460", color: "#F5A623",
+                  padding: "6px 10px", borderRadius: 6, fontSize: 13, fontWeight: "bold",
+                  outline: "none", cursor: "pointer"
                 }}
               >
                 {availableProjects.map((proj) => (
                   <option key={proj} value={proj}>{proj}</option>
                 ))}
               </select>
-
-              <div style={{ position: "relative" }}>
+                            <div style={{ position: "relative" }}>
                 <Search
                   size={13}
                   color="#5E86A3"
-                  style={{
-                    position: "absolute",
-                    left: 9,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    pointerEvents: "none",
-                  }}
+                  style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
                 />
                 <input
                   value={materialSearch}
                   onChange={(e) => setMaterialSearch(e.target.value)}
-                  placeholder="자재 검색"
-                  aria-label="자재 검색"
+                  placeholder="코드/품명 검색"
                   style={{
-                    background: "#0B1C2C",
-                    border: "1px solid #315775",
-                    color: "#E7EEF5",
-                    padding: "7px 26px 7px 27px",
-                    borderRadius: 7,
-                    fontSize: 12,
-                    outline: "none",
-                    width: 126,
+                    background: "#0B1C2C", border: "1px solid #274460", color: "#E7EEF5",
+                    padding: "6px 24px 6px 26px", borderRadius: 6, fontSize: 13,
+                    outline: "none", width: 140,
                   }}
                 />
                 {materialSearch && (
@@ -3467,18 +3400,7 @@ const filteredTotalText = useMemo(() => {
                     type="button"
                     onClick={() => setMaterialSearch("")}
                     aria-label="검색 지우기"
-                    style={{
-                      position: "absolute",
-                      right: 5,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 2,
-                      display: "flex",
-                      color: "#7F97AC",
-                    }}
+                    style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", color: "#7F97AC" }}
                   >
                     <X size={13} />
                   </button>
@@ -3488,194 +3410,62 @@ const filteredTotalText = useMemo(() => {
           </div>
 
           {shipMaterialConsumption.length === 0 ? (
-            <EmptyState
-              icon={ScanLine}
-              text={
-                selectedProject === ALL_PROJECTS
-                  ? `[${selectedShip}] 호선에 출고된 자재 이력이 없습니다.`
-                  : `[${selectedShip} / ${selectedProject}] 조건에 출고된 자재 이력이 없습니다.`
-              }
-              color="#5E86A3"
-            />
-          ) : (
-            <div>
-              {materialSearch.trim() && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: 8,
-                    color: "#7F97AC",
-                    fontSize: 10.5,
-                  }}
-                >
-                  <span>
-                    검색 결과 <b style={{ color: "#38BDF8" }}>{filteredConsumption.length}</b>종
-                  </span>
-                  {filteredTotalText && (
-                    <span>
-                      총 사용량 <b style={{ color: "#F5A623" }}>{filteredTotalText}</b>
-                    </span>
-                  )}
-                </div>
-              )}
+  <EmptyState
+    icon={ScanLine}
+    text={
+      selectedProject === ALL_PROJECTS
+        ? `[${selectedShip}] 호선에 출고된 자재 이력이 없습니다.`
+        : `[${selectedShip} / ${selectedProject}] 조건에 출고된 자재 이력이 없습니다.`
+    }
+    color="#5E86A3"
+  />
+) : (
+  <div>
+    
+    {materialSearch.trim() && (
+      <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 10 }}>
+        검색 결과 <b style={{ color: "#38BDF8" }}>{filteredConsumption.length}</b>종
+        {filteredTotalText && <> · 총 사용량 <b style={{ color: "#F5A623" }}>{filteredTotalText}</b></>}
+      </div>
+    )}
 
-              {filteredConsumption.length === 0 ? (
-                <EmptyState icon={Search} text={`"${materialSearch.trim()}"에 해당하는 사용 자재가 없습니다.`} color="#5E86A3" />
-              ) : (
-                <>
-                  <div
-                    style={{
-                      height: Math.max(210, Math.min(300, filteredConsumption.length * 32 + 40)),
-                      marginBottom: 12,
-                      padding: "4px 2px 0",
-                      background: "linear-gradient(180deg, #0C2133 0%, #0A1A29 100%)",
-                      border: "1px solid #18354D",
-                      borderRadius: 9,
-                    }}
-                  >
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={filteredConsumption}
-                        layout="vertical"
-                        margin={{ top: 8, right: 18, left: 2, bottom: 8 }}
-                      >
-                        <CartesianGrid stroke="#17293B" horizontal={false} />
-                        <XAxis
-                          type="number"
-                          tick={{ fill: "#718CA2", fontSize: 10 }}
-                          axisLine={{ stroke: "#1F3B54" }}
-                          tickLine={false}
-                        />
-                        <YAxis
-                          type="category"
-                          dataKey="name"
-                          width={145}
-                          tick={{ fill: "#B7C8D6", fontSize: 10.5 }}
-                          axisLine={false}
-                          tickLine={false}
-                        />
-                        <Tooltip
-                          cursor={{ fill: "#38BDF80D" }}
-                          contentStyle={{
-                            background: "#0F2233",
-                            border: "1px solid #315775",
-                            borderRadius: 8,
-                            fontSize: 11,
-                            boxShadow: "0 8px 24px rgba(0,0,0,.28)",
-                          }}
-                          formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
-                        />
-                        <Bar dataKey="qty" radius={[0, 5, 5, 0]} barSize={16}>
-                          {filteredConsumption.map((_, idx) => (
-                            <Cell
-                              key={idx}
-                              fill={idx === 0 ? "#38BDF8" : idx === 1 ? "#F5A623" : "#5E86A3"}
-                            />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+    {filteredConsumption.length === 0 ? (
+      <EmptyState icon={Search} text={`"${materialSearch.trim()}"에 해당하는 사용 자재가 없습니다.`} color="#5E86A3" />
+    ) : (
+      <>
+        <div style={{ height: 200, marginBottom: 16 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={filteredConsumption} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid stroke="#17293B" vertical={false} />
+              <XAxis dataKey="name" interval={0} tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={{ stroke: "#1F3B54" }} tickLine={false} />
+              <YAxis tick={{ fill: "#7F97AC", fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip
+                cursor={{ fill: "#F5A62311" }}
+                contentStyle={{ background: "#0F2233", border: "1px solid #274460", borderRadius: 8, fontSize: 12 }}
+                formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
+              />
+              <Bar dataKey="qty" radius={[6, 6, 0, 0]}>
+                {filteredConsumption.map((_, idx) => (
+                  <Cell key={idx} fill={["#F5A623", "#38BDF8", "#35D08C", "#EF5350", "#A855F7"][idx % 5]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
 
-                  <div
-                    style={{
-                      background: "#091827",
-                      border: "1px solid #1F3B54",
-                      borderRadius: 9,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "9px 12px",
-                        borderBottom: "1px solid #1F3B54",
-                        color: "#7F97AC",
-                        fontSize: 10.5,
-                        fontWeight: 700,
-                        letterSpacing: "0.04em",
-                      }}
-                    >
-                      <span>사용 자재</span>
-                      <span>누적 소모량</span>
-                    </div>
-
-                    <div style={{ maxHeight: 126, overflowY: "auto" }}>
-                      {filteredConsumption.map((item, idx) => (
-                        <div
-                          key={item.code}
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "24px minmax(0, 1fr) auto",
-                            alignItems: "center",
-                            gap: 7,
-                            padding: "8px 12px",
-                            borderBottom: idx === filteredConsumption.length - 1 ? "none" : "1px solid #142A3D",
-                          }}
-                        >
-                          <span
-                            style={{
-                              color: idx < 3 ? "#38BDF8" : "#4E6B82",
-                              fontSize: 10,
-                              fontFamily: "IBM Plex Mono",
-                              fontWeight: 700,
-                            }}
-                          >
-                            {String(idx + 1).padStart(2, "0")}
-                          </span>
-
-                          <div style={{ minWidth: 0 }}>
-                            <div
-                              style={{
-                                color: "#E7EEF5",
-                                fontWeight: 600,
-                                fontSize: 11.5,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                              title={item.name}
-                            >
-                              {item.name}
-                            </div>
-                            <div
-                              style={{
-                                color: "#5E86A3",
-                                fontSize: 9.5,
-                                marginTop: 2,
-                                fontFamily: "IBM Plex Mono",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {item.code}
-                            </div>
-                          </div>
-
-                          <span
-                            style={{
-                              color: "#F5A623",
-                              fontWeight: 700,
-                              fontSize: 12,
-                              fontFamily: "IBM Plex Mono",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {item.qty} {item.unit}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
+        <div style={{ background: "#0B1C2C", borderRadius: 8, padding: 10, maxHeight: 120, overflowY: "auto", border: "1px solid #1F3B54" }}>
+          <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 6, fontWeight: 600 }}>사용 자재 상세 목록</div>
+          {filteredConsumption.map((item) => (
+            <div key={item.code} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 0", borderBottom: "1px solid #16293C" }}>
+              <span style={{ color: "#E7EEF5", fontWeight: 500 }}>{item.name} <span style={{ fontSize: 10, color: "#7F97AC" }}>({item.code})</span></span>
+              <span style={{ color: "#F5A623", fontWeight: 700, fontFamily: "IBM Plex Mono" }}>{item.qty} {item.unit}</span>
             </div>
-          )}
+          ))}
+        </div>
+      </>
+    )}
+  </div>
+)}
         </Card>
 
         <Card style={{ padding: 20 }}>
@@ -4909,6 +4699,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
 
         <div className="out-section-divider" />
 
+        <div className="out-history-panel">
         <Card neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-section-card" style={{ padding: 16 }}>
           <button
             type="button"
@@ -5136,6 +4927,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
             )
           ))}
         </Card>
+        </div>
       </div>
     </div>
   );

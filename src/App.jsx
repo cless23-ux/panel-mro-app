@@ -2129,7 +2129,8 @@ function AppInner() {
   /* 모바일에서 입력창 포커스 시 키보드에 가리지 않도록 자동 스크롤 */
   useEffect(() => {
   const handleFocusIn = (e) => {
-    // PC 화면에서는 스크롤 조정 안 함
+      // PC(마우스 환경)에서는 스크롤 조정 안 함 - 터치 기기에서만 동작
+    if (!window.matchMedia("(pointer: coarse)").matches) return;
     if (window.innerWidth > 768) return;
 
     const target = e.target;

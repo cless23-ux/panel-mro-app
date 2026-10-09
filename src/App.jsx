@@ -4050,11 +4050,24 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
   // 출고이력 화면 전용: 전체 목록 / 내가 등록한 목록 전환
   const [outMineOnly, setOutMineOnly] = useState(false);
+  const [outHistorySearch, setOutHistorySearch] = useState("");
   const filteredOutTxs = useMemo(() => {
-    if (!outMineOnly) return allOutTxs;
+  let list = allOutTxs;
+
+  if (outMineOnly) {
     const myIds = new Set(readMyOutTxIds());
-    return allOutTxs.filter((t) => myIds.has(String(t.id)));
-  }, [allOutTxs, outMineOnly]);
+    list = list.filter((t) => myIds.has(String(t.id)));
+  }
+
+  const q = outHistorySearch.trim().toLowerCase();
+  if (q) {
+    list = list.filter((t) =>
+      [t.itemName, t.itemCode, t.shipNo, t.project, t.worker, t.at]
+        .some((v) => String(v || "").toLowerCase().includes(q))
+    );
+  }
+  return list;
+}, [allOutTxs, outMineOnly, outHistorySearch]);
 
   const outHistoryTotalPages = Math.max(1, Math.ceil(filteredOutTxs.length / HISTORY_PAGE_SIZE));
   const returnHistoryTotalPages = Math.max(1, Math.ceil(allReturnTxs.length / HISTORY_PAGE_SIZE));
@@ -4068,7 +4081,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   }, [returnHistoryTotalPages, returnHistoryPage]);
 
   // 새로 출고가 등록되거나 목록 모드가 바뀌면 1페이지로 이동
-  useEffect(() => { setOutHistoryPage(1); }, [allOutTxs.length, outMineOnly]);
+  useEffect(() => { setOutHistoryPage(1); }, [allOutTxs.length, outMineOnly, outHistorySearch]);
   useEffect(() => { setReturnHistoryPage(1); }, [allReturnTxs.length]);
 
   const recentOutTxs = useMemo(
@@ -4983,9 +4996,40 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                     </span>
                   </button>
                 </div>
-
+<div style={{ position: "relative", margin: "0 0 12px" }}>
+  <Search
+    size={14}
+    color="#5E86A3"
+    style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+  />
+  <input
+    style={{ ...inputStyle, paddingLeft: 34, paddingRight: outHistorySearch ? 34 : 14, height: 38, fontSize: 13 }}
+    placeholder="자재명, 코드, 호선, 프로젝트, 불출자 검색"
+    value={outHistorySearch}
+    onChange={(e) => setOutHistorySearch(e.target.value)}
+  />
+  {outHistorySearch && (
+    <button
+      type="button"
+      onClick={() => setOutHistorySearch("")}
+      aria-label="검색 지우기"
+      style={{
+        position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+        background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", color: "#7F97AC",
+      }}
+    >
+      <X size={15} />
+    </button>
+  )}
+</div>
                 {filteredOutTxs.length === 0 ? (
-                  <EmptyState icon={ScanLine} text="내가 등록한 출고 내역이 없습니다." color="#5E86A3" />
+                  <EmptyState
+  icon={ScanLine}
+  text={outHistorySearch.trim()
+    ? `"${outHistorySearch.trim()}"에 해당하는 출고 내역이 없습니다.`
+    : "내가 등록한 출고 내역이 없습니다."}
+  color="#5E86A3"
+/>
                 ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
                   {recentOutTxs.map((t) => (

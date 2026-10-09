@@ -5022,17 +5022,18 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
     </button>
   )}
 </div>
-                {filteredOutTxs.length === 0 ? (
-                  <EmptyState
-  icon={ScanLine}
-  text={outHistorySearch.trim()
-    ? `"${outHistorySearch.trim()}"에 해당하는 출고 내역이 없습니다.`
-    : "내가 등록한 출고 내역이 없습니다."}
-  color="#5E86A3"
-/>
-                ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
-                  {recentOutTxs.map((t) => (
+<div style={{ minHeight: isMobileView ? 0 : 620, overflowAnchor: "none" }}>
+  {filteredOutTxs.length === 0 ? (
+    <EmptyState
+      icon={ScanLine}
+      text={outHistorySearch.trim()
+        ? `"${outHistorySearch.trim()}"에 해당하는 출고 내역이 없습니다.`
+        : "내가 등록한 출고 내역이 없습니다."}
+      color="#5E86A3"
+    />
+  ) : (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+      {recentOutTxs.map((t) => (
                     <div
                       key={t.id}
                       style={{
@@ -5089,7 +5090,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                   ))}
                 </div>
                 )}
-
+</div>
                 {outHistoryTotalPages > 1 && (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
                     <button

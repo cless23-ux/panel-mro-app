@@ -7475,6 +7475,32 @@ const masterPageNumbers = useMemo(() => {
 
   const [editingCategoryCode, setEditingCategoryCode] = useState(null);
   const [editingCategoryValue, setEditingCategoryValue] = useState("");
+  const [editingItemNoCode, setEditingItemNoCode] = useState(null);
+  const [editingItemNoValue, setEditingItemNoValue] = useState("");
+
+  const startEditItemNo = (item) => {
+    setEditingItemNoCode(item.code);
+    setEditingItemNoValue(String(item.item_no ?? ""));
+  };
+
+  const commitEditItemNo = async (code) => {
+    const value = editingItemNoValue.trim();
+    if (value && !/^\d+$/.test(value)) {
+      notify("품목번호는 숫자로 입력해주세요.", "err");
+      return;
+    }
+    const duplicate = value && items.some((i) => i.code !== code && String(i.item_no ?? "").trim() === value);
+    if (duplicate) {
+      notify("이미 사용 중인 품목번호입니다.", "err");
+      return;
+    }
+    const nextItems = items.map((i) => (i.code === code ? { ...i, item_no: value } : i));
+    await saveItems(nextItems);
+    notify("품목번호가 수정되었습니다.", "ok");
+    setEditingItemNoCode(null);
+    setEditingItemNoValue("");
+  };
+
 
   const startEditCategory = (item) => {
     setEditingCategoryCode(item.code);
@@ -7999,29 +8025,6 @@ const masterPageNumbers = useMemo(() => {
   </span>
 </label>
 
-<label style={{ display: "inline-block" }}>
-  <input
-    type="file"
-    accept=".xlsx, .xls, .csv"
-    onChange={(e) => {
-      if (!window.confirm(
-        "전체교체를 선택하면 현재 등록된 자재 목록이 모두 삭제되고\n엑셀 파일의 목록으로 완전히 교체됩니다.\n\n정말 진행하시겠습니까?"
-      )) {
-        e.target.value = "";
-        return;
-      }
-      importExcelFile(e, "replace");
-    }}
-    style={{ display: "none" }}
-  />
-  <span style={{
-    background: "#3A1C1C", color: "#FFAFAF", border: "1px solid #EF5350",
-    fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 13.5,
-    padding: "10px 16px", borderRadius: 8, cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center"
-  }}>
-    <Upload size={15} />전체교체 불러오기
-  </span>
-</label>
         </div>
       </div>
 
@@ -8398,7 +8401,31 @@ const masterPageNumbers = useMemo(() => {
                       <CheckCircle2 size={14} />
                     </button>
                   </td>
-                  <td style={{ fontFamily: "IBM Plex Mono", color: "#F5A623", fontWeight: 700, textAlign: "center" }}>{i.item_no || "-"}</td>
+                  <td style={{ fontFamily: "IBM Plex Mono", color: "#F5A623", fontWeight: 700, textAlign: "center" }}>
+                    {editingItemNoCode === i.code ? (
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        autoFocus
+                        value={editingItemNoValue}
+                        onChange={(e) => setEditingItemNoValue(e.target.value.replace(/\D/g, ""))}
+                        onBlur={() => commitEditItemNo(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditItemNo(i.code);
+                          if (e.key === "Escape") setEditingItemNoCode(null);
+                        }}
+                        style={{ ...inputStyle, width: 72, padding: "4px 6px", fontSize: 12, textAlign: "center" }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditItemNo(i)}
+                        title="클릭하여 품목번호 수정"
+                        style={{ cursor: "pointer", display: "inline-block", minWidth: 40, padding: "3px 7px", border: "1px solid #F5A62366", borderRadius: 5, background: "#0B1C2C" }}
+                      >
+                        {i.item_no || "-"}
+                      </span>
+                    )}
+                  </td>
                   <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7", fontWeight: 600 }}>{i.code}</td>
                   <td>
                <div style={{ fontWeight: 600, fontSize: 14 }}>

@@ -7572,12 +7572,32 @@ const masterPageNumbers = useMemo(() => {
   };
     const exportCSV = () => {
     const headers = ["코드,품명,규격,카테고리,단위,현재고,안전재고,거래처,비고,이미지주소,실사용,품목번호\n"];
-    const rows = items.map(i => `"${csvSafe(i.code)}","${csvSafe(i.name)}","${csvSafe(i.spec)}","${csvSafe(i.category)}","${i.unit}",${i.stock},${i.safety},"${csvSafe(i.manufacturer)}","${csvSafe(i.memo)}","${csvSafe(i.image_url)}","${i.in_use ? "Y" : ""}","${csvSafe(i.item_no)}"\n`);
+    const rows = items.map(i => {
+      const values = [
+        i.code,
+        i.name,
+        i.spec,
+        i.category,
+        i.unit,
+        i.stock,
+        i.safety,
+        i.manufacturer,
+        i.memo,
+        i.image_url,
+        i.in_use ? "Y" : "",
+        i.item_no
+      ];
+      return values.map((v) => {
+        const value = String(v ?? "").replace(/"/g, '""');
+        return `"${value}"`;
+      }).join(",") + "\n";
+    });
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = `MRO_자재마스터_${nowStr().split(" ")[0]}.csv`;
     link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     notify("자재 데이터가 엑셀(CSV)로 다운로드 되었습니다.", "ok");
   };
 
@@ -7606,7 +7626,7 @@ const masterPageNumbers = useMemo(() => {
   };
 
  const importExcelFile = (e, mode = "merge") => {
-  const file = e.target.files[0];
+  const file = e.target.files && e.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
@@ -7616,46 +7636,110 @@ const masterPageNumbers = useMemo(() => {
       try {
         const data = new Uint8Array(evt.target.result);
         const workbook = window.XLSX.read(data, { type: 'array' });
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rawData = window.XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+        const sheetName = workbook.SheetNames && workbook.SheetNames[0];
+        if (!sheetName) {
+          notify("엑셀 파일에 시트가 없습니다.", "err");
+          return;
+        }
+        const worksheet = workbook.Sheets[sheetName];
 
-        const parsed = rawData.map(row => {
-          const getCol = (...keys) => {
-            for (let k of keys) {
-              const foundKey = Object.keys(row).find(rk => rk.trim().toLowerCase() === k.toLowerCase());
-              if (foundKey && row[foundKey] !== undefined) return String(row[foundKey]).trim();
-            }
-            return "";
-          };
+        // 헤더명만으로 컬럼을 찾습니다. Excel에서 열 순서가 바뀌어도 위치로 읽지 않습니다.
+        const rows = window.XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          defval: "",
+          raw: false,
+          blankrows: false
+        });
 
-          const code = getCol('코드', 'code', '자재코드');
-          const fullName = getCol('품명 / 규격', '품명/규격', '품명', 'name');
-          const spec = getCol('규격', 'spec');
-          const manufacturer = getCol('거래처', '생산업체', '제조사', 'manufacturer');
-          const category = getCol('카테고리', 'category', '구분');
-          const memo = getCol('비고', '메모', '명칭 / 메모', '명칭/메모', 'memo');
-          const unit = getCol('단위', 'unit') || 'EA';
-          const stock = Number(getCol('현재고', '재고', '수량', '입고수량', '재고수량', 'stock', 'qty')) || 0;
-          const safety = Number(getCol('안전재고', '안전재고기준', 'safety')) || 0;
-          const location = getCol('위치', 'location');
-          const imageUrl = getCol('이미지주소', '이미지', 'image_url', '사진');
-          const itemNo = getCol('품목번호', 'item_no', '번호');
-          
-          if (!code && !fullName) return null;
+        if (!rows || rows.length < 2) {
+          notify("엑셀 파일에서 자재 데이터를 찾을 수 없습니다.", "err");
+          return;
+        }
+
+        const normalizeHeader = (value) => String(value ?? "")
+          .replace(/^\uFEFF/, "")
+          .replace(/[\s\u00A0]/g, "")
+          .replace(/[\/\\_\-]/g, "")
+          .toLowerCase()
+          .trim();
+
+        const aliases = {
+          code: ["코드", "자재코드", "code", "materialcode"],
+          name: ["품명", "품명/규격", "품명 / 규격", "자재명", "name", "itemname"],
+          spec: ["규격", "spec", "specification"],
+          category: ["카테고리", "구분", "category", "type"],
+          unit: ["단위", "unit"],
+          stock: ["현재고", "재고", "수량", "입고수량", "재고수량", "stock", "qty"],
+          safety: ["안전재고", "안전재고기준", "safety", "safetystock"],
+          manufacturer: ["거래처", "생산업체", "제조사", "manufacturer", "vendor"],
+          memo: ["비고", "메모", "명칭/메모", "명칭 / 메모", "memo", "remark", "remarks"],
+          imageUrl: ["이미지주소", "이미지", "imageurl", "image_url", "사진", "photo"],
+          inUse: ["실사용", "사용여부", "실사용여부", "inuse", "active", "use"],
+          itemNo: ["품목번호", "품목번호", "itemno", "item_no", "번호"]
+        };
+
+        const headerRow = rows[0] || [];
+        const headerMap = new Map();
+        headerRow.forEach((h, idx) => {
+          const key = normalizeHeader(h);
+          if (key && !headerMap.has(key)) headerMap.set(key, idx);
+        });
+
+        const findIndex = (keys) => {
+          for (const key of keys) {
+            const idx = headerMap.get(normalizeHeader(key));
+            if (idx !== undefined) return idx;
+          }
+          return -1;
+        };
+
+        const col = {};
+        Object.keys(aliases).forEach((field) => {
+          col[field] = findIndex(aliases[field]);
+        });
+
+        // 최소한 코드 또는 품명이 있어야 정상적인 자재 파일로 인정합니다.
+        if (col.code < 0 && col.name < 0) {
+          notify("엑셀 헤더를 인식하지 못했습니다. '코드' 또는 '품명' 열을 확인해주세요.", "err");
+          return;
+        }
+
+        const cell = (row, field) => {
+          const idx = col[field];
+          if (idx < 0 || idx >= row.length) return "";
+          return String(row[idx] ?? "").trim();
+        };
+
+        const toNumber = (value) => {
+          const cleaned = String(value ?? "").replace(/,/g, "").trim();
+          if (cleaned === "") return 0;
+          const n = Number(cleaned);
+          return Number.isFinite(n) ? n : 0;
+        };
+
+        const toInUse = (value) => {
+          const v = String(value ?? "").trim().toLowerCase();
+          return ["y", "yes", "true", "1", "사용", "실사용", "사용함", "o", "○"].includes(v);
+        };
+
+        const parsed = rows.slice(1).map((row) => {
+          const code = cell(row, "code");
+          const name = cell(row, "name");
+          if (!code && !name) return null;
 
           return {
             code: code || uid("ITEM"),
-            name: fullName || "미지정 품명",
-            spec: spec || "",
-            category: category || "",
-            unit: unit,
-            stock: stock,
-            safety: safety,
-            location: location,
-            manufacturer: manufacturer,
-            memo: memo || "",
-            image_url: imageUrl || "",
-            item_no: itemNo || "",
+            name: name || "미지정 품명",
+            spec: cell(row, "spec"),
+            category: cell(row, "category"),
+            unit: cell(row, "unit") || "EA",
+            stock: toNumber(cell(row, "stock")),
+            safety: toNumber(cell(row, "safety")),
+            manufacturer: cell(row, "manufacturer"),
+            memo: cell(row, "memo"),
+            image_url: cell(row, "imageUrl"),
+            in_use: toInUse(cell(row, "inUse")),
+            item_no: cell(row, "itemNo"),
             deleted: false,
           };
         }).filter(Boolean);
@@ -7669,27 +7753,38 @@ const masterPageNumbers = useMemo(() => {
           saveItems(parsed);
           notify(`전체교체 완료: 기존 목록을 지우고 ${parsed.length}개 자재로 교체했습니다.`, "ok");
         } else {
-  // 병합: 기존 자재는 유지하고, 코드가 겹치면 엑셀 값으로 갱신, 새 코드는 추가
-  // 단, 엑셀에 이미지 URL이 비어 있으면 기존에 등록해둔 사진은 지우지 않고 유지합니다.
-  const byCode = new Map(items.map((i) => [String(i.code).trim(), i]));
-  parsed.forEach((p) => {
-    const key = String(p.code).trim();
-    const prev = byCode.get(key) || {};
-    const nextImageUrl = p.image_url && p.image_url.trim() ? p.image_url : prev.image_url;
-    byCode.set(key, { ...prev, ...p, image_url: nextImageUrl });
-  });
-  const merged = Array.from(byCode.values());
-  saveItems(merged);
-  notify(`병합 완료: 엑셀 ${parsed.length}개 항목 반영 (전체 ${merged.length}개)`, "ok");
-}
+          // 병합: 기존 자재는 유지하고, 코드가 같으면 엑셀 값으로 갱신합니다.
+          // 이미지 주소가 빈 경우에는 기존에 등록된 이미지만 유지합니다.
+          const byCode = new Map(items.map((i) => [String(i.code).trim(), i]));
+
+          parsed.forEach((p) => {
+            const key = String(p.code).trim();
+            const prev = byCode.get(key);
+            if (prev) {
+              const next = { ...prev, ...p };
+              if (!p.image_url) next.image_url = prev.image_url || "";
+              byCode.set(key, next);
+            } else {
+              byCode.set(key, p);
+            }
+          });
+
+          const merged = Array.from(byCode.values());
+          saveItems(merged);
+          notify(`병합 완료: 엑셀 ${parsed.length}개 항목 반영 (전체 ${merged.length}개)`, "ok");
+        }
       } catch (err) {
-        console.error(err);
+        console.error("[자재마스터 엑셀 불러오기 오류]", err);
         notify("엑셀 파일을 처리하는 중 오류가 발생했습니다.", "err");
       } finally {
         e.target.value = "";
       }
     };
+
     reader.readAsArrayBuffer(file);
+  } else {
+    notify("엑셀 처리 기능을 불러오지 못했습니다. 페이지를 새로고침 후 다시 시도해주세요.", "err");
+    e.target.value = "";
   }
 };
 

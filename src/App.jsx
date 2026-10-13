@@ -10854,6 +10854,9 @@ keyCode = String(keyCode)
                     fontSize: 12.5, color: "#E7EEF5", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
                   }}>
                     <span style={{ fontWeight: 700, color: "#35D08C" }}>{t.itemName}</span>
+                    <span style={{ color: "#7F97AC", fontFamily: "IBM Plex Mono", fontSize: 11 }}>
+                      [{t.itemCode || "-"}]
+                    </span>
                     <span>{t.qty} {t.unit}</span>
                     <span style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11 }}>
                       | {t.at} | 담당자: {t.worker || "-"}

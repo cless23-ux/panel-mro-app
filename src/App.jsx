@@ -10221,6 +10221,15 @@ keyCode = String(keyCode)
       notify("호선을 선택하거나 입력하세요.", "err");
       return;
     }
+    const confirmMsg =
+      `다음 내용으로 입고하시겠습니까?\n\n` +
+      `자재: ${selectedItem.name}\n` +
+      `코드: ${selectedItem.code}\n` +
+      `수량: ${inputQty}${selectedItem.unit}\n` +
+      (materialType === "raw" ? `호선: ${manualShip.trim()}\n` : "") +
+      `수령자: ${person.trim()}\n\n` +
+      `현재고 ${selectedItem.stock}${selectedItem.unit} → 입고 후 ${(Number(selectedItem.stock) || 0) + inputQty}${selectedItem.unit}`;
+    if (!window.confirm(confirmMsg)) return;
 
     const nextItems = items.map((i) =>
       i.code === selectedItem.code ? { ...i, stock: (Number(i.stock) || 0) + inputQty } : i
@@ -10256,29 +10265,49 @@ keyCode = String(keyCode)
     setManualShip("");
   };
 
-  const cancelInTx = async (targetTx) => {
-    if (!window.confirm(`[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 입고 내역을 철회(재고 차감)하시겠습니까?`)) {
+    const cancelInTx = async (targetTx) => {
+    const cleanCode = (c) => String(c).replace(/[\r\n]+/g, "").trim();
+    const curItem = items.find((i) => cleanCode(i.code) === cleanCode(targetTx.itemCode));
+    const curStock = Number(curItem?.stock) || 0;
+
+    if (curStock < Number(targetTx.qty)) {
+      notify(
+        `현재고(${curStock}${targetTx.unit})가 입고수량(${targetTx.qty}${targetTx.unit})보다 적어 철회할 수 없습니다. 이미 출고된 자재가 있는지 확인해주세요.`,
+        "err"
+      );
       return;
     }
 
-    const nextItems = items.map((i) => {
-      if (String(i.code).replace(/[\r\n]+/g, "").trim() === String(targetTx.itemCode).replace(/[\r\n]+/g, "").trim()) {
-        return { ...i, stock: Math.max(0, Number(i.stock) - Number(targetTx.qty)) };
-      }
-      return i;
-    });
-
-    const nextTxs = (txs || []).filter((t) => t.id !== targetTx.id);
-
-    if (supabase) {
-      await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: -Number(targetTx.qty), txDeleteId: targetTx.id }]);
-      await reloadItems();
-      await reloadTxs();
-    } else {
-      await saveItems(nextItems);
-      if (saveTxs) await saveTxs(nextTxs);
+    if (!window.confirm(
+      `[${targetTx.itemName}] ${targetTx.qty}${targetTx.unit} 입고를 철회하시겠습니까?\n\n` +
+      `재고가 ${curStock}${targetTx.unit} → ${curStock - Number(targetTx.qty)}${targetTx.unit} 로 차감되고,\n` +
+      `해당 입고 기록은 삭제됩니다.`
+    )) {
+      return;
     }
-    notify(`입고가 철회되어 재고 ${targetTx.qty}${targetTx.unit}가 차감되었습니다.`, "info");
+
+    try {
+      const nextItems = items.map((i) =>
+        cleanCode(i.code) === cleanCode(targetTx.itemCode)
+          ? { ...i, stock: Math.max(0, Number(i.stock) - Number(targetTx.qty)) }
+          : i
+      );
+      const nextTxs = (txs || []).filter((t) => t.id !== targetTx.id);
+
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: targetTx.itemCode, delta: -Number(targetTx.qty), txDeleteId: targetTx.id }]);
+        await reloadItems();
+        await reloadTxs();
+      } else {
+        await saveItems(nextItems);
+        if (saveTxs) await saveTxs(nextTxs);
+      }
+      setSelectedTxIds((prev) => prev.filter((id) => id !== targetTx.id));
+      notify(`입고가 철회되어 재고 ${targetTx.qty}${targetTx.unit}가 차감되었습니다.`, "info");
+    } catch (e) {
+      console.error("입고 철회 오류:", e);
+      notify(`입고 철회 실패: ${e?.message || e}`, "err");
+    }
   };
 
   const isAllChecked = invoiceData?.list.every((i) => i.checked);
@@ -10830,6 +10859,17 @@ keyCode = String(keyCode)
                       | {t.at} | 담당자: {t.worker || "-"}
                     </span>
                   </div>
+                                    <button
+                    type="button"
+                    onClick={() => cancelInTx(t)}
+                    style={{
+                      background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
+                      padding: "5px 11px", borderRadius: 6, cursor: "pointer",
+                      fontSize: 11.5, fontWeight: 600, flexShrink: 0, marginLeft: "auto",
+                    }}
+                  >
+                    철회
+                  </button>
                 </div>
               ))}
             </div>

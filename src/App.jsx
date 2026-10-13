@@ -10077,6 +10077,7 @@ keyCode = String(keyCode)
             type: "in",
             itemCode: masterItem.code,
             itemName: masterItem.name,
+            spec: masterItem.spec || "",
             unit: masterItem.unit,
             qty: inputQty,
             worker: invoicePerson,
@@ -10149,6 +10150,7 @@ keyCode = String(keyCode)
             type: "in",
             itemCode: masterItem.code,
             itemName: masterItem.name,
+            spec: masterItem.spec || "",
             unit: masterItem.unit,
             qty: docQty,
             worker: invoicePerson,
@@ -10240,6 +10242,7 @@ keyCode = String(keyCode)
       type: "in",
       itemCode: selectedItem.code,
       itemName: selectedItem.name,
+      spec: selectedItem.spec || "",
       unit: selectedItem.unit,
       qty: inputQty,
       worker: person,
@@ -10840,29 +10843,47 @@ keyCode = String(keyCode)
                   key={t.id}
                   style={{
                     background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
-                    padding: "9px 12px", display: "flex", alignItems: "center", gap: 10,
+                    padding: "9px 10px", display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0,
                   }}
                 >
                   <input
                     type="checkbox"
                     checked={selectedTxIds.includes(t.id)}
                     onChange={() => toggleTxCheck(t.id)}
-                    style={{ flexShrink: 0 }}
+                    style={{ flexShrink: 0, marginTop: 3 }}
                   />
-                  <div style={{
-                    flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8,
-                    fontSize: 12.5, color: "#E7EEF5", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  }}>
-                    <span style={{ fontWeight: 700, color: "#35D08C" }}>{t.itemName}</span>
-                    <span style={{ color: "#7F97AC", fontFamily: "IBM Plex Mono", fontSize: 11 }}>
-                      [{t.itemCode || "-"}]
-                    </span>
-                    <span>{t.qty} {t.unit}</span>
-                    <span style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11 }}>
-                      | {t.at} | 담당자: {t.worker || "-"}
-                    </span>
+                  <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 6, minWidth: 0,
+                      flexWrap: "wrap", lineHeight: 1.35,
+                    }}>
+                      <span style={{ fontWeight: 700, color: "#35D08C", fontSize: 12.5, overflowWrap: "anywhere" }}>
+                        {t.itemName}
+                      </span>
+                      <span style={{
+                        color: "#9FB4C7", fontFamily: "IBM Plex Mono", fontSize: 10.5,
+                        overflowWrap: "anywhere",
+                      }}>
+                        [{t.itemCode || "-"}]
+                      </span>
+                    </div>
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+                      marginTop: 3, lineHeight: 1.35, fontSize: 11.5, color: "#C7D4DF",
+                    }}>
+                      <span style={{ overflowWrap: "anywhere" }}>규격: {t.spec || items.find((i) => String(i.code) === String(t.itemCode))?.spec || "-"}</span>
+                      <span style={{ color: "#FBBF24", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>
+                        · {t.qty} {t.unit}
+                      </span>
+                    </div>
+                    <div style={{
+                      marginTop: 3, color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 10,
+                      lineHeight: 1.35, overflowWrap: "anywhere",
+                    }}>
+                      {t.at} · 담당자: {t.worker || "-"}
+                    </div>
                   </div>
-                                    <button
+                  <button
                     type="button"
                     onClick={() => cancelInTx(t)}
                     style={{

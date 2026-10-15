@@ -2925,7 +2925,7 @@ function AppInner() {
             }}
           >
                         {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} onDeleteTransactions={deleteTransactionRecords} onSelectAlertItem={(item) => { setMasterSearchPreset(item.code); goToTab("master"); }} />}
-            {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} materialType="sub" />}
+            {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} materialType="sub" />}
             {tab === "rawInbound" && <RawMaterialInboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} initialShip={rawManagePresetShip} onOpenReturn={(payload) => { const list = Array.isArray(payload?.items) ? payload.items : []; setRawManagePresetShip(payload?.ship || list[0]?.shipNo || ""); setRawManagePresetReturnItems(list); goToTab("return"); }} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
@@ -3197,6 +3197,12 @@ function ShortageModal({ items, onClose, onSelectItem }) {
   );
 }
 /* ---------------- Dashboard ---------------- */
+const PERIOD_META = {
+  all:   { label: "누적" },
+  day:   { label: "일 (오늘)" },
+  week:  { label: "주 (이번 주)" },
+  month: { label: "월 (이번 달)" },
+};
 function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onSelectAlertItem }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
   const [shortageModal, setShortageModal] = useState(false);
@@ -3246,17 +3252,33 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
     }
   }, [availableProjects, selectedProject]);
 
+    const [period, setPeriod] = useState("all"); // all | day | week | month
+
+  const periodStart = useMemo(() => {
+    if (period === "all") return null;
+    const now = new Date();
+    if (period === "day") return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (period === "week") {
+      const diff = now.getDay() === 0 ? 6 : now.getDay() - 1; // 월요일 시작
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
+    }
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  }, [period]);
+
   const shipMaterialConsumption = useMemo(() => {
     if (!selectedShip || selectedShip === "등록된 호선 없음") return [];
 
     const map = {};
     txs
-      .filter(
-        (t) =>
-          t.type === "out" &&
-          t.shipNo === selectedShip &&
-          (selectedProject === ALL_PROJECTS || t.project === selectedProject)
-      )
+      .filter((t) => {
+        if (t.type !== "out" || t.shipNo !== selectedShip) return false;
+        if (selectedProject !== ALL_PROJECTS && t.project !== selectedProject) return false;
+        if (periodStart) {
+          const d = new Date(String(t.at || "").replace(" ", "T"));
+          if (Number.isNaN(d.getTime()) || d < periodStart) return false;
+        }
+        return true;
+      })
       .forEach((t) => {
         const key = t.itemName || t.itemCode;
         if (!map[key]) {
@@ -3265,8 +3287,8 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
         map[key].qty += Number(t.qty) || 0;
       });
 
-    return Object.values(map);
-  }, [txs, selectedShip, selectedProject]);
+    return Object.values(map).sort((a, b) => b.qty - a.qty);
+  }, [txs, selectedShip, selectedProject, periodStart]);
 const [materialSearch, setMaterialSearch] = useState("");
 
 const filteredConsumption = useMemo(() => {
@@ -3325,86 +3347,65 @@ const filteredTotalText = useMemo(() => {
         <StatCard label="안전재고 미달" value={items.filter((i) => statusOf(i) === "danger").length} unit="종" icon={AlertTriangle} color="#EF5350" onClick={() => setShortageModal(true)} />
       </div>
 
-      <div
+            <div
+        className="dashboard-consumption-grid"
         style={{
           display: "grid",
           gridTemplateColumns: "minmax(0, 1.65fr) minmax(320px, 0.9fr)",
           gap: 16,
           marginBottom: 20,
         }}
-        className="dashboard-consumption-grid"
       >
-        <Card style={{ padding: 18 }}>
-          {/* 호선별 부자재 소모 현황 - 정돈된 헤더 */}
+        {/* ① 그래프 (크게) */}
+        <Card style={{ padding: 18, minWidth: 0 }}>
           <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 14,
-              marginBottom: 14,
-              paddingBottom: 12,
-              borderBottom: "1px solid #1F3B54",
+              display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+              gap: 14, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #1F3B54", flexWrap: "wrap",
             }}
           >
             <div style={{ minWidth: 0 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  color: "#E7EEF5",
-                  fontSize: 14,
-                  fontWeight: 700,
-                }}
-              >
-                <span
-                  style={{
-                    width: 3,
-                    height: 18,
-                    borderRadius: 3,
-                    background: "#38BDF8",
-                    display: "inline-block",
-                    boxShadow: "0 0 10px #38BDF855",
-                  }}
-                />
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#E7EEF5", fontSize: 14, fontWeight: 700 }}>
+                <span style={{ width: 3, height: 18, borderRadius: 3, background: "#38BDF8", display: "inline-block", boxShadow: "0 0 10px #38BDF855" }} />
                 호선별 부자재 소모 현황
               </div>
-              <div
-                style={{
-                  marginTop: 4,
-                  color: "#5E86A3",
-                  fontSize: 10.5,
-                }}
-              >
-                선택 조건에 따른 자재별 누적 소모량
+              <div style={{ marginTop: 4, color: "#5E86A3", fontSize: 10.5 }}>
+                {PERIOD_META[period].label} 기준 자재별 소모량
+              </div>
+
+              {/* 일 / 주 / 월 전환 */}
+              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                {Object.entries(PERIOD_META).map(([id, meta]) => {
+                  const on = period === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setPeriod(id)}
+                      style={{
+                        padding: "5px 11px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                        fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+                        border: `1px solid ${on ? "#38BDF8" : "#1F3B54"}`,
+                        background: on ? "#38BDF822" : "#0B1C2C",
+                        color: on ? "#38BDF8" : "#7F97AC",
+                      }}
+                    >
+                      {meta.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 7,
-                flexWrap: "wrap",
-                justifyContent: "flex-end",
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
               <select
                 value={selectedShip}
                 onChange={(e) => setSelectedShip(e.target.value)}
                 aria-label="호선 선택"
                 style={{
-                  background: "#0B1C2C",
-                  border: "1px solid #315775",
-                  color: "#38BDF8",
-                  padding: "7px 28px 7px 10px",
-                  borderRadius: 7,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  outline: "none",
-                  cursor: "pointer",
-                  minWidth: 92,
+                  background: "#0B1C2C", border: "1px solid #315775", color: "#38BDF8",
+                  padding: "7px 28px 7px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700,
+                  outline: "none", cursor: "pointer", minWidth: 92,
                 }}
               >
                 {availableShips.map((ship) => (
@@ -3417,16 +3418,9 @@ const filteredTotalText = useMemo(() => {
                 onChange={(e) => setSelectedProject(e.target.value)}
                 aria-label="프로젝트 선택"
                 style={{
-                  background: "#0B1C2C",
-                  border: "1px solid #315775",
-                  color: "#F5A623",
-                  padding: "7px 28px 7px 10px",
-                  borderRadius: 7,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  outline: "none",
-                  cursor: "pointer",
-                  minWidth: 76,
+                  background: "#0B1C2C", border: "1px solid #315775", color: "#F5A623",
+                  padding: "7px 28px 7px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700,
+                  outline: "none", cursor: "pointer", minWidth: 76,
                 }}
               >
                 {availableProjects.map((proj) => (
@@ -3436,15 +3430,8 @@ const filteredTotalText = useMemo(() => {
 
               <div style={{ position: "relative" }}>
                 <Search
-                  size={13}
-                  color="#5E86A3"
-                  style={{
-                    position: "absolute",
-                    left: 9,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    pointerEvents: "none",
-                  }}
+                  size={13} color="#5E86A3"
+                  style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
                 />
                 <input
                   value={materialSearch}
@@ -3452,14 +3439,8 @@ const filteredTotalText = useMemo(() => {
                   placeholder="자재 검색"
                   aria-label="자재 검색"
                   style={{
-                    background: "#0B1C2C",
-                    border: "1px solid #315775",
-                    color: "#E7EEF5",
-                    padding: "7px 26px 7px 27px",
-                    borderRadius: 7,
-                    fontSize: 12,
-                    outline: "none",
-                    width: 126,
+                    background: "#0B1C2C", border: "1px solid #315775", color: "#E7EEF5",
+                    padding: "7px 26px 7px 27px", borderRadius: 7, fontSize: 12, outline: "none", width: 126,
                   }}
                 />
                 {materialSearch && (
@@ -3468,16 +3449,8 @@ const filteredTotalText = useMemo(() => {
                     onClick={() => setMaterialSearch("")}
                     aria-label="검색 지우기"
                     style={{
-                      position: "absolute",
-                      right: 5,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      background: "none",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 2,
-                      display: "flex",
-                      color: "#7F97AC",
+                      position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
+                      background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", color: "#7F97AC",
                     }}
                   >
                     <X size={13} />
@@ -3492,335 +3465,233 @@ const filteredTotalText = useMemo(() => {
               icon={ScanLine}
               text={
                 selectedProject === ALL_PROJECTS
-                  ? `[${selectedShip}] 호선에 출고된 자재 이력이 없습니다.`
-                  : `[${selectedShip} / ${selectedProject}] 조건에 출고된 자재 이력이 없습니다.`
+                  ? `[${selectedShip}] 호선의 ${PERIOD_META[period].label} 출고 자재 이력이 없습니다.`
+                  : `[${selectedShip} / ${selectedProject}] 조건의 ${PERIOD_META[period].label} 출고 자재 이력이 없습니다.`
               }
               color="#5E86A3"
             />
+          ) : filteredConsumption.length === 0 ? (
+            <EmptyState icon={Search} text={`"${materialSearch.trim()}"에 해당하는 사용 자재가 없습니다.`} color="#5E86A3" />
           ) : (
-            <div>
+            <>
               {materialSearch.trim() && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    marginBottom: 8,
-                    color: "#7F97AC",
-                    fontSize: 10.5,
-                  }}
-                >
-                  <span>
-                    검색 결과 <b style={{ color: "#38BDF8" }}>{filteredConsumption.length}</b>종
-                  </span>
-                  {filteredTotalText && (
-                    <span>
-                      총 사용량 <b style={{ color: "#F5A623" }}>{filteredTotalText}</b>
-                    </span>
-                  )}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, color: "#7F97AC", fontSize: 10.5 }}>
+                  <span>검색 결과 <b style={{ color: "#38BDF8" }}>{filteredConsumption.length}</b>종</span>
+                  {filteredTotalText && <span>총 사용량 <b style={{ color: "#F5A623" }}>{filteredTotalText}</b></span>}
                 </div>
               )}
 
-              {filteredConsumption.length === 0 ? (
-                <EmptyState icon={Search} text={`"${materialSearch.trim()}"에 해당하는 사용 자재가 없습니다.`} color="#5E86A3" />
-              ) : (
-                <>
-                  <div
-                    style={{
-                      height: Math.max(210, Math.min(300, filteredConsumption.length * 32 + 40)),
-                      marginBottom: 12,
-                      padding: "4px 2px 0",
-                      background: "linear-gradient(180deg, #0C2133 0%, #0A1A29 100%)",
-                      border: "1px solid #18354D",
-                      borderRadius: 9,
-                    }}
-                  >
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={filteredConsumption}
-                        layout="vertical"
-                        margin={{ top: 8, right: 18, left: 2, bottom: 8 }}
-                      >
-                        <CartesianGrid stroke="#17293B" horizontal={false} />
-                        <XAxis
-                          type="number"
-                          tick={{ fill: "#718CA2", fontSize: 10 }}
-                          axisLine={{ stroke: "#1F3B54" }}
-                          tickLine={false}
-                        />
-                        <YAxis
-                          type="category"
-                          dataKey="name"
-                          width={145}
-                          tick={{ fill: "#B7C8D6", fontSize: 10.5 }}
-                          axisLine={false}
-                          tickLine={false}
-                        />
-                        <Tooltip
-                          cursor={{ fill: "#38BDF80D" }}
-                          contentStyle={{
-                            background: "#0F2233",
-                            border: "1px solid #315775",
-                            borderRadius: 8,
-                            fontSize: 11,
-                            boxShadow: "0 8px 24px rgba(0,0,0,.28)",
-                          }}
-                          formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
-                        />
-                        <Bar dataKey="qty" radius={[0, 5, 5, 0]} barSize={16}>
-                          {filteredConsumption.map((_, idx) => (
-                            <Cell
-                              key={idx}
-                              fill={idx === 0 ? "#38BDF8" : idx === 1 ? "#F5A623" : "#5E86A3"}
-                            />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  <div
-                    style={{
-                      background: "#091827",
-                      border: "1px solid #1F3B54",
-                      borderRadius: 9,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "9px 12px",
-                        borderBottom: "1px solid #1F3B54",
-                        color: "#7F97AC",
-                        fontSize: 10.5,
-                        fontWeight: 700,
-                        letterSpacing: "0.04em",
-                      }}
-                    >
-                      <span>사용 자재</span>
-                      <span>누적 소모량</span>
-                    </div>
-
-                    <div style={{ maxHeight: 126, overflowY: "auto" }}>
-                      {filteredConsumption.map((item, idx) => (
-                        <div
-                          key={item.code}
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "24px minmax(0, 1fr) auto",
-                            alignItems: "center",
-                            gap: 7,
-                            padding: "8px 12px",
-                            borderBottom: idx === filteredConsumption.length - 1 ? "none" : "1px solid #142A3D",
-                          }}
-                        >
-                          <span
-                            style={{
-                              color: idx < 3 ? "#38BDF8" : "#4E6B82",
-                              fontSize: 10,
-                              fontFamily: "IBM Plex Mono",
-                              fontWeight: 700,
-                            }}
-                          >
-                            {String(idx + 1).padStart(2, "0")}
-                          </span>
-
-                          <div style={{ minWidth: 0 }}>
-                            <div
-                              style={{
-                                color: "#E7EEF5",
-                                fontWeight: 600,
-                                fontSize: 11.5,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                              title={item.name}
-                            >
-                              {item.name}
-                            </div>
-                            <div
-                              style={{
-                                color: "#5E86A3",
-                                fontSize: 9.5,
-                                marginTop: 2,
-                                fontFamily: "IBM Plex Mono",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {item.code}
-                            </div>
-                          </div>
-
-                          <span
-                            style={{
-                              color: "#F5A623",
-                              fontWeight: 700,
-                              fontSize: 12,
-                              fontFamily: "IBM Plex Mono",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {item.qty} {item.unit}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </Card>
-
-        <Card style={{ padding: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
-            <div style={{
-              fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
-              color: "#5E86A3", textTransform: "uppercase", display: "flex",
-              alignItems: "center", gap: 8, flexShrink: 0,
-            }}>
-              <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
-              재고부족 경고
-            </div>
-          </div>
-          {alertItems.length === 0 ? (
-            <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
-          ) : (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 280, overflowY: "auto" }}>
-              {alertItems.map((i) => {
-                const st = statusOf(i);
+              {(() => {
+                const wrapH = Math.min(560, Math.max(400, filteredConsumption.length * 30 + 60));
+                const innerH = Math.max(wrapH, filteredConsumption.length * 30 + 60);
                 return (
                   <div
-                    key={i.code}
-                    onClick={() => onSelectAlertItem && onSelectAlertItem(i)}
                     style={{
-                      display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
-                      background: "#0B1C2C", border: `1px solid ${STATUS_META[st].color}33`, borderRadius: 8,
-                      cursor: onSelectAlertItem ? "pointer" : "default",
+                      height: wrapH, overflowY: "auto",
+                      background: "linear-gradient(180deg, #0C2133 0%, #0A1A29 100%)",
+                      border: "1px solid #18354D", borderRadius: 9, padding: "4px 2px 0",
                     }}
                   >
-                    <Led status={st} size={10} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 600, color: "#E7EEF5" }}>{i.name}</div>
-                      <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>
-                    </div>
-                    <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontSize: 12.5 }}>
-                      <div style={{ color: STATUS_META[st].color, fontWeight: 700 }}>{i.stock}{i.unit}</div>
-                      <div style={{ color: "#5E86A3", fontSize: 10.5 }}>기준 {i.safety}{i.unit}</div>
+                    <div style={{ height: innerH }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={filteredConsumption} layout="vertical" margin={{ top: 8, right: 22, left: 2, bottom: 8 }}>
+                          <CartesianGrid stroke="#17293B" horizontal={false} />
+                          <XAxis type="number" tick={{ fill: "#718CA2", fontSize: 10 }} axisLine={{ stroke: "#1F3B54" }} tickLine={false} />
+                          <YAxis type="category" dataKey="name" width={170} tick={{ fill: "#B7C8D6", fontSize: 10.5 }} axisLine={false} tickLine={false} />
+                          <Tooltip
+                            cursor={{ fill: "#38BDF80D" }}
+                            contentStyle={{ background: "#0F2233", border: "1px solid #315775", borderRadius: 8, fontSize: 11, boxShadow: "0 8px 24px rgba(0,0,0,.28)" }}
+                            formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
+                          />
+                          <Bar dataKey="qty" radius={[0, 5, 5, 0]} barSize={18}>
+                            {filteredConsumption.map((_, idx) => (
+                              <Cell key={idx} fill={idx === 0 ? "#38BDF8" : idx === 1 ? "#F5A623" : "#5E86A3"} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
                     </div>
                   </div>
                 );
-              })}
+              })()}
+            </>
+          )}
+        </Card>
+
+        {/* ② 재고부족 경고 (높이에 맞춰 꽉 채우고, 넘치면 안에서 스크롤) */}
+        <Card style={{ padding: 20, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <div
+            style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
+              color: "#5E86A3", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8,
+              marginBottom: 12, flexShrink: 0,
+            }}
+          >
+            <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
+            재고부족 경고 ({alertItems.length})
+          </div>
+
+          {alertItems.length === 0 ? (
+            <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
+          ) : (
+            <div style={{ position: "relative", flex: 1, minHeight: 320 }}>
+              <div style={{ position: "absolute", inset: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 4 }}>
+                {alertItems.map((i) => {
+                  const st = statusOf(i);
+                  return (
+                    <div
+                      key={i.code}
+                      onClick={() => onSelectAlertItem && onSelectAlertItem(i)}
+                      style={{
+                        flexShrink: 0, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+                        background: "#0B1C2C", border: `1px solid ${STATUS_META[st].color}33`, borderRadius: 8,
+                        cursor: onSelectAlertItem ? "pointer" : "default",
+                      }}
+                    >
+                      <Led status={st} size={10} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 600, color: "#E7EEF5" }}>{i.name}</div>
+                        <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>
+                      </div>
+                      <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontSize: 12.5 }}>
+                        <div style={{ color: STATUS_META[st].color, fontWeight: 700 }}>{i.stock}{i.unit}</div>
+                        <div style={{ color: "#5E86A3", fontSize: 10.5 }}>기준 {i.safety}{i.unit}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </Card>
-      </div>
 
-      <Card style={{ padding: 20 }}>
-        <SectionLabel>최근 입출고 이력</SectionLabel>
-        {recent.length === 0 ? (
-          <EmptyState icon={ScanLine} text="입출고 이력이 아직 없습니다." color="#5E86A3" />
-        ) : (
-          <>
-            {/* PC/태블릿 테이블 뷰 */}
-            <div className="dashboard-recent-table">
-              <table>
-                <thead>
-                  <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5, textTransform: "uppercase" }}>
-                    <th>구분</th><th>자재</th><th>수량</th><th>호선</th><th>프로젝트</th><th>불출자</th><th>일시</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map((t) => (
-                    <tr key={t.id}>
-                      <td>
-                        <span style={{
-                          display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "IBM Plex Mono", fontSize: 11,
-                          padding: "3px 8px", borderRadius: 10, fontWeight: 600,
-                          color: t.type === "in" ? "#35D08C" : t.type === "return" ? "#22D3EE" : "#F5A623",
-                          background: t.type === "in" ? "#35D08C1a" : t.type === "return" ? "#22D3EE1a" : "#F5A6231a",
-                        }}>
-                          {t.type === "in" ? "입고" : t.type === "return" ? "반납" : "출고"}
-                        </span>
-                      </td>
-                      <td style={{ fontWeight: 600 }}>{t.itemName}</td>
-                      <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600 }}>{t.qty}{t.unit}</td>
-                      <td style={{ color: "#9FB4C7" }}>{t.shipNo || "-"}</td>
-                      <td style={{ color: "#9FB4C7" }}>{t.project || "-"}</td>
-                      <td style={{ color: "#9FB4C7" }}>{t.worker || "-"}</td>
-                      <td style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>{t.at}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        {/* ③ 자재별 소모 상세 (누적소모량) */}
+        <Card style={{ padding: 18, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <div
+            style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
+              color: "#5E86A3", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8,
+              marginBottom: 12, flexShrink: 0,
+            }}
+          >
+            <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
+            자재별 소모량 상세 · {PERIOD_META[period].label}
+          </div>
 
-            {/* 모바일 가독성 최적화 카드 뷰 */}
-            <div className="dashboard-recent-cards">
-              {recent.map((t) => (
-                <div
-                  key={t.id}
-                  style={{
-                    background: "#0B1C2C",
-                    border: "1px solid #1F3B54",
-                    borderRadius: 8,
-                    padding: "10px 12px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{
-                        display: "inline-flex", alignItems: "center", fontFamily: "IBM Plex Mono", fontSize: 10.5,
-                        padding: "2px 6px", borderRadius: 6, fontWeight: 600,
-                        color: t.type === "in" ? "#35D08C" : t.type === "return" ? "#22D3EE" : "#F5A623",
-                        background: t.type === "in" ? "#35D08C1a" : t.type === "return" ? "#22D3EE1a" : "#F5A6231a",
-                      }}>
-                        {t.type === "in" ? "입고" : t.type === "return" ? "반납" : "출고"}
-                      </span>
-                      <span style={{ fontWeight: 700, fontSize: 13.5, color: "#E7EEF5" }}>{t.itemName}</span>
-                    </div>
-                    <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13.5, color: t.type === "in" ? "#35D08C" : t.type === "return" ? "#22D3EE" : "#F5A623" }}>
-                      {t.qty} {t.unit}
-                    </span>
-                  </div>
-
-                  <div style={{ fontSize: 10.5, color: "#5E86A3", fontFamily: "IBM Plex Mono", textAlign: "right", paddingTop: 4, borderTop: "1px dashed #16293C" }}>
-                    {t.at}
-                  </div>
-                </div>
-              ))}
-            </div>
-            {recentAll.length > RECENT_PAGE_SIZE && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
-                <button
-                  type="button"
-                  onClick={() => setRecentPage((p) => Math.max(1, p - 1))}
-                  disabled={recentPage <= 1}
-                  style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: recentPage <= 1 ? "#395268" : "#9FB4C7", cursor: recentPage <= 1 ? "default" : "pointer" }}
-                >이전</button>
-                <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
-                  {recentPage} / {recentTotalPages} 페이지
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setRecentPage((p) => Math.min(recentTotalPages, p + 1))}
-                  disabled={recentPage >= recentTotalPages}
-                  style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: recentPage >= recentTotalPages ? "#395268" : "#9FB4C7", cursor: recentPage >= recentTotalPages ? "default" : "pointer" }}
-                >다음</button>
+          {filteredConsumption.length === 0 ? (
+            <EmptyState icon={ScanLine} text="표시할 소모 내역이 없습니다." color="#5E86A3" />
+          ) : (
+            <div style={{ background: "#091827", border: "1px solid #1F3B54", borderRadius: 9, overflow: "hidden", display: "flex", flexDirection: "column", flex: 1, minHeight: 260 }}>
+              <div
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px",
+                  borderBottom: "1px solid #1F3B54", color: "#7F97AC", fontSize: 10.5, fontWeight: 700,
+                  letterSpacing: "0.04em", flexShrink: 0,
+                }}
+              >
+                <span>사용 자재</span>
+                <span>소모량</span>
               </div>
-            )}
-          </>
-        )}
-      </Card>
+              <div style={{ position: "relative", flex: 1 }}>
+                <div style={{ position: "absolute", inset: 0, overflowY: "auto" }}>
+                  {filteredConsumption.map((item, idx) => (
+                    <div
+                      key={item.code}
+                      style={{
+                        display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) auto", alignItems: "center",
+                        gap: 7, padding: "9px 12px",
+                        borderBottom: idx === filteredConsumption.length - 1 ? "none" : "1px solid #142A3D",
+                      }}
+                    >
+                      <span style={{ color: idx < 3 ? "#38BDF8" : "#4E6B82", fontSize: 10, fontFamily: "IBM Plex Mono", fontWeight: 700 }}>
+                        {String(idx + 1).padStart(2, "0")}
+                      </span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ color: "#E7EEF5", fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.name}>
+                          {item.name}
+                        </div>
+                        <div style={{ color: "#5E86A3", fontSize: 9.5, marginTop: 2, fontFamily: "IBM Plex Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {item.code}
+                        </div>
+                      </div>
+                      <span style={{ color: "#F5A623", fontWeight: 700, fontSize: 12.5, fontFamily: "IBM Plex Mono", whiteSpace: "nowrap" }}>
+                        {item.qty} {item.unit}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* ④ 최근 입출고 이력 (재고부족 창 아래) */}
+        <Card style={{ padding: 18, minWidth: 0 }}>
+          <SectionLabel>최근 입출고 이력</SectionLabel>
+          {recent.length === 0 ? (
+            <EmptyState icon={ScanLine} text="입출고 이력이 아직 없습니다." color="#5E86A3" />
+          ) : (
+            <>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {recent.map((t) => {
+                  const color = t.type === "in" ? "#35D08C" : t.type === "return" ? "#22D3EE" : "#F5A623";
+                  const label = t.type === "in" ? "입고" : t.type === "return" ? "반납" : "출고";
+                  const meta = [t.shipNo, t.project, t.worker].filter(Boolean).join(" · ");
+                  return (
+                    <div
+                      key={t.id}
+                      style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "9px 12px" }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          <span
+                            style={{
+                              fontFamily: "IBM Plex Mono", fontSize: 10.5, padding: "2px 7px", borderRadius: 6,
+                              fontWeight: 600, color, background: `${color}1a`, flexShrink: 0,
+                            }}
+                          >
+                            {label}
+                          </span>
+                          <span style={{ fontWeight: 700, fontSize: 13, color: "#E7EEF5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {t.itemName}
+                          </span>
+                        </div>
+                        <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13, color, whiteSpace: "nowrap", flexShrink: 0 }}>
+                          {t.qty} {t.unit}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 5, fontSize: 10.5, color: "#5E86A3" }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta || "-"}</span>
+                        <span style={{ fontFamily: "IBM Plex Mono", whiteSpace: "nowrap", flexShrink: 0 }}>{t.at}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {recentAll.length > RECENT_PAGE_SIZE && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
+                  <button
+                    type="button"
+                    onClick={() => setRecentPage((p) => Math.max(1, p - 1))}
+                    disabled={recentPage <= 1}
+                    style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: recentPage <= 1 ? "#395268" : "#9FB4C7", cursor: recentPage <= 1 ? "default" : "pointer" }}
+                  >이전</button>
+                  <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                    {recentPage} / {recentTotalPages} 페이지
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setRecentPage((p) => Math.min(recentTotalPages, p + 1))}
+                    disabled={recentPage >= recentTotalPages}
+                    style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: recentPage >= recentTotalPages ? "#395268" : "#9FB4C7", cursor: recentPage >= recentTotalPages ? "default" : "pointer" }}
+                  >다음</button>
+                </div>
+              )}
+            </>
+          )}
+        </Card>
+      </div>
 
       {historyModal && (
         <TxHistoryModal type={historyModal} txs={historyModal === "out" ? cumulativeOutTxs : txs} showDeleted={historyModal === "out"} onDeleteTransactions={onDeleteTransactions} onClose={() => setHistoryModal(null)} />
@@ -9187,7 +9058,7 @@ function RawMaterialInboundView({ items, saveItems, txs, saveTxs, notify, supaba
       {rawTab === "manage" ? (
         <RawMaterialShipManageView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={supabase} reloadItems={reloadItems} reloadTxs={reloadTxs} initialShip={initialShip} onOpenReturn={onOpenReturn} />
       ) : (
-        <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={supabase} materialType="raw" rawMode={rawTab} />
+        <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={supabase} reloadItems={reloadItems} reloadTxs={reloadTxs} materialType="raw" rawMode={rawTab} />
       )}
     </div>
   );

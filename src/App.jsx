@@ -3251,7 +3251,31 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
       setSelectedProject(ALL_PROJECTS);
     }
   }, [availableProjects, selectedProject]);
+  /* 오늘 하루 불출된 호선 목록 */
+  const todayShips = useMemo(() => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const todayStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
+    const map = {};
+    txs.forEach((t) => {
+      if (t.type !== "out" || t.deleted === true) return;
+      if (String(t.reason || "").includes("MRO_REVERSED_OUT:")) return; // 원복된 출고 제외
+      if (!String(t.at || "").startsWith(todayStr)) return;
+
+      const ship = String(t.shipNo || "").trim();
+      if (!ship || ship === "미입력" || ship === "소모자재") return;
+
+      if (!map[ship]) map[ship] = { ship, count: 0, codes: new Set(), lastAt: "" };
+      map[ship].count += 1;
+      map[ship].codes.add(t.itemCode);
+      if (String(t.at) > map[ship].lastAt) map[ship].lastAt = String(t.at);
+    });
+
+    return Object.values(map)
+      .map((m) => ({ ship: m.ship, count: m.count, itemKinds: m.codes.size, lastAt: m.lastAt }))
+      .sort((a, b) => b.lastAt.localeCompare(a.lastAt)); // 가장 최근 불출 호선이 앞으로
+  }, [txs]);
     const [period, setPeriod] = useState("all"); // all | day | week | month
 
   const periodStart = useMemo(() => {
@@ -3459,7 +3483,59 @@ const filteredTotalText = useMemo(() => {
               </div>
             </div>
           </div>
+          {/* 오늘 불출된 호선 */}
+          <div
+            style={{
+              display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+              marginBottom: 14, padding: "9px 12px",
+              background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 9,
+            }}
+          >
+            <span
+              style={{
+                display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+                fontSize: 11.5, fontWeight: 700, color: "#F5A623",
+                fontFamily: "'IBM Plex Mono', monospace",
+              }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#F5A623", boxShadow: "0 0 6px #F5A623" }} />
+              오늘 불출 호선 ({todayShips.length})
+            </span>
 
+            {todayShips.length === 0 ? (
+              <span style={{ fontSize: 11.5, color: "#5E86A3" }}>오늘 불출된 호선이 없습니다.</span>
+            ) : (
+              todayShips.map((s) => {
+                const active = selectedShip === s.ship;
+                return (
+                  <button
+                    key={s.ship}
+                    type="button"
+                    onClick={() => {
+                      setSelectedShip(s.ship);
+                      setSelectedProject(ALL_PROJECTS);
+                      setPeriod("day");
+                    }}
+                    title={`오늘 ${s.count}건 · ${s.itemKinds}종 · 마지막 불출 ${s.lastAt}`}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 6,
+                      padding: "5px 11px", borderRadius: 999, cursor: "pointer",
+                      fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      border: `1px solid ${active ? "#F5A623" : "#315775"}`,
+                      background: active ? "#F5A6231f" : "transparent",
+                      color: active ? "#F5A623" : "#38BDF8",
+                    }}
+                  >
+                    {s.ship}
+                    <span style={{ fontSize: 10.5, fontWeight: 600, color: active ? "#F5A623" : "#7F97AC" }}>
+                      {s.count}건
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
           {shipMaterialConsumption.length === 0 ? (
             <EmptyState
               icon={ScanLine}

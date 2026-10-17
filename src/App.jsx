@@ -7429,7 +7429,32 @@ const masterPageNumbers = useMemo(() => {
     setEditingItemNoValue("");
   };
 
+  const [editingUnitCode, setEditingUnitCode] = useState(null);
+  const [editingUnitValue, setEditingUnitValue] = useState("");
 
+  const startEditUnit = (item) => {
+    setEditingUnitCode(item.code);
+    setEditingUnitValue(item.unit || "EA");
+  };
+
+  const commitEditUnit = async (code) => {
+    const value = editingUnitValue.trim();
+    if (!value) {
+      notify("단위를 입력해주세요.", "err");
+      return;
+    }
+    const target = items.find((i) => i.code === code);
+    if (target && String(target.unit || "") === value) {
+      setEditingUnitCode(null);
+      setEditingUnitValue("");
+      return;
+    }
+    const nextItems = items.map((i) => (i.code === code ? { ...i, unit: value } : i));
+    await saveItems(nextItems);
+    notify("단위가 수정되었습니다.", "ok");
+    setEditingUnitCode(null);
+    setEditingUnitValue("");
+  };
   const startEditCategory = (item) => {
     setEditingCategoryCode(item.code);
     setEditingCategoryValue(item.category || "");
@@ -8386,7 +8411,30 @@ const masterPageNumbers = useMemo(() => {
                       </span>
                     )}
                   </td>
-                  <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>{i.unit}</td>
+                                    <td style={{ fontFamily: "IBM Plex Mono", color: "#9FB4C7" }}>
+                    {editingUnitCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingUnitValue}
+                        onChange={(e) => setEditingUnitValue(e.target.value)}
+                        onBlur={() => commitEditUnit(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditUnit(i.code);
+                          if (e.key === "Escape") setEditingUnitCode(null);
+                        }}
+                        style={{ ...inputStyle, width: 56, padding: "4px 6px", fontSize: 12.5, textAlign: "center" }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditUnit(i)}
+                        title="클릭하여 단위 수정"
+                        style={{ cursor: "pointer", display: "inline-block", minWidth: 34, padding: "3px 8px", border: "1px solid #38BDF866", borderRadius: 5, background: "#0B1C2C" }}
+                      >
+                        {i.unit || "-"}
+                      </span>
+                    )}
+                  </td>
                                     <td style={{ fontFamily: "IBM Plex Mono", fontWeight: 600, fontSize: 13.5, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#E7EEF5" }}>
                     {editingStockCode === i.code ? (
                       <input
@@ -8661,7 +8709,27 @@ const masterPageNumbers = useMemo(() => {
                         {i.stock}
                       </span>
                     )}{" "}
-                    <span style={{ fontSize: 11, fontWeight: 400, color: "#7F97AC" }}>{i.unit}</span>
+                                        {editingUnitCode === i.code ? (
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingUnitValue}
+                        onChange={(e) => setEditingUnitValue(e.target.value)}
+                        onBlur={() => commitEditUnit(i.code)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") commitEditUnit(i.code);
+                          if (e.key === "Escape") setEditingUnitCode(null);
+                        }}
+                        style={{ ...inputStyle, width: 48, padding: "2px 4px", fontSize: 12, display: "inline-block" }}
+                      />
+                    ) : (
+                      <span
+                        onClick={() => startEditUnit(i)}
+                        style={{ fontSize: 11, fontWeight: 400, color: "#7F97AC", borderBottom: "1px dashed #5E86A3", cursor: "pointer" }}
+                      >
+                        {i.unit || "-"}
+                      </span>
+                    )}
                   </div>
                 </div>
               </Card>

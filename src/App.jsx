@@ -7925,88 +7925,105 @@ const masterPageNumbers = useMemo(() => {
         }
       `}</style>
 
-      <Header title="자재 마스터" subtitle="신규 자재 등록 · QR 생성 · 사진 관리 및 백업" />
+            <style>{`
+        @media (min-width: 769px) {
+          .tab-panel > div:has(> .master-head) {
+            display: flex; flex-direction: column;
+            height: calc(100vh - 84px); min-height: 520px; overflow-y: auto;
+          }
+          .tab-panel > div:has(> .master-head) > * { flex-shrink: 0; }
+          .tab-panel > div:has(> .master-head) > .master-table-view {
+            display: flex !important; flex-direction: column;
+            flex: 1 1 0; min-height: 340px; overflow: hidden;
+          }
+          .tab-panel > div:has(> .master-head) > .master-table-view > div {
+            flex: 1; min-height: 0; max-height: none !important;
+          }
+        }
+        .master-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+        .master-head.master-toolbar button,
+        .master-head.master-toolbar label > span { height: 32px !important; padding: 0 11px !important; font-size: 12px !important; }
+        .master-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+        .master-filters.master-chips button { height: 28px; padding: 0 10px !important; font-size: 11.5px !important; }
 
-      <input
-        type="file"
-        accept="image/*"
-        capture="environment"
-        ref={editCameraInputRef}
-        style={{ display: "none" }}
-        onChange={(e) => handleImageFileSelected(e, targetItemForPhoto)}
-      />
-      <input
-        type="file"
-        accept="image/*"
-        ref={editGalleryInputRef}
-        style={{ display: "none" }}
-        onChange={(e) => handleImageFileSelected(e, targetItemForPhoto)}
-      />
+        .master-table-view tbody td { padding: 3px 8px; white-space: nowrap; }
+        .master-table-view tbody td:not(:nth-child(3)) { overflow: hidden; text-overflow: ellipsis; }
+        .master-table-view tbody td:nth-child(8) > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.3; }
+        .master-table-view tbody td:nth-child(9) span,
+        .master-table-view tbody td:nth-child(13) span {
+          max-width: 100% !important; white-space: nowrap !important; overflow: hidden;
+          text-overflow: ellipsis; vertical-align: middle; box-sizing: border-box;
+        }
+        .master-table-view tbody td:nth-child(3) div,
+        .master-table-view tbody td:nth-child(3) img { width: 30px !important; height: 30px !important; }
+        .master-table-view tbody td:nth-child(3) button {
+          width: 16px !important; height: 16px !important; font-size: 9px !important;
+          right: -5px !important; bottom: -5px !important;
+        }
+        .master-table-view thead th { padding: 4px 8px; }
+        .master-table-view thead th select,
+        .master-table-view thead th input:not([type="checkbox"]) { height: 26px; }
+        .master-table-view col:nth-child(7) { width: 178px !important; }
+        .master-table-view col:nth-child(9) { width: 125px !important; }
+      `}</style>
 
-      <div className="master-toolbar" style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Btn onClick={() => setShowForm((s) => !s)} variant={showForm ? "ghost" : "primary"}>
-            {showForm ? <X size={16} /> : <Plus size={16} />}
-            {showForm ? "취소" : "신규 자재 등록"}
-          </Btn>
+      {/* 제목 + 버튼 (한 줄) */}
+      <div className="master-head master-toolbar">
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, minWidth: 0 }}>
+          <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 20, fontWeight: 700, margin: 0 }}>자재 마스터</h1>
+          <span style={{ color: "#7F97AC", fontSize: 12, fontFamily: "IBM Plex Mono" }}>신규 자재 등록 · QR 생성 · 사진 관리 및 백업</span>
         </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {/* 발주 보관함 버튼 */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <Btn onClick={() => setShowForm((s) => !s)} variant={showForm ? "ghost" : "primary"}>
+            {showForm ? <X size={14} /> : <Plus size={14} />}
+            {showForm ? "취소" : "신규 자재 등록"}
+          </Btn>
+
           <button
             onClick={() => setShowCartModal(true)}
             style={{
-              display: "flex", alignItems: "center", gap: 6, padding: "10px 16px", borderRadius: 8,
+              display: "flex", alignItems: "center", gap: 6, borderRadius: 8,
               background: "#38BDF822", border: "1px solid #38BDF8", color: "#38BDF8",
-              fontSize: 13.5, fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace"
+              fontWeight: 600, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace"
             }}
           >
-            <ShoppingCart size={16} />
+            <ShoppingCart size={14} />
             발주 보관함
             {cartItems.length > 0 && (
-              <span style={{
-                background: "#38BDF8", color: "#0A1622", borderRadius: 999,
-                padding: "2px 7px", fontSize: 11, fontWeight: 800, marginLeft: 2
-              }}>
+              <span style={{ background: "#38BDF8", color: "#0A1622", borderRadius: 999, padding: "1px 6px", fontSize: 10.5, fontWeight: 800 }}>
                 {cartItems.length}
               </span>
             )}
           </button>
 
-                    <Btn onClick={exportCSV} variant="subtle"><Download size={15} />엑셀 백업</Btn>
+          <Btn onClick={exportCSV} variant="subtle"><Download size={14} />엑셀 백업</Btn>
           <Btn onClick={exportQRLabelsExcel} variant="subtle" disabled={qrExporting}>
-            <QrCode size={15} />{qrExporting ? "생성 중..." : `QR 라벨${selectedQrCodes.length ? ` (${selectedQrCodes.length}개 선택)` : ""}`}
+            <QrCode size={14} />{qrExporting ? "생성 중..." : `QR 라벨${selectedQrCodes.length ? ` (${selectedQrCodes.length})` : ""}`}
           </Btn>
-          <Btn
-            onClick={bulkDeleteSelected}
-            variant="danger"
-            disabled={selectedQrCodes.length === 0}
-          >
-            <Trash2 size={15} />선택삭제{selectedQrCodes.length ? ` (${selectedQrCodes.length}개)` : ""}
+          <Btn onClick={bulkDeleteSelected} variant="danger" disabled={selectedQrCodes.length === 0}>
+            <Trash2 size={14} />선택삭제{selectedQrCodes.length ? ` (${selectedQrCodes.length})` : ""}
           </Btn>
           <label style={{ display: "inline-block" }}>
-  <input
-    type="file"
-    accept=".xlsx, .xls, .csv"
-    onChange={(e) => importExcelFile(e, "merge")}
-    style={{ display: "none" }}
-  />
-  <span style={{
-    background: "#16324A", color: "#C9DAE8", border: "1px solid #274460",
-    fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, fontSize: 13.5,
-    padding: "10px 16px", borderRadius: 8, cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center"
-  }}>
-    <Upload size={15} />병합 불러오기
-  </span>
-</label>
-
+            <input type="file" accept=".xlsx, .xls, .csv" onChange={(e) => importExcelFile(e, "merge")} style={{ display: "none" }} />
+            <span style={{
+              background: "#16324A", color: "#C9DAE8", border: "1px solid #274460",
+              fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600,
+              borderRadius: 8, cursor: "pointer", display: "inline-flex", gap: 6, alignItems: "center"
+            }}>
+              <Upload size={14} />병합 불러오기
+            </span>
+          </label>
         </div>
       </div>
 
-      {/* 원자재 / 부자재 구분 필터 탭 */}       
-       <div className="master-chips" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+      <input type="file" accept="image/*" capture="environment" ref={editCameraInputRef} style={{ display: "none" }} onChange={(e) => handleImageFileSelected(e, targetItemForPhoto)} />
+      <input type="file" accept="image/*" ref={editGalleryInputRef} style={{ display: "none" }} onChange={(e) => handleImageFileSelected(e, targetItemForPhoto)} />
+
+      {/* 필터 칩 + 범례 (한 줄) */}
+      <div className="master-filters master-chips">
         {[
-          { id: "all", label: `전체 (${items.length})` },        
+          { id: "all", label: `전체 (${items.length})` },
           { id: "sub", label: `부자재 (${items.filter((i) => getMaterialType(i.code) === "sub").length})` },
           { id: "consumable", label: `소모자재 (${items.filter((i) => getMaterialType(i.code) === "consumable").length})` },
         ].map((f) => (
@@ -8014,7 +8031,7 @@ const masterPageNumbers = useMemo(() => {
             key={f.id}
             onClick={() => setMaterialFilter(f.id)}
             style={{
-              padding: "8px 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700,
+              borderRadius: 8, fontWeight: 700,
               border: materialFilter === f.id ? `1px solid ${MATERIAL_TYPE_META[f.id]?.color || "#38BDF8"}` : "1px solid #1F3B54",
               background: materialFilter === f.id ? `${MATERIAL_TYPE_META[f.id]?.color || "#38BDF8"}1f` : "#0B1C2C",
               color: materialFilter === f.id ? (MATERIAL_TYPE_META[f.id]?.color || "#38BDF8") : "#7F97AC",
@@ -8024,9 +8041,9 @@ const masterPageNumbers = useMemo(() => {
             {f.label}
           </button>
         ))}
-      </div>
-            <div className="master-chips" style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>실사용 여부:</span>
+
+        <span style={{ width: 1, height: 18, background: "#1F3B54", margin: "0 4px" }} />
+        <span style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>실사용:</span>
         {[
           { id: "all", label: "전체" },
           { id: "yes", label: `실사용 (${items.filter((i) => i.in_use).length})` },
@@ -8036,7 +8053,7 @@ const masterPageNumbers = useMemo(() => {
             key={f.id}
             onClick={() => updateColumnFilter("inUse", f.id)}
             style={{
-              padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+              borderRadius: 8, fontWeight: 700,
               border: columnFilters.inUse === f.id ? "1px solid #35D08C" : "1px solid #1F3B54",
               background: columnFilters.inUse === f.id ? "#35D08C1f" : "#0B1C2C",
               color: columnFilters.inUse === f.id ? "#35D08C" : "#7F97AC",
@@ -8046,97 +8063,59 @@ const masterPageNumbers = useMemo(() => {
             {f.label}
           </button>
         ))}
+
+        <span style={{ marginLeft: "auto", fontSize: 10.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace" }}>
+          마지막 입출고: 🟢 30일 미만 · 🟡 30~89일 · 🟠 90~179일 · 🔴 180일 이상 · ⚪ 이력 없음
+        </span>
       </div>
-<div style={{ display: "none" }}>
-  {/* 정렬 기능은 유지하고 화면에서만 숨김 */}
-  <span>정렬:</span>
-  <select
-    value={sortConfig.key || "none"}
-    onChange={(e) => setSortConfig((prev) => ({ ...prev, key: e.target.value === "none" ? null : e.target.value }))}
-  >
-    <option value="none">기본순서</option>
-    <option value="code">코드</option>
-    <option value="name">품명</option>
-    <option value="category">카테고리</option>
-    <option value="unit">단위</option>
-    <option value="stock">현재고</option>
-    <option value="safety">안전재고</option>
-  </select>
-  <button
-    type="button"
-    onClick={() => setSortConfig((prev) => ({ ...prev, direction: prev.direction === "asc" ? "desc" : "asc" }))}
-    disabled={!sortConfig.key}
-  >
-    {sortConfig.direction === "asc" ? "오름차순 ▲" : "내림차순 ▼"}
-  </button>
-</div>
-<div style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 12 }}>
-  마지막 입출고 이후: 🟢 30일 미만 · 🟡 30~89일 · 🟠 90~179일 · 🔴 180일 이상 · ⚪ 이력 없음
-</div>
-      {/* 긴급요청 경고 바 */}
+
+      {/* 긴급요청 바 (얇게) */}
       <div style={{
         background: pendingUrgentList.length > 0 ? "linear-gradient(90deg, #2A1010 0%, #150B0B 100%)" : "#0B1C2C",
         border: `1px solid ${pendingUrgentList.length > 0 ? "#EF535066" : "#1E3A5F"}`,
-        borderRadius: 12, padding: "12px 16px", marginBottom: 20,
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 64
+        borderRadius: 10, padding: "5px 12px", marginBottom: 8,
+        display: "flex", alignItems: "center", gap: 12, minHeight: 38,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-            <AlertTriangle size={18} color={pendingUrgentList.length > 0 ? "#FF6B6B" : "#5E86A3"} />
-            <span style={{
-              fontSize: 13.5, fontWeight: 700,
-              color: pendingUrgentList.length > 0 ? "#FF6B6B" : "#5E86A3",
-              fontFamily: "'IBM Plex Mono', monospace"
-            }}>
-              긴급발주 요청 ({pendingUrgentList.length})
-            </span>
-          </div>
-
-          {pendingUrgentList.length === 0 ? (
-            <span style={{ fontSize: 12.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace" }}>
-              현재 접수된 긴급 발주 요청이 없습니다.
-            </span>
-          ) : (
-            <div className="urgent-stack-container">
-              {pendingUrgentList.map((req, index) => {
-                const overlapMargin = index > 0 ? "-32px" : "0px";
-                return (
-                  <div
-                    key={req.id}
-                    onClick={() => setSelectedUrgent(req)}
-                    className="urgent-stack-item"
-                    style={{
-                      marginLeft: overlapMargin,
-                      zIndex: pendingUrgentList.length - index,
-                      background: "#1E0F0F",
-                      border: "1px solid #EF5350AA",
-                      borderRadius: 8,
-                      padding: "8px 14px",
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      minWidth: 190
-                    }}
-                  >
-                    <span style={{
-                      width: 6, height: 6, borderRadius: "50%", background: "#FF5252",
-                      boxShadow: "0 0 6px #FF5252", flexShrink: 0
-                    }} />
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 700, color: "#FFD1D1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {req.item_name}
-                      </div>
-                      <div style={{ fontSize: 10.5, color: "#FFA8A8", fontFamily: "IBM Plex Mono" }}>
-                        {req.requester} · {timeAgoStr(req.created_at)}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <AlertTriangle size={15} color={pendingUrgentList.length > 0 ? "#FF6B6B" : "#5E86A3"} />
+          <span style={{
+            fontSize: 12, fontWeight: 700,
+            color: pendingUrgentList.length > 0 ? "#FF6B6B" : "#5E86A3",
+            fontFamily: "'IBM Plex Mono', monospace"
+          }}>
+            긴급발주 요청 ({pendingUrgentList.length})
+          </span>
         </div>
+
+        {pendingUrgentList.length === 0 ? (
+          <span style={{ fontSize: 11.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace" }}>
+            현재 접수된 긴급 발주 요청이 없습니다.
+          </span>
+        ) : (
+          <div className="urgent-stack-container">
+            {pendingUrgentList.map((req) => (
+              <div
+                key={req.id}
+                onClick={() => setSelectedUrgent(req)}
+                className="urgent-stack-item"
+                style={{
+                  background: "#1E0F0F", border: "1px solid #EF5350AA", borderRadius: 8,
+                  padding: "4px 12px", display: "flex", alignItems: "center", gap: 8, minWidth: 180,
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#FF5252", boxShadow: "0 0 6px #FF5252", flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#FFD1D1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {req.item_name}
+                  </div>
+                  <div style={{ fontSize: 10, color: "#FFA8A8", fontFamily: "IBM Plex Mono" }}>
+                    {req.requester} · {timeAgoStr(req.created_at)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {showForm && (
@@ -8759,59 +8738,59 @@ const masterPageNumbers = useMemo(() => {
           })
         )}
       </div>
-      {displayedItems.length > 0 && (
-  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginTop: 16 }}>
-    <div style={{ fontSize: 12, color: "#7F97AC", fontFamily: "'IBM Plex Mono', monospace" }}>
-      전체 {displayedItems.length.toLocaleString()}개 중 {(masterPageStart + 1).toLocaleString()}–{Math.min(masterPageStart + masterPageSize, displayedItems.length).toLocaleString()}번 표시
-    </div>
+            {displayedItems.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginTop: 8, flexShrink: 0 }}>
+          <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "'IBM Plex Mono', monospace" }}>
+            전체 {displayedItems.length.toLocaleString()}개 중 {(masterPageStart + 1).toLocaleString()}–{Math.min(masterPageStart + masterPageSize, displayedItems.length).toLocaleString()}번
+          </div>
 
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
-      <button
-        type="button"
-        onClick={() => goMasterPage(safeMasterPage - 1)}
-        disabled={safeMasterPage <= 1}
-        style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: safeMasterPage <= 1 ? "#395268" : "#9FB4C7", cursor: safeMasterPage <= 1 ? "default" : "pointer" }}
-      >이전</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", justifyContent: "center" }}>
+            <button
+              type="button"
+              onClick={() => goMasterPage(safeMasterPage - 1)}
+              disabled={safeMasterPage <= 1}
+              style={{ padding: "4px 10px", borderRadius: 7, fontSize: 12, border: "1px solid #274460", background: "#0B1C2C", color: safeMasterPage <= 1 ? "#395268" : "#9FB4C7", cursor: safeMasterPage <= 1 ? "default" : "pointer" }}
+            >이전</button>
 
-      {masterPageNumbers.map((p) =>
-        typeof p === "string" ? (
-          <span key={p} style={{ color: "#5E86A3", padding: "0 2px" }}>…</span>
-        ) : (
-          <button
-            key={p}
-            type="button"
-            onClick={() => goMasterPage(p)}
-            style={{
-              minWidth: 34, padding: "7px 8px", borderRadius: 7, fontWeight: 700, fontSize: 12.5,
-              fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
-              border: p === safeMasterPage ? "1px solid #38BDF8" : "1px solid #274460",
-              background: p === safeMasterPage ? "#38BDF822" : "#0B1C2C",
-              color: p === safeMasterPage ? "#38BDF8" : "#9FB4C7",
-            }}
-          >{p}</button>
-        )
+            {masterPageNumbers.map((p) =>
+              typeof p === "string" ? (
+                <span key={p} style={{ color: "#5E86A3", padding: "0 2px" }}>…</span>
+              ) : (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => goMasterPage(p)}
+                  style={{
+                    minWidth: 30, padding: "4px 6px", borderRadius: 7, fontWeight: 700, fontSize: 12,
+                    fontFamily: "'IBM Plex Mono', monospace", cursor: "pointer",
+                    border: p === safeMasterPage ? "1px solid #38BDF8" : "1px solid #274460",
+                    background: p === safeMasterPage ? "#38BDF822" : "#0B1C2C",
+                    color: p === safeMasterPage ? "#38BDF8" : "#9FB4C7",
+                  }}
+                >{p}</button>
+              )
+            )}
+
+            <button
+              type="button"
+              onClick={() => goMasterPage(safeMasterPage + 1)}
+              disabled={safeMasterPage >= masterTotalPages}
+              style={{ padding: "4px 10px", borderRadius: 7, fontSize: 12, border: "1px solid #274460", background: "#0B1C2C", color: safeMasterPage >= masterTotalPages ? "#395268" : "#9FB4C7", cursor: safeMasterPage >= masterTotalPages ? "default" : "pointer" }}
+            >다음</button>
+          </div>
+
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, color: "#7F97AC" }}>
+            페이지당
+            <select
+              value={masterPageSize}
+              onChange={(e) => setMasterPageSize(Number(e.target.value))}
+              style={{ ...inputStyle, width: 78, padding: "3px 6px", fontSize: 12 }}
+            >
+              {[20, 30, 50, 100, 200].map((n) => <option key={n} value={n}>{n}개</option>)}
+            </select>
+          </label>
+        </div>
       )}
-
-      <button
-        type="button"
-        onClick={() => goMasterPage(safeMasterPage + 1)}
-        disabled={safeMasterPage >= masterTotalPages}
-        style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: safeMasterPage >= masterTotalPages ? "#395268" : "#9FB4C7", cursor: safeMasterPage >= masterTotalPages ? "default" : "pointer" }}
-      >다음</button>
-    </div>
-
-    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7F97AC" }}>
-      페이지당
-      <select
-        value={masterPageSize}
-        onChange={(e) => setMasterPageSize(Number(e.target.value))}
-        style={{ ...inputStyle, width: 84, padding: "4px 6px", fontSize: 12 }}
-      >
-        {[50, 100, 200, 500].map((n) => <option key={n} value={n}>{n}개</option>)}
-      </select>
-    </label>
-  </div>
-)}
 
       {/* 긴급 요청 상세 정보 모달 */}
       {selectedUrgent && (

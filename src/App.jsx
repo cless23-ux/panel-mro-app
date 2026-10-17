@@ -3358,47 +3358,60 @@ const filteredTotalText = useMemo(() => {
   const totalOutQty = totalOutSource.reduce((s, t) => s + Number(t.qty || 0), 0);
   const totalInQty = txs.filter((t) => t.type === "in").reduce((s, t) => s + Number(t.qty), 0);
 
-  return (
-    <div>
-      <Header title="대시보드" subtitle="실시간 재고 · 호선별 소모 현황" />
+    return (
+    <div className="dash-fit">
+      <style>{`
+        .dash-fit { display: flex; flex-direction: column; height: calc(100vh - 84px); min-height: 560px; }
+        .dash-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; flex-shrink: 0; }
+        .dash-stats > div { padding: 8px 14px !important; }
+        .dash-stats .stat-clickable > div:nth-child(2) { display: none; }
+        .dash-grid {
+          flex: 1; min-height: 0; display: grid; gap: 10px;
+          grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 1fr);
+          grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+        }
+        .dash-grid > * { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+        .dash-chart { grid-column: 1; grid-row: 1 / 3; }
+        .dash-detail { grid-column: 2; grid-row: 1 / 3; }
+        .dash-alert { grid-column: 3; grid-row: 1; }
+        .dash-recent { grid-column: 3; grid-row: 2; }
+        @media (max-width: 1100px) {
+          .dash-fit { height: auto; }
+          .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+          .dash-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+          .dash-chart, .dash-detail, .dash-alert, .dash-recent { grid-column: auto; grid-row: auto; min-height: 380px; }
+        }
+      `}</style>
 
-      {/* [수정 1] 대시보드 상단 경고창 완전 삭제 */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10, flexShrink: 0 }}>
+        <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 20, fontWeight: 700, margin: 0 }}>대시보드</h1>
+        <span style={{ color: "#7F97AC", fontSize: 12, fontFamily: "IBM Plex Mono" }}>실시간 재고 · 호선별 소모 현황</span>
+      </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 20 }}>
+      <div className="dash-stats">
         <StatCard label="관리 품목 수" value={items.length} unit="종" icon={Package} color="#5EC8FF" />
         <StatCard label="누적 입고" value={totalInQty.toLocaleString()} unit="" icon={ArrowDownToLine} color="#35D08C" onClick={() => setHistoryModal("in")} />
         <StatCard label="누적 출고" value={totalOutQty.toLocaleString()} unit="" icon={ArrowUpFromLine} color="#F5A623" onClick={() => setHistoryModal("out")} />
         <StatCard label="안전재고 미달" value={items.filter((i) => statusOf(i) === "danger").length} unit="종" icon={AlertTriangle} color="#EF5350" onClick={() => setShortageModal(true)} />
       </div>
 
-            <div
-        className="dashboard-consumption-grid"
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(0, 1.65fr) minmax(320px, 0.9fr)",
-          gap: 16,
-          marginBottom: 20,
-        }}
-      >
-        {/* ① 그래프 (크게) */}
-        <Card style={{ padding: 18, minWidth: 0 }}>
+      <div className="dash-grid">
+        {/* ① 호선별 소모 현황 (그래프) */}
+        <Card className="dash-chart" style={{ padding: 14 }}>
           <div
             style={{
               display: "flex", alignItems: "flex-start", justifyContent: "space-between",
-              gap: 14, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #1F3B54", flexWrap: "wrap",
+              gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #1F3B54", flexWrap: "wrap", flexShrink: 0,
             }}
           >
             <div style={{ minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#E7EEF5", fontSize: 14, fontWeight: 700 }}>
-                <span style={{ width: 3, height: 18, borderRadius: 3, background: "#38BDF8", display: "inline-block", boxShadow: "0 0 10px #38BDF855" }} />
+                <span style={{ width: 3, height: 16, borderRadius: 3, background: "#38BDF8", display: "inline-block", boxShadow: "0 0 10px #38BDF855" }} />
                 호선별 부자재 소모 현황
-              </div>
-              <div style={{ marginTop: 4, color: "#5E86A3", fontSize: 10.5 }}>
-                {PERIOD_META[period].label} 기준 자재별 소모량
+                <span style={{ color: "#5E86A3", fontSize: 10.5, fontWeight: 500 }}>{PERIOD_META[period].label} 기준</span>
               </div>
 
-              {/* 일 / 주 / 월 전환 */}
-              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                 {Object.entries(PERIOD_META).map(([id, meta]) => {
                   const on = period === id;
                   return (
@@ -3407,7 +3420,7 @@ const filteredTotalText = useMemo(() => {
                       type="button"
                       onClick={() => setPeriod(id)}
                       style={{
-                        padding: "5px 11px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                        padding: "4px 10px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer",
                         fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
                         border: `1px solid ${on ? "#38BDF8" : "#1F3B54"}`,
                         background: on ? "#38BDF822" : "#0B1C2C",
@@ -3428,7 +3441,7 @@ const filteredTotalText = useMemo(() => {
                 aria-label="호선 선택"
                 style={{
                   background: "#0B1C2C", border: "1px solid #315775", color: "#38BDF8",
-                  padding: "7px 28px 7px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700,
+                  padding: "6px 26px 6px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700,
                   outline: "none", cursor: "pointer", minWidth: 92,
                 }}
               >
@@ -3443,7 +3456,7 @@ const filteredTotalText = useMemo(() => {
                 aria-label="프로젝트 선택"
                 style={{
                   background: "#0B1C2C", border: "1px solid #315775", color: "#F5A623",
-                  padding: "7px 28px 7px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700,
+                  padding: "6px 26px 6px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700,
                   outline: "none", cursor: "pointer", minWidth: 76,
                 }}
               >
@@ -3464,7 +3477,7 @@ const filteredTotalText = useMemo(() => {
                   aria-label="자재 검색"
                   style={{
                     background: "#0B1C2C", border: "1px solid #315775", color: "#E7EEF5",
-                    padding: "7px 26px 7px 27px", borderRadius: 7, fontSize: 12, outline: "none", width: 126,
+                    padding: "6px 26px 6px 27px", borderRadius: 7, fontSize: 12, outline: "none", width: 120,
                   }}
                 />
                 {materialSearch && (
@@ -3483,18 +3496,19 @@ const filteredTotalText = useMemo(() => {
               </div>
             </div>
           </div>
+
           {/* 오늘 불출된 호선 */}
           <div
             style={{
-              display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-              marginBottom: 14, padding: "9px 12px",
+              display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+              marginBottom: 10, padding: "6px 10px", flexShrink: 0,
               background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 9,
             }}
           >
             <span
               style={{
                 display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
-                fontSize: 11.5, fontWeight: 700, color: "#F5A623",
+                fontSize: 11, fontWeight: 700, color: "#F5A623",
                 fontFamily: "'IBM Plex Mono', monospace",
               }}
             >
@@ -3503,7 +3517,7 @@ const filteredTotalText = useMemo(() => {
             </span>
 
             {todayShips.length === 0 ? (
-              <span style={{ fontSize: 11.5, color: "#5E86A3" }}>오늘 불출된 호선이 없습니다.</span>
+              <span style={{ fontSize: 11, color: "#5E86A3" }}>오늘 불출된 호선이 없습니다.</span>
             ) : (
               todayShips.map((s) => {
                 const active = selectedShip === s.ship;
@@ -3518,9 +3532,9 @@ const filteredTotalText = useMemo(() => {
                     }}
                     title={`오늘 ${s.count}건 · ${s.itemKinds}종 · 마지막 불출 ${s.lastAt}`}
                     style={{
-                      display: "inline-flex", alignItems: "center", gap: 6,
-                      padding: "5px 11px", borderRadius: 999, cursor: "pointer",
-                      fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "3px 9px", borderRadius: 999, cursor: "pointer",
+                      fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
                       fontFamily: "'IBM Plex Mono', monospace",
                       border: `1px solid ${active ? "#F5A623" : "#315775"}`,
                       background: active ? "#F5A6231f" : "transparent",
@@ -3528,7 +3542,7 @@ const filteredTotalText = useMemo(() => {
                     }}
                   >
                     {s.ship}
-                    <span style={{ fontSize: 10.5, fontWeight: 600, color: active ? "#F5A623" : "#7F97AC" }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: active ? "#F5A623" : "#7F97AC" }}>
                       {s.count}건
                     </span>
                   </button>
@@ -3536,6 +3550,7 @@ const filteredTotalText = useMemo(() => {
               })
             )}
           </div>
+
           {shipMaterialConsumption.length === 0 ? (
             <EmptyState
               icon={ScanLine}
@@ -3551,103 +3566,52 @@ const filteredTotalText = useMemo(() => {
           ) : (
             <>
               {materialSearch.trim() && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, color: "#7F97AC", fontSize: 10.5 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, color: "#7F97AC", fontSize: 10.5, flexShrink: 0 }}>
                   <span>검색 결과 <b style={{ color: "#38BDF8" }}>{filteredConsumption.length}</b>종</span>
                   {filteredTotalText && <span>총 사용량 <b style={{ color: "#F5A623" }}>{filteredTotalText}</b></span>}
                 </div>
               )}
 
-              {(() => {
-                const wrapH = Math.min(560, Math.max(400, filteredConsumption.length * 30 + 60));
-                const innerH = Math.max(wrapH, filteredConsumption.length * 30 + 60);
-                return (
-                  <div
-                    style={{
-                      height: wrapH, overflowY: "auto",
-                      background: "linear-gradient(180deg, #0C2133 0%, #0A1A29 100%)",
-                      border: "1px solid #18354D", borderRadius: 9, padding: "4px 2px 0",
-                    }}
-                  >
-                    <div style={{ height: innerH }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={filteredConsumption} layout="vertical" margin={{ top: 8, right: 22, left: 2, bottom: 8 }}>
-                          <CartesianGrid stroke="#17293B" horizontal={false} />
-                          <XAxis type="number" tick={{ fill: "#718CA2", fontSize: 10 }} axisLine={{ stroke: "#1F3B54" }} tickLine={false} />
-                          <YAxis type="category" dataKey="name" width={170} tick={{ fill: "#B7C8D6", fontSize: 10.5 }} axisLine={false} tickLine={false} />
-                          <Tooltip
-                            cursor={{ fill: "#38BDF80D" }}
-                            contentStyle={{ background: "#0F2233", border: "1px solid #315775", borderRadius: 8, fontSize: 11, boxShadow: "0 8px 24px rgba(0,0,0,.28)" }}
-                            formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
-                          />
-                          <Bar dataKey="qty" radius={[0, 5, 5, 0]} barSize={18}>
-                            {filteredConsumption.map((_, idx) => (
-                              <Cell key={idx} fill={idx === 0 ? "#38BDF8" : idx === 1 ? "#F5A623" : "#5E86A3"} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
+              <div
+                style={{
+                  flex: 1, minHeight: 0, position: "relative",
+                  background: "linear-gradient(180deg, #0C2133 0%, #0A1A29 100%)",
+                  border: "1px solid #18354D", borderRadius: 9,
+                }}
+              >
+                <div style={{ position: "absolute", inset: 0, overflowY: "auto" }}>
+                  <div style={{ height: Math.max(filteredConsumption.length * 28 + 40, 200) }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={filteredConsumption} layout="vertical" margin={{ top: 8, right: 22, left: 2, bottom: 8 }}>
+                        <CartesianGrid stroke="#17293B" horizontal={false} />
+                        <XAxis type="number" tick={{ fill: "#718CA2", fontSize: 10 }} axisLine={{ stroke: "#1F3B54" }} tickLine={false} />
+                        <YAxis type="category" dataKey="name" width={170} tick={{ fill: "#B7C8D6", fontSize: 10.5 }} axisLine={false} tickLine={false} />
+                        <Tooltip
+                          cursor={{ fill: "#38BDF80D" }}
+                          contentStyle={{ background: "#0F2233", border: "1px solid #315775", borderRadius: 8, fontSize: 11, boxShadow: "0 8px 24px rgba(0,0,0,.28)" }}
+                          formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
+                        />
+                        <Bar dataKey="qty" radius={[0, 5, 5, 0]} barSize={16}>
+                          {filteredConsumption.map((_, idx) => (
+                            <Cell key={idx} fill={idx === 0 ? "#38BDF8" : idx === 1 ? "#F5A623" : "#5E86A3"} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
-                );
-              })()}
+                </div>
+              </div>
             </>
           )}
         </Card>
 
-        {/* ② 재고부족 경고 (높이에 맞춰 꽉 채우고, 넘치면 안에서 스크롤) */}
-        <Card style={{ padding: 20, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* ② 자재별 소모량 상세 */}
+        <Card className="dash-detail" style={{ padding: 14 }}>
           <div
             style={{
-              fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.1em",
               color: "#5E86A3", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8,
-              marginBottom: 12, flexShrink: 0,
-            }}
-          >
-            <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
-            재고부족 경고 ({alertItems.length})
-          </div>
-
-          {alertItems.length === 0 ? (
-            <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
-          ) : (
-            <div style={{ position: "relative", flex: 1, minHeight: 320 }}>
-              <div style={{ position: "absolute", inset: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 4 }}>
-                {alertItems.map((i) => {
-                  const st = statusOf(i);
-                  return (
-                    <div
-                      key={i.code}
-                      onClick={() => onSelectAlertItem && onSelectAlertItem(i)}
-                      style={{
-                        flexShrink: 0, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
-                        background: "#0B1C2C", border: `1px solid ${STATUS_META[st].color}33`, borderRadius: 8,
-                        cursor: onSelectAlertItem ? "pointer" : "default",
-                      }}
-                    >
-                      <Led status={st} size={10} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 600, color: "#E7EEF5" }}>{i.name}</div>
-                        <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{i.spec}</div>
-                      </div>
-                      <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontSize: 12.5 }}>
-                        <div style={{ color: STATUS_META[st].color, fontWeight: 700 }}>{i.stock}{i.unit}</div>
-                        <div style={{ color: "#5E86A3", fontSize: 10.5 }}>기준 {i.safety}{i.unit}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </Card>
-
-        {/* ③ 자재별 소모 상세 (누적소모량) */}
-        <Card style={{ padding: 18, display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <div
-            style={{
-              fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
-              color: "#5E86A3", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8,
-              marginBottom: 12, flexShrink: 0,
+              marginBottom: 10, flexShrink: 0,
             }}
           >
             <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
@@ -3657,10 +3621,10 @@ const filteredTotalText = useMemo(() => {
           {filteredConsumption.length === 0 ? (
             <EmptyState icon={ScanLine} text="표시할 소모 내역이 없습니다." color="#5E86A3" />
           ) : (
-            <div style={{ background: "#091827", border: "1px solid #1F3B54", borderRadius: 9, overflow: "hidden", display: "flex", flexDirection: "column", flex: 1, minHeight: 260 }}>
+            <div style={{ background: "#091827", border: "1px solid #1F3B54", borderRadius: 9, overflow: "hidden", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
               <div
                 style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px",
+                  display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 12px",
                   borderBottom: "1px solid #1F3B54", color: "#7F97AC", fontSize: 10.5, fontWeight: 700,
                   letterSpacing: "0.04em", flexShrink: 0,
                 }}
@@ -3668,14 +3632,14 @@ const filteredTotalText = useMemo(() => {
                 <span>사용 자재</span>
                 <span>소모량</span>
               </div>
-              <div style={{ position: "relative", flex: 1 }}>
+              <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
                 <div style={{ position: "absolute", inset: 0, overflowY: "auto" }}>
                   {filteredConsumption.map((item, idx) => (
                     <div
                       key={item.code}
                       style={{
                         display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) auto", alignItems: "center",
-                        gap: 7, padding: "9px 12px",
+                        gap: 7, padding: "7px 12px",
                         borderBottom: idx === filteredConsumption.length - 1 ? "none" : "1px solid #142A3D",
                       }}
                     >
@@ -3686,7 +3650,7 @@ const filteredTotalText = useMemo(() => {
                         <div style={{ color: "#E7EEF5", fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={item.name}>
                           {item.name}
                         </div>
-                        <div style={{ color: "#5E86A3", fontSize: 9.5, marginTop: 2, fontFamily: "IBM Plex Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ color: "#5E86A3", fontSize: 9.5, marginTop: 1, fontFamily: "IBM Plex Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {item.code}
                         </div>
                       </div>
@@ -3701,14 +3665,61 @@ const filteredTotalText = useMemo(() => {
           )}
         </Card>
 
-        {/* ④ 최근 입출고 이력 (재고부족 창 아래) */}
-        <Card style={{ padding: 18, minWidth: 0 }}>
+        {/* ③ 재고부족 경고 */}
+        <Card className="dash-alert" style={{ padding: 14 }}>
+          <div
+            style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.1em",
+              color: "#5E86A3", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8,
+              marginBottom: 10, flexShrink: 0,
+            }}
+          >
+            <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
+            재고부족 경고 ({alertItems.length})
+          </div>
+
+          {alertItems.length === 0 ? (
+            <EmptyState icon={CheckCircle2} text="모든 자재가 충분합니다." color="#35D08C" />
+          ) : (
+            <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
+              <div style={{ position: "absolute", inset: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 4 }}>
+                {alertItems.map((i) => {
+                  const st = statusOf(i);
+                  return (
+                    <div
+                      key={i.code}
+                      onClick={() => onSelectAlertItem && onSelectAlertItem(i)}
+                      style={{
+                        flexShrink: 0, display: "flex", alignItems: "center", gap: 10, padding: "7px 10px",
+                        background: "#0B1C2C", border: `1px solid ${STATUS_META[st].color}33`, borderRadius: 8,
+                        cursor: onSelectAlertItem ? "pointer" : "default",
+                      }}
+                    >
+                      <Led status={st} size={9} />
+                      <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: "#E7EEF5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={i.name}>{i.name}</div>
+                        <div style={{ fontSize: 10.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={i.spec}>{i.spec}</div>
+                      </div>
+                      <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontSize: 12, flexShrink: 0 }}>
+                        <div style={{ color: STATUS_META[st].color, fontWeight: 700 }}>{i.stock}{i.unit}</div>
+                        <div style={{ color: "#5E86A3", fontSize: 10 }}>기준 {i.safety}{i.unit}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </Card>
+
+        {/* ④ 최근 입출고 이력 */}
+        <Card className="dash-recent" style={{ padding: 14 }}>
           <SectionLabel>최근 입출고 이력</SectionLabel>
           {recent.length === 0 ? (
             <EmptyState icon={ScanLine} text="입출고 이력이 아직 없습니다." color="#5E86A3" />
           ) : (
             <>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 4 }}>
                 {recent.map((t) => {
                   const color = t.type === "in" ? "#35D08C" : t.type === "return" ? "#22D3EE" : "#F5A623";
                   const label = t.type === "in" ? "입고" : t.type === "return" ? "반납" : "출고";
@@ -3716,27 +3727,27 @@ const filteredTotalText = useMemo(() => {
                   return (
                     <div
                       key={t.id}
-                      style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "9px 12px" }}
+                      style={{ flexShrink: 0, background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "6px 10px" }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                           <span
                             style={{
-                              fontFamily: "IBM Plex Mono", fontSize: 10.5, padding: "2px 7px", borderRadius: 6,
+                              fontFamily: "IBM Plex Mono", fontSize: 10, padding: "1px 6px", borderRadius: 6,
                               fontWeight: 600, color, background: `${color}1a`, flexShrink: 0,
                             }}
                           >
                             {label}
                           </span>
-                          <span style={{ fontWeight: 700, fontSize: 13, color: "#E7EEF5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ fontWeight: 700, fontSize: 12.5, color: "#E7EEF5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={t.itemName}>
                             {t.itemName}
                           </span>
                         </div>
-                        <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13, color, whiteSpace: "nowrap", flexShrink: 0 }}>
+                        <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 12.5, color, whiteSpace: "nowrap", flexShrink: 0 }}>
                           {t.qty} {t.unit}
                         </span>
                       </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 5, fontSize: 10.5, color: "#5E86A3" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 3, fontSize: 10, color: "#5E86A3" }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta || "-"}</span>
                         <span style={{ fontFamily: "IBM Plex Mono", whiteSpace: "nowrap", flexShrink: 0 }}>{t.at}</span>
                       </div>
@@ -3746,21 +3757,21 @@ const filteredTotalText = useMemo(() => {
               </div>
 
               {recentAll.length > RECENT_PAGE_SIZE && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 8, flexShrink: 0 }}>
                   <button
                     type="button"
                     onClick={() => setRecentPage((p) => Math.max(1, p - 1))}
                     disabled={recentPage <= 1}
-                    style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: recentPage <= 1 ? "#395268" : "#9FB4C7", cursor: recentPage <= 1 ? "default" : "pointer" }}
+                    style={{ padding: "4px 10px", borderRadius: 7, fontSize: 11.5, border: "1px solid #274460", background: "#0B1C2C", color: recentPage <= 1 ? "#395268" : "#9FB4C7", cursor: recentPage <= 1 ? "default" : "pointer" }}
                   >이전</button>
-                  <span style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
-                    {recentPage} / {recentTotalPages} 페이지
+                  <span style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                    {recentPage} / {recentTotalPages}
                   </span>
                   <button
                     type="button"
                     onClick={() => setRecentPage((p) => Math.min(recentTotalPages, p + 1))}
                     disabled={recentPage >= recentTotalPages}
-                    style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: recentPage >= recentTotalPages ? "#395268" : "#9FB4C7", cursor: recentPage >= recentTotalPages ? "default" : "pointer" }}
+                    style={{ padding: "4px 10px", borderRadius: 7, fontSize: 11.5, border: "1px solid #274460", background: "#0B1C2C", color: recentPage >= recentTotalPages ? "#395268" : "#9FB4C7", cursor: recentPage >= recentTotalPages ? "default" : "pointer" }}
                   >다음</button>
                 </div>
               )}
@@ -3772,7 +3783,7 @@ const filteredTotalText = useMemo(() => {
       {historyModal && (
         <TxHistoryModal type={historyModal} txs={historyModal === "out" ? cumulativeOutTxs : txs} showDeleted={historyModal === "out"} onDeleteTransactions={onDeleteTransactions} onClose={() => setHistoryModal(null)} />
       )}
-            {shortageModal && (
+      {shortageModal && (
         <ShortageModal
           items={items}
           onClose={() => setShortageModal(false)}

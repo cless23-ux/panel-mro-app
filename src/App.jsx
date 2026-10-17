@@ -6147,66 +6147,44 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
             return (
               <Card
                 key={item.code}
-                style={{ padding: 14, cursor: "pointer" }}
+                style={{ padding: "8px 14px", cursor: "pointer" }}
                 onClick={() => handleCardClick(item)}
               >
-                {/* PC: 기존 배치 그대로 유지 */}
-                <div className="stock-card-pc-layout" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                                {/* PC: 컴팩트 한 줄 레이아웃 */}
+                <div className="stock-card-pc-layout" style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left" }}>
                   {item.image_url ? (
                     <img
                       src={item.image_url}
                       alt={item.name}
                       onClick={(e) => { e.stopPropagation(); setZoomedImage(item.image_url); }}
                       title="사진 확대 보기"
-                      style={{ width: 50, height: 50, borderRadius: 8, objectFit: "cover", flexShrink: 0, cursor: "zoom-in" }}
+                      style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0, cursor: "zoom-in" }}
                     />
                   ) : (
-                    <div style={{ width: 50, height: 50, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <ImageIcon size={20} color="#5E86A3" />
+                    <div style={{ width: 40, height: 40, borderRadius: 6, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <ImageIcon size={16} color="#5E86A3" />
                     </div>
                   )}
+
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                      <Led status={st} size={10} />
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Led status={st} size={9} />
                       <span
-                        className="stock-item-name"
                         title={item.name}
-                        style={{
-                          fontWeight: 700,
-                          fontSize: 14,
-                          color: "#38BDF8",
-                          lineHeight: 1.35,
-                          display: "block",
-                          overflow: "visible",
-                          wordBreak: "break-word",
-                          whiteSpace: "normal",
-                        }}
+                        style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                       >
                         {item.name}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-word", whiteSpace: "normal" }}>코드: {item.code}</div>
-                    <div style={{ fontSize: 11.5, color: "#9FB4C7", marginTop: 3, lineHeight: 1.4, wordBreak: "break-word", whiteSpace: "normal" }}>
-                      규격/사양: {item.spec || "-"}
+                    <div
+                      title={`코드: ${item.code} · 규격/사양: ${item.spec || "-"}`}
+                      style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    >
+                      {item.code} · {item.spec || "-"}{item.manufacturer ? ` · ${item.manufacturer}` : ""}
                     </div>
-                    {item.manufacturer && (
-                      <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>제조사: {item.manufacturer}</div>
-                    )}
                   </div>
 
-                  <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flexShrink: 0 }}>
-                    <div style={{
-                      fontSize: 16, fontWeight: 700,
-                      color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C",
-                    }}>
-                      {item.stock} <span style={{ fontSize: 11 }}>{item.unit}</span>
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>안전재고: {item.safety} {item.unit}</div>
-                  </div>
-                </div>
-
-                <div className="stock-card-pc-layout" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderTop: "1px solid #1F3B54", marginTop: 10, paddingTop: 10 }}>
-                  <div className="stock-pc-note-wrap" onClick={(e) => e.stopPropagation()}>
+                  <div className="stock-pc-note-wrap" onClick={(e) => e.stopPropagation()} style={{ flex: "0 0 240px", maxWidth: 240 }}>
                     {editingMemos[item.code] ? (
                       <input
                         type="text"
@@ -6240,23 +6218,26 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                       </div>
                     )}
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
-                      aria-label="즐겨찾기 토글"
-                      style={{
-                        flexShrink: 0, background: "none", border: "none", cursor: "pointer",
-                        padding: 6, display: "flex", alignItems: "center", justifyContent: "center",
-                      }}
-                    >
-                      <Star
-                        size={19}
-                        color={isFavorite(item.code) ? "#F5A623" : "#3E5975"}
-                        fill={isFavorite(item.code) ? "#F5A623" : "none"}
-                      />
-                    </button>
+
+                  <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flex: "0 0 110px" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C" }}>
+                      {item.stock} <span style={{ fontSize: 10.5 }}>{item.unit}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "#5E86A3", marginTop: 1 }}>안전 {item.safety} {item.unit}</div>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleFavorite(item.code); }}
+                    aria-label="즐겨찾기 토글"
+                    style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", justifyContent: "center" }}
+                  >
+                    <Star
+                      size={18}
+                      color={isFavorite(item.code) ? "#F5A623" : "#3E5975"}
+                      fill={isFavorite(item.code) ? "#F5A623" : "none"}
+                    />
+                  </button>
                 </div>
 
                 {/* 모바일 전용: 사진 → 품명 / 사양·규격 → 메모·수량·즐겨찾기 */}

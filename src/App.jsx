@@ -3580,15 +3580,17 @@ const filteredTotalText = useMemo(() => {
                 }}
               >
                 <div style={{ position: "absolute", inset: 0, overflowY: "auto" }}>
-                  <div style={{ height: Math.max(filteredConsumption.length * 28 + 40, 200) }}>
+                  <div style={{ height: Math.max(filteredConsumption.length * 34 + 40, 200) }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={filteredConsumption} layout="vertical" margin={{ top: 8, right: 22, left: 2, bottom: 8 }}>
                         <CartesianGrid stroke="#17293B" horizontal={false} />
                         <XAxis type="number" tick={{ fill: "#718CA2", fontSize: 10 }} axisLine={{ stroke: "#1F3B54" }} tickLine={false} />
-                        <YAxis type="category" dataKey="name" width={170} tick={{ fill: "#B7C8D6", fontSize: 10.5 }} axisLine={false} tickLine={false} />
+                                                <YAxis type="category" dataKey="name" width={170} interval={0} tick={{ fill: "#B7C8D6", fontSize: 10.5 }} axisLine={false} tickLine={false} />
                         <Tooltip
                           cursor={{ fill: "#38BDF80D" }}
                           contentStyle={{ background: "#0F2233", border: "1px solid #315775", borderRadius: 8, fontSize: 11, boxShadow: "0 8px 24px rgba(0,0,0,.28)" }}
+                          labelStyle={{ color: "#E7EEF5", fontWeight: 700 }}
+                          itemStyle={{ color: "#F5A623" }}
                           formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
                         />
                         <Bar dataKey="qty" radius={[0, 5, 5, 0]} barSize={16}>

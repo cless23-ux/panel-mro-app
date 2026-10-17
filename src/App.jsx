@@ -1878,26 +1878,33 @@ function AppInner() {
 
   // 누적출고 전용 조회:
   // 일반 txs는 deleted=false만 보여주므로, 누적출고 창에서만 전체 거래를 가져온다.
-  const loadCumulativeOutTxs = useCallback(async () => {
-    if (!supabase) return txs;
+    const loadCumulativeOutTxs = useCallback(async () => {
+    const localOut = () =>
+      txs.filter((t) => t.type === "out" && !String(t.reason || "").includes("MRO_REVERSED_OUT:"));
+    if (!supabase) return localOut();
     try {
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("*")
-        .eq("type", "out")
-        .order("at", { ascending: false });
-
-      if (error) {
-        console.error("누적출고 조회 오류:", error);
-        return txs.filter((t) => t.type === "out");
+      const PAGE = 1000;
+      const all = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("transactions")
+          .select("*")
+          .eq("type", "out")
+          .order("at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const rows = data || [];
+        all.push(...rows);
+        if (rows.length < PAGE) break;
+        from += PAGE;
       }
-      // 원복 완료된 출고는 누적출고 집계/상세 목록에서 제외합니다.
-      // 원본 거래 자체는 DB에 보존하고, 출고 이력 화면에서는 원복완료 상태로 표시합니다.
-      return (Array.isArray(data) ? data : txs.filter((t) => t.type === "out"))
-        .filter((t) => t.type === "out" && !String(t.reason || "").includes("MRO_REVERSED_OUT:"));
+      // 원복 완료된 출고는 누적 집계에서 제외
+      return all.filter((t) => !String(t.reason || "").includes("MRO_REVERSED_OUT:"));
     } catch (e) {
       console.error("누적출고 조회 오류:", e);
-      return txs.filter((t) => t.type === "out");
+      return localOut();
     }
   }, [txs]);
 
@@ -3207,19 +3214,21 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
   const [shortageModal, setShortageModal] = useState(false);
   const [cumulativeOutTxs, setCumulativeOutTxs] = useState([]);
+  const [cumulativeLoaded, setCumulativeLoaded] = useState(false);
   const [recentPage, setRecentPage] = useState(1);
   const RECENT_PAGE_SIZE = 10;
 
-  useEffect(() => {
-    if (historyModal !== "out") return;
+      useEffect(() => {
     let cancelled = false;
     (async () => {
       const rows = await loadCumulativeOutTxs();
-      if (!cancelled) setCumulativeOutTxs(rows);
+      if (!cancelled) {
+        setCumulativeOutTxs(rows);
+        setCumulativeLoaded(true);
+      }
     })();
     return () => { cancelled = true; };
-  }, [historyModal, loadCumulativeOutTxs]);
-
+  }, [txs.length, historyModal]);
   const availableShips = useMemo(() => {
     const outTxs = txs.filter((t) => t.type === "out" && t.shipNo && t.shipNo !== "미입력");
     const uniqueShips = Array.from(new Set(outTxs.map((t) => t.shipNo)));
@@ -3391,7 +3400,7 @@ const filteredTotalText = useMemo(() => {
       <div className="dash-stats">
         <StatCard label="관리 품목 수" value={items.length} unit="종" icon={Package} color="#5EC8FF" />
         <StatCard label="누적 입고" value={totalInQty.toLocaleString()} unit="" icon={ArrowDownToLine} color="#35D08C" onClick={() => setHistoryModal("in")} />
-        <StatCard label="누적 출고" value={totalOutQty.toLocaleString()} unit="" icon={ArrowUpFromLine} color="#F5A623" onClick={() => setHistoryModal("out")} />
+        <StatCard label="누적 출고" value={cumulativeLoaded ? totalOutQty.toLocaleString() : "계산 중..."} unit="" icon={ArrowUpFromLine} color="#F5A623" onClick={() => setHistoryModal("out")} />
         <StatCard label="안전재고 미달" value={items.filter((i) => statusOf(i) === "danger").length} unit="종" icon={AlertTriangle} color="#EF5350" onClick={() => setShortageModal(true)} />
       </div>
 

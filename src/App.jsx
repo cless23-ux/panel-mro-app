@@ -9279,6 +9279,8 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   const materialLabel = materialType === "raw" ? "원자재" : "부자재";
   const materialPrefix = materialType === "raw" ? "1-" : "2-";
   const materialItems = useMemo(() => (items || []).filter((i) => getMaterialType(i.code) === materialType), [items, materialType]);
+  const materialItemsRef = useRef([]);
+  materialItemsRef.current = materialItems;
 
   const filteredItemsForInbound = useMemo(() => {
     const list = materialItems;
@@ -9303,8 +9305,16 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
 
   // 부자재 수동입고에서만 자재 QR/바코드 카메라 사용
   useEffect(() => {
-    let scanner = null;
     if (materialType !== "sub" || !manualItemCamera) return undefined;
+
+    let scanner = null;
+    let cancelled = false;
+    let handled = false;
+    let lastErrAt = 0;
+
+    const normalize = (v) => String(v || "").replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+    const alnum = (v) => normalize(v).replace(/[^a-z0-9]/g, "");
+
     const start = async () => {
       try {
         if (!window.Html5Qrcode) {
@@ -9314,35 +9324,59 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
           document.body.appendChild(script);
           await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; });
         }
+        if (cancelled) return;
+
         scanner = new window.Html5Qrcode("inbound-item-reader");
         await scanner.start(
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 220, height: 220 } },
-          async (decodedText) => {
-            const code = String(decodedText || "").trim();
-            const hit = materialItems.find((i) => String(i.code).trim() === code);
+          (decodedText) => {
+            if (handled) return;
+            const list = materialItemsRef.current || [];
+            const scanned = normalize(decodedText);
+            const hit =
+              list.find((i) => normalize(i.code) === scanned) ||
+              list.find((i) => alnum(i.code) && alnum(i.code) === alnum(decodedText));
+
             if (hit) {
+              handled = true;
               setSelectedCode(hit.code);
-              setItemSearchText(hit.name || hit.code);
+              setItemSearchText(`[${hit.code}] ${hit.name}`);
               setItemDropdownOpen(false);
               notify(`자재 선택됨: ${hit.name}`, "ok");
-              try { await scanner?.stop(); } catch {}
-              setManualItemCamera(false);
-            } else {
-              notify(`등록되지 않은 부자재 코드입니다: ${code}`, "err");
+              setManualItemCamera(false); // 카메라 정리는 아래 cleanup에서 처리
+            } else if (Date.now() - lastErrAt > 2000) {
+              lastErrAt = Date.now();
+              notify(`등록되지 않은 부자재 코드입니다: ${String(decodedText).trim()}`, "err");
             }
           },
           () => {}
         );
+
+        // 시작 도중에 닫힌 경우 바로 정리
+        if (cancelled) {
+          try { await scanner.stop(); scanner.clear(); } catch {}
+        }
       } catch (err) {
         console.error("자재 카메라 오류:", err);
-        notify("자재 카메라를 실행할 수 없습니다. 권한을 확인해주세요.", "err");
+        notify(`자재 카메라를 실행할 수 없습니다: ${err?.message || err}`, "err");
         setManualItemCamera(false);
       }
     };
+
     start();
-    return () => { if (scanner) scanner.stop().then(() => scanner.clear()).catch(() => {}); };
-  }, [manualItemCamera, materialType, materialItems]);
+
+    return () => {
+      cancelled = true;
+      const s = scanner;
+      if (s) {
+        Promise.resolve()
+          .then(() => s.stop())
+          .catch(() => {})
+          .then(() => { try { s.clear(); } catch {} });
+      }
+    };
+  }, [manualItemCamera, materialType]);
 
   const selectedItem = materialItems.find((i) => i.code === selectedCode);
 

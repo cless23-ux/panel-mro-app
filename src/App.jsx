@@ -9251,6 +9251,7 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   // 부자재 수동입고 전용 자재 QR 카메라 (원자재에는 표시/실행하지 않음)
   const [manualItemCamera, setManualItemCamera] = useState(false);
   const [invoiceQRInput, setInvoiceQRInput] = useState("");
+  const [invoiceCardOpen, setInvoiceCardOpen] = useState(false); // 거래명세서 카드 접기/펼치기 (기본: 접힘)
   const [invoiceData, setInvoiceData] = useState(null);
   // 거래명세서 사진 OCR 상태: 기존 QR 스캔과 별도로 동작
   const [ocrLoading, setOcrLoading] = useState(false);
@@ -10402,11 +10403,24 @@ keyCode = String(keyCode)
 
       {rawMode !== "manual" && (
       <Card neon="#38bdf8" style={{ padding: 16, marginBottom: 20, border: "2px solid #38bdf8", background: "#0b172a" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "1.05rem", fontWeight: 600, color: "#38bdf8", marginBottom: 12 }}>
+        <button
+          type="button"
+          onClick={() => setInvoiceCardOpen((s) => !s)}
+          style={{
+            display: "flex", alignItems: "center", gap: 10, width: "100%",
+            background: "none", border: "none", padding: 0, cursor: "pointer",
+            fontSize: "1.05rem", fontWeight: 600, color: "#38bdf8",
+            marginBottom: invoiceCardOpen || invoiceData ? 12 : 0,
+          }}
+        >
           <QrCode size={22} />
           <span>{materialLabel} 거래명세서 QR 스캔</span>
-        </div>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace" }}>
+            {invoiceCardOpen ? "▲ 접기" : "▼ 펼치기"}
+          </span>
+        </button>
 
+        {(invoiceCardOpen || invoiceData) && (<>
         {(!useCamera ? (
           <button
             onClick={() => setUseCamera(true)}
@@ -10674,6 +10688,7 @@ keyCode = String(keyCode)
             </div>
           </div>
         )}
+        </>)}
       </Card>
       )}
 

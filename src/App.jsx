@@ -119,6 +119,11 @@ const POLL_MS = 8000;
 /* ---------------- 출고이력 자동 휴지통 (7일) ---------------- */
 const OUT_TRASH_DAYS = 7;
 const OUT_KEEP_MARKER = "MRO_KEEP_OUT"; // 휴지통에서 '복원'한 기록은 다시 자동이동하지 않음
+const OUT_KIND_MARKER = "MRO_OUT_KIND:";
+function getOutKind(t) {
+  const m = String(t?.reason || "").match(/MRO_OUT_KIND:([^\s|]+)/);
+  return m ? m[1] : "미구분";
+}
 
 function isOutTxExpired(t) {
   if (!t || t.type !== "out") return false;
@@ -813,6 +818,8 @@ function Field({ label, children }) {
 function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTransactions }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const isOut = type === "out";
   const isReturn = type === "return";
 
@@ -827,25 +834,36 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
           String(t.shipNo || "").toLowerCase().includes(q)
         )
       : filtered;
-    return [...searched].sort((a, b) => String(b.at).localeCompare(String(a.at)));
-  }, [txs, type, search, showDeleted]);
+    const dated = searched.filter((t) => {
+      const day = String(t.at || "").slice(0, 10);
+      if (dateFrom && day < dateFrom) return false;
+      if (dateTo && day > dateTo) return false;
+      return true;
+    });
+    return [...dated].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  }, [txs, type, search, showDeleted, dateFrom, dateTo]);
 
   const totalQty = useMemo(() => list.reduce((s, t) => s + (Number(t.qty) || 0), 0), [list]);
 
   const exportCSV = () => {
+    if (list.length === 0) {
+      alert("다운로드할 기록이 없습니다.");
+      return;
+    }
     const headers = isOut
-      ? ["날짜,자재명,코드,수량,단위,호선,프로젝트,불출자\n"]
+      ? ["날짜,구분,자재명,코드,수량,단위,호선,프로젝트,불출자\n"]
       : ["날짜,자재명,코드,수량,단위,담당자\n"];
     const rows = list.map((t) => {
       if (isOut) {
-        return `"${t.at}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.shipNo)}","${csvSafe(t.project)}","${csvSafe(t.worker)}"\n`;
+        return `"${t.at}","${csvSafe(getOutKind(t))}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.shipNo)}","${csvSafe(t.project)}","${csvSafe(t.worker)}"\n`;
       }
       return `"${t.at}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.worker)}"\n`;
     });
     const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `MRO_${isOut ? "출고" : "입고"}기록_${nowStr().split(" ")[0]}.csv`;
+    const range = dateFrom || dateTo ? `_${dateFrom || "처음"}~${dateTo || "오늘"}` : `_${nowStr().split(" ")[0]}`;
+    link.download = `MRO_${isOut ? "출고" : "입고"}기록${range}.csv`;
     link.click();
   };
 
@@ -921,6 +939,19 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
           onChange={(e) => setSearch(e.target.value)}
         />
 
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "#7F97AC" }}>기간</span>
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ ...inputStyle, width: 150, padding: "7px 10px" }} />
+          <span style={{ color: "#7F97AC" }}>~</span>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={{ ...inputStyle, width: 150, padding: "7px 10px" }} />
+          {(dateFrom || dateTo) && (
+            <button type="button" onClick={() => { setDateFrom(""); setDateTo(""); }}
+              style={{ padding: "7px 12px", borderRadius: 7, border: "1px solid #274460", background: "#0B1C2C", color: "#9FB4C7", cursor: "pointer", fontSize: 12 }}>
+              기간 초기화
+            </button>
+          )}
+        </div>
+
         <div style={{ flex: 1, overflowY: "auto", border: "1px solid #1F3B54", borderRadius: 8 }}>
           {list.length === 0 ? (
             <EmptyState icon={isOut ? ArrowUpFromLine : ArrowDownToLine} text="해당하는 기록이 없습니다." color="#5E86A3" />
@@ -966,6 +997,7 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
                       <th style={thStyle}>호선</th>
                       <th style={thStyle}>프로젝트</th>
                       <th style={thStyle}>불출자</th>
+                      <th style={thStyle}>구분</th>
                     </>
                   ) : (
                     <th style={thStyle}>담당자</th>
@@ -997,6 +1029,7 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
                         <td style={{ ...tdStyle, color: "#9FB4C7" }}>{t.shipNo || "-"}</td>
                         <td style={{ ...tdStyle, color: "#9FB4C7" }}>{t.project || "-"}</td>
                         <td style={{ ...tdStyle, color: "#9FB4C7" }}>{t.worker || "-"}</td>
+                        <td style={{ ...tdStyle, fontWeight: 700, color: getOutKind(t) === "정발주" ? "#F5A623" : getOutKind(t) === "추가건" ? "#38BDF8" : "#5E86A3" }}>{getOutKind(t)}</td>
                       </>
                     ) : (
                       <td style={{ ...tdStyle, color: "#9FB4C7" }}>{t.worker || "-"}</td>
@@ -4179,7 +4212,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   };
 
   /* ---------- 출고 확정 (기존 로직 그대로) ---------- */
-    const submit = async () => {
+    const submit = async (outKind = "정발주") => {
     if (outSubmitting) return;
     if (!found || !qty || Number(qty) <= 0) { notify("자재를 스캔하고 수량을 입력해주세요.", "err"); return; }
     if (Number(qty) > found.stock) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
@@ -4189,6 +4222,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   }
         const confirmMsg =
       `다음 내용으로 출고하시겠습니까?\n\n` +
+      `구분: ${outKind}\n` +
       `자재: ${found.name}\n` +
       `수량: ${qty}${found.unit}\n` +
       `호선: ${shipNo || "미입력"}\n` +
@@ -4210,6 +4244,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
         shipNo: shipNo || "미입력",
         project: project,
         worker: worker,
+        reason: `${OUT_KIND_MARKER}${outKind}`,
         at: nowStr(),
         deleted: false,
       };
@@ -4823,18 +4858,33 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                     </Field>
                   </div>
 
-                  <Btn
-  onClick={submit}
-  disabled={!canSubmitOut}
-  style={{
-    marginTop: 4, width: "100%",
-    background: canSubmitOut ? "#F5A623" : "#1F3B54",
-    color: canSubmitOut ? "#0A1622" : "#5E86A3",
-    fontWeight: "bold", fontSize: 15
-  }}
->
-  <ArrowUpFromLine size={18} />{outSubmitting ? "처리 중..." : "출고 확정"}
-</Btn>
+                  <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                    <Btn
+                      onClick={() => submit("정발주")}
+                      disabled={!canSubmitOut}
+                      style={{
+                        flex: 1,
+                        background: canSubmitOut ? "#F5A623" : "#1F3B54",
+                        color: canSubmitOut ? "#0A1622" : "#5E86A3",
+                        fontWeight: "bold", fontSize: 14,
+                      }}
+                    >
+                      <ArrowUpFromLine size={17} />{outSubmitting ? "처리 중..." : "정발주 출고"}
+                    </Btn>
+                    <Btn
+                      onClick={() => submit("추가건")}
+                      disabled={!canSubmitOut}
+                      style={{
+                        flex: 1,
+                        background: canSubmitOut ? "#38BDF8" : "#1F3B54",
+                        border: `1px solid ${canSubmitOut ? "#38BDF8" : "#1F3B54"}`,
+                        color: canSubmitOut ? "#0A1622" : "#5E86A3",
+                        fontWeight: "bold", fontSize: 14,
+                      }}
+                    >
+                      <ArrowUpFromLine size={17} />{outSubmitting ? "처리 중..." : "추가건 출고"}
+                    </Btn>
+                  </div>
                 </>
               ) : (
                 <>

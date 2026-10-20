@@ -2885,7 +2885,27 @@ function AppInner() {
           <img src="/Luxco.png" alt="Luxco" style={{ height: 34, width: "auto", objectFit: "contain", display: "block" }} />
           <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
             선박 생산부
-          </span>          
+          </span>
+          <button
+  onClick={() => window.location.reload()}
+  title="앱 새로고침"
+  style={{
+    width: 36,
+    height: 36,
+    marginLeft: 4,
+    borderRadius: 9,
+    border: "1px solid #274460",
+    background: "#0B1C2C",
+    color: "#7DD3FC",
+    fontSize: 20,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  }}
+>
+  ↻
+</button>          
           {false && (
           <button
             className="theme-toggle"

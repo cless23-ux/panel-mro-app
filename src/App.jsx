@@ -11235,13 +11235,19 @@ function OutTxTrashPanel({ notify, reloadTxs }) {
   const deleteForever = async (code) => {
     if (!window.confirm("영구 삭제하시겠습니까?")) return;
 
-    const { error } = await supabase
+    const { data: deletedRows, error } = await supabase
       .from("items")
       .delete()
-      .eq("code", code);
+      .eq("code", code)
+      .select();
 
     if (error) {
-      notify("삭제 실패", "err");
+      console.error("영구삭제 오류:", error);
+      notify(`삭제 실패: ${error.message}`, "err");
+      return;
+    }
+    if (!deletedRows || deletedRows.length === 0) {
+      notify("삭제되지 않았습니다. Supabase 삭제 권한(RLS)을 확인해주세요.", "err");
       return;
     }
 
@@ -11293,13 +11299,19 @@ function OutTxTrashPanel({ notify, reloadTxs }) {
     }
     if (!window.confirm(`선택한 ${selectedCodes.length}개 자재를 영구삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
 
-    const { error } = await supabase
+     const { data: deletedRows, error } = await supabase
       .from("items")
       .delete()
-      .in("code", selectedCodes);
+      .in("code", selectedCodes)
+      .select();
 
     if (error) {
-      notify("선택 영구삭제 실패", "err");
+      console.error("선택 영구삭제 오류:", error);
+      notify(`선택 영구삭제 실패: ${error.message}`, "err");
+      return;
+    }
+    if (!deletedRows || deletedRows.length === 0) {
+      notify("삭제되지 않았습니다. Supabase 삭제 권한(RLS)을 확인해주세요.", "err");
       return;
     }
 

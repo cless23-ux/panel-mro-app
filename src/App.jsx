@@ -2997,7 +2997,7 @@ function AppInner() {
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} reloadTxs={reloadTxs} />}
             {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
-            {tab === "shipIssue" && <ShipIssueAdminView loadCumulativeOutTxs={loadCumulativeOutTxs} notify={notify} />}
+            {tab === "shipIssue" && <ShipIssueAdminView loadCumulativeOutTxs={loadCumulativeOutTxs} notify={notify} shipOptions={outFormSettings?.ships || []} />}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
           </div>
         )}
@@ -11423,15 +11423,83 @@ function OutTxTrashPanel({ notify, reloadTxs }) {
   );
 }
 /* ---------------- 호선 불출 관리 (관리자 전용) ---------------- */
-function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
+function ShipSearchSelect({ value, onChange, options, width = 200 }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  const [typing, setTyping] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => { setDraft(value || ""); setTyping(false); }, [value]);
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+        setTyping(false);
+        setDraft(value || "");
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [value]);
+
+  const filtered = useMemo(() => {
+    const q = typing ? draft.toLowerCase().trim() : "";
+    return (options || []).filter((o) => !q || String(o).toLowerCase().includes(q));
+  }, [options, draft, typing]);
+
+  const pick = (o) => { onChange(o); setDraft(o); setTyping(false); setOpen(false); };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width }}>
+      <input
+        style={{ ...inputStyle, paddingRight: 28 }}
+        value={draft}
+        placeholder="호선 검색 / 선택"
+        onFocus={(e) => { setOpen(true); e.target.select(); }}
+        onChange={(e) => { setDraft(e.target.value); setTyping(true); setOpen(true); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && filtered.length >= 1) { e.preventDefault(); pick(filtered[0]); }
+        }}
+        autoComplete="off"
+      />
+      <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "#7F97AC", fontSize: 10 }}>▼</span>
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, right: 0, zIndex: 100,
+          background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
+          marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", maxHeight: 260, overflowY: "auto",
+        }}>
+          {filtered.length > 0 ? filtered.map((o) => (
+            <div
+              key={o}
+              onMouseDown={(e) => { e.preventDefault(); pick(o); }}
+              style={{
+                padding: "10px 12px", cursor: "pointer", fontSize: 13, color: "#E7EEF5",
+                borderBottom: "1px solid #16293C", background: o === value ? "#1E3A5F" : "transparent",
+              }}
+            >
+              {o}
+            </div>
+          )) : (
+            <div style={{ padding: "10px 12px", fontSize: 12, color: "#5E86A3" }}>일치하는 호선이 없습니다.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ship, setShip] = useState("");
-  const [kindFilter, setKindFilter] = useState("all"); // all | 정발주 | 추가건 | 미구분
+  const [kindFilter, setKindFilter] = useState("all"); // all | 정발주 | 추가건 | 미구분 | 미불출 | 목록외
   const [search, setSearch] = useState("");
   const [openCode, setOpenCode] = useState(null);
   const [adminMap, setAdminMap] = useState({});
   const [noteDrafts, setNoteDrafts] = useState({});
+  const planFileRef = useRef(null);
 
   // 폴링으로 함수 주소가 계속 바뀌어도 반복 조회되지 않도록 ref 사용
   const loadRef = useRef(loadCumulativeOutTxs);
@@ -11485,23 +11553,196 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
     }
   };
 
+  // 호선 목록: 불출설정에 등록된 호선 + 불출 기록이 있는 호선 + 발주목록을 올린 호선
   const ships = useMemo(() => {
     const set = new Set();
-    rows.forEach((t) => {
-      const s = String(t.shipNo || "").trim();
+    const add = (v) => {
+      const s = String(v || "").trim();
       if (s && s !== "미입력" && s !== "소모자재") set.add(s);
-    });
+    };
+    (shipOptions || []).forEach(add);
+    rows.forEach((t) => add(t.shipNo));
+    Object.keys(adminMap).forEach((k) => { if (k.startsWith("plan:")) add(k.slice(5)); });
     return Array.from(set).sort((a, b) => b.localeCompare(a, "ko", { numeric: true }));
-  }, [rows]);
+  }, [rows, adminMap, shipOptions]);
 
+  // 처음엔 가장 최근에 불출한 호선을 자동 선택
   useEffect(() => {
-    if ((!ship || !ships.includes(ship)) && ships.length) setShip(ships[0]);
-  }, [ships, ship]);
+    if (ship && ships.includes(ship)) return;
+    const latest = rows.map((t) => String(t.shipNo || "").trim()).find((s) => s && ships.includes(s));
+    setShip(latest || ships[0] || "");
+  }, [ships, ship, rows]);
 
   const shipTxs = useMemo(
     () => rows.filter((t) => String(t.shipNo || "").trim() === ship),
     [rows, ship]
   );
+
+  /* ---------- 발주목록 (엑셀로 불러와 호선별로 저장) ---------- */
+  const plan = useMemo(() => {
+    try {
+      const v = adminMap[`plan:${ship}`];
+      return v ? JSON.parse(v) : null;
+    } catch { return null; }
+  }, [adminMap, ship]);
+  const planItems = plan?.items || [];
+
+  useEffect(() => {
+    if (!planItems.length && (kindFilter === "미불출" || kindFilter === "목록외")) setKindFilter("all");
+  }, [planItems.length, kindFilter]);
+
+  const importPlanFile = (e) => {
+    const input = e.target;
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (!ship) { notify("먼저 호선을 선택해주세요.", "err"); input.value = ""; return; }
+    if (!window.XLSX) {
+      notify("엑셀 처리 기능을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.", "err");
+      input.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = window.XLSX.read(new Uint8Array(evt.target.result), { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const data = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: false, blankrows: false });
+
+        const norm = (v) => String(v ?? "").replace(/[\s\u00A0\/\-_]/g, "").toLowerCase();
+        const alias = {
+          code: ["품목코드", "자재코드", "코드", "code"],
+          name: ["품명", "품목명", "품명목", "자재명", "name"],
+          spec: ["규격", "규격/사양", "사양", "spec"],
+          qty: ["수량", "발주수량", "qty"],
+        };
+
+        // 위쪽 10줄 안에서 헤더 줄 찾기
+        let headerIdx = -1;
+        let col = {};
+        for (let r = 0; r < Math.min(data.length, 10); r++) {
+          const c = {};
+          (data[r] || []).forEach((h, i) => {
+            const n = norm(h);
+            Object.keys(alias).forEach((f) => {
+              if (c[f] === undefined && alias[f].map(norm).includes(n)) c[f] = i;
+            });
+          });
+          if (c.code !== undefined && c.qty !== undefined) { headerIdx = r; col = c; break; }
+        }
+        if (headerIdx < 0) {
+          notify("헤더를 찾지 못했습니다. '품목 코드'와 '수량' 열이 필요합니다.", "err");
+          return;
+        }
+
+        const merged = {};
+        data.slice(headerIdx + 1).forEach((row) => {
+          const code = String(row[col.code] ?? "").trim();
+          if (!code) return;
+          const qty = Number(String(row[col.qty] ?? "").replace(/,/g, "")) || 0;
+          const key = code.toUpperCase();
+          if (!merged[key]) {
+            merged[key] = {
+              code,
+              name: col.name !== undefined ? String(row[col.name] ?? "").trim() : "",
+              spec: col.spec !== undefined ? String(row[col.spec] ?? "").trim() : "",
+              qty: 0,
+            };
+          }
+          merged[key].qty += qty; // 같은 코드가 여러 줄이면 수량 합산
+        });
+
+        const itemsArr = Object.values(merged);
+        if (itemsArr.length === 0) {
+          notify("엑셀에서 발주 자재를 찾지 못했습니다.", "err");
+          return;
+        }
+        if (planItems.length > 0 && !window.confirm(
+          `[${ship}] 기존 발주목록(${planItems.length}종)을 지우고\n새 파일(${itemsArr.length}종)로 교체할까요?`
+        )) return;
+
+        saveAdmin(`plan:${ship}`, JSON.stringify({ items: itemsArr, at: nowStr(), file: file.name }));
+        notify(`[${ship}] 발주목록 ${itemsArr.length}종을 불러왔습니다.`, "ok");
+      } catch (err) {
+        console.error("발주목록 불러오기 오류:", err);
+        notify("엑셀 파일을 처리하는 중 오류가 발생했습니다.", "err");
+      } finally {
+        input.value = "";
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const clearPlan = () => {
+    if (!window.confirm(`[${ship}] 발주목록을 삭제할까요?\n(불출 기록과 사유 메모는 그대로 남습니다)`)) return;
+    saveAdmin(`plan:${ship}`, "");
+    notify("발주목록이 삭제되었습니다.", "info");
+  };
+
+  /* ---------- 자재별 집계 (발주목록 + 불출 기록 합치기) ---------- */
+  const allRows = useMemo(() => {
+    const normCode = (c) => String(c || "").trim().toUpperCase();
+    const map = {};
+
+    planItems.forEach((p) => {
+      map[normCode(p.code)] = {
+        code: p.code, name: p.name || p.code, spec: p.spec || "", unit: "EA",
+        order: Number(p.qty) || 0, hasPlan: true,
+        plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [],
+      };
+    });
+
+    shipTxs.forEach((t) => {
+      const k = normCode(t.itemCode);
+      if (!map[k]) {
+        map[k] = {
+          code: t.itemCode, name: t.itemName, spec: "", unit: t.unit || "EA",
+          order: null, hasPlan: false,
+          plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [],
+        };
+      }
+      const m = map[k];
+      if (t.unit) m.unit = t.unit;
+      if ((!m.name || m.name === m.code) && t.itemName) m.name = t.itemName;
+      const q = Number(t.qty) || 0;
+      const kind = getOutKind(t);
+      if (kind === "정발주") m.plan += q;
+      else if (kind === "추가건") m.extra += q;
+      else m.etc += q;
+      m.total += q;
+      if (String(t.at) > m.lastAt) m.lastAt = String(t.at);
+      m.txs.push(t);
+    });
+
+    return Object.values(map).map((m) => ({
+      ...m,
+      txs: [...m.txs].sort((a, b) => String(b.at).localeCompare(String(a.at))),
+    }));
+  }, [planItems, shipTxs]);
+
+  const planSummary = useMemo(() => ({
+    notIssued: allRows.filter((m) => m.hasPlan && m.total === 0).length,
+    outOfList: planItems.length > 0 ? allRows.filter((m) => !m.hasPlan).length : 0,
+  }), [allRows, planItems.length]);
+
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return allRows
+      .filter((m) => {
+        if (q && !(
+          String(m.name).toLowerCase().includes(q) ||
+          String(m.code).toLowerCase().includes(q) ||
+          String(m.spec).toLowerCase().includes(q)
+        )) return false;
+        if (kindFilter === "정발주") return m.plan > 0;
+        if (kindFilter === "추가건") return m.extra > 0;
+        if (kindFilter === "미구분") return m.etc > 0;
+        if (kindFilter === "미불출") return m.hasPlan && m.total === 0;
+        if (kindFilter === "목록외") return planItems.length > 0 && !m.hasPlan;
+        return true;
+      })
+      .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  }, [allRows, search, kindFilter, planItems.length]);
 
   const stats = useMemo(() => {
     let plan = 0, extra = 0;
@@ -11513,37 +11754,6 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
     const total = shipTxs.length;
     return { total, plan, extra, ratio: total ? Math.round((extra / total) * 100) : 0 };
   }, [shipTxs]);
-
-  const list = useMemo(() => {
-    const map = {};
-    shipTxs.forEach((t) => {
-      const code = t.itemCode;
-      if (!map[code]) {
-        map[code] = { code, name: t.itemName, unit: t.unit || "EA", plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [] };
-      }
-      const m = map[code];
-      const q = Number(t.qty) || 0;
-      const k = getOutKind(t);
-      if (k === "정발주") m.plan += q;
-      else if (k === "추가건") m.extra += q;
-      else m.etc += q;
-      m.total += q;
-      if (String(t.at) > m.lastAt) m.lastAt = String(t.at);
-      m.txs.push(t);
-    });
-
-    const q = search.trim().toLowerCase();
-    return Object.values(map)
-      .filter((m) => {
-        if (q && !(String(m.name).toLowerCase().includes(q) || String(m.code).toLowerCase().includes(q))) return false;
-        if (kindFilter === "정발주") return m.plan > 0;
-        if (kindFilter === "추가건") return m.extra > 0;
-        if (kindFilter === "미구분") return m.etc > 0;
-        return true;
-      })
-      .map((m) => ({ ...m, txs: [...m.txs].sort((a, b) => String(b.at).localeCompare(String(a.at))) }))
-      .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
-  }, [shipTxs, search, kindFilter]);
 
   const checkedCount = useMemo(
     () => list.filter((m) => adminMap[`check:${ship}:${m.code}`]).length,
@@ -11564,16 +11774,20 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
     if (next !== prev) saveAdmin(key, next);
   };
 
+  const remainOf = (m) => (m.order === null ? null : m.order - (m.plan + m.etc));
+
   const exportCSV = () => {
     if (!list.length) { notify("다운로드할 내용이 없습니다.", "err"); return; }
-    const head = ["호선", "자재코드", "자재명", "단위", "정발주", "추가건", "미구분", "합계", "마지막불출", "정리확인", "추가건 사유"];
+    const head = ["호선", "자재코드", "자재명", "규격", "단위", "발주수량", "정발주", "추가건", "미구분", "합계", "잔여", "마지막불출", "정리확인", "추가건 사유"];
     const lines = list.map((m) => {
       const notes = m.txs
         .filter((t) => getOutKind(t) !== "정발주")
         .map((t) => adminMap[`note:${t.id}`])
         .filter(Boolean)
         .join(" / ");
-      return [ship, m.code, m.name, m.unit, m.plan, m.extra, m.etc, m.total, m.lastAt,
+      const remain = remainOf(m);
+      return [ship, m.code, m.name, m.spec, m.unit, m.order === null ? "" : m.order,
+        m.plan, m.extra, m.etc, m.total, remain === null ? "" : remain, m.lastAt,
         adminMap[`check:${ship}:${m.code}`] ? "완료" : "", notes]
         .map((v) => `"${csvSafe(v).replace(/"/g, '""')}"`)
         .join(",");
@@ -11611,7 +11825,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
 
   return (
     <div>
-      <Header title="호선 불출 관리" subtitle="호선별 정발주·추가건 불출을 집계하고, 추가건 사유와 정리 여부를 관리합니다 (관리자용)" />
+      <Header title="호선 불출 관리" subtitle="호선별 발주목록 대비 정발주·추가건 불출을 집계하고, 추가건 사유와 정리 여부를 관리합니다 (관리자용)" />
 
       <datalist id="issue-reasons">
         <option value="파손" />
@@ -11621,24 +11835,68 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
         <option value="분실" />
       </datalist>
 
+      <input
+        ref={planFileRef}
+        type="file"
+        accept=".xlsx,.xls,.csv"
+        style={{ display: "none" }}
+        onChange={importPlanFile}
+      />
+
       <Card style={{ padding: 16, marginBottom: 14 }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <select value={ship} onChange={(e) => { setShip(e.target.value); setOpenCode(null); }} style={{ ...inputStyle, width: 150 }}>
-            {ships.length === 0 && <option value="">호선 없음</option>}
-            {ships.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <ShipSearchSelect
+            value={ship}
+            onChange={(v) => { setShip(v); setOpenCode(null); setKindFilter("all"); }}
+            options={ships}
+          />
           {chip("all", "전체", "#38BDF8")}
           {chip("정발주", "정발주", "#F5A623")}
           {chip("추가건", "추가건", "#38BDF8")}
           {chip("미구분", "미구분", "#5E86A3")}
+          {planItems.length > 0 && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
+          {planItems.length > 0 && chip("목록외", `목록외 (${planSummary.outOfList})`, "#EF5350")}
           <input
             style={{ ...inputStyle, flex: 1, minWidth: 180, height: 38, padding: "4px 12px", fontSize: 13 }}
-            placeholder="자재명 또는 코드 검색"
+            placeholder="자재명, 코드, 규격 검색"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <Btn variant="subtle" onClick={loadAll} style={{ padding: "9px 14px" }}>↻ 새로고침</Btn>
           <Btn variant="subtle" onClick={exportCSV} style={{ padding: "9px 14px" }}><Download size={14} />엑셀 다운로드</Btn>
+        </div>
+
+        {/* 발주목록 안내 줄 */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 12,
+          padding: "8px 12px", background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
+        }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#A78BFA", fontFamily: "'IBM Plex Mono', monospace" }}>📋 발주목록</span>
+          {planItems.length > 0 ? (
+            <span style={{ fontSize: 12, color: "#9FB4C7" }}>
+              {planItems.length}종 · 미불출 {planSummary.notIssued}종 · 목록외 {planSummary.outOfList}종
+              <span style={{ color: "#5E86A3" }}> · {plan?.at} · {plan?.file}</span>
+            </span>
+          ) : (
+            <span style={{ fontSize: 12, color: "#5E86A3" }}>
+              [{ship || "호선 미선택"}]에 등록된 발주목록이 없습니다. 엑셀(품목 코드 · 품명 · 규격 · 수량)을 불러오세요.
+            </span>
+          )}
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <Btn
+              variant="subtle"
+              onClick={() => planFileRef.current?.click()}
+              disabled={!ship}
+              style={{ padding: "6px 12px", fontSize: 12 }}
+            >
+              <Upload size={13} />{planItems.length > 0 ? "발주목록 교체" : "발주목록 불러오기"}
+            </Btn>
+            {planItems.length > 0 && (
+              <Btn variant="danger" onClick={clearPlan} style={{ padding: "6px 12px", fontSize: 12 }}>
+                <Trash2 size={13} />목록 삭제
+              </Btn>
+            )}
+          </div>
         </div>
       </Card>
 
@@ -11653,18 +11911,20 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
         {loading ? (
           <div style={{ padding: 30, textAlign: "center", color: "#5E86A3", fontFamily: "IBM Plex Mono" }}>불러오는 중...</div>
         ) : list.length === 0 ? (
-          <EmptyState icon={ScanLine} text="조건에 해당하는 불출 기록이 없습니다." color="#5E86A3" />
+          <EmptyState icon={ScanLine} text="조건에 해당하는 자재가 없습니다. (필터가 '전체'인지 확인해보세요)" color="#5E86A3" />
         ) : (
-          <div style={{ maxHeight: "calc(100vh - 380px)", overflow: "auto" }}>
+          <div style={{ maxHeight: "calc(100vh - 440px)", minHeight: 240, overflow: "auto" }}>
             <table>
               <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
                 <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>
                   <th style={{ width: 54, textAlign: "center" }}>확인</th>
                   <th>자재</th>
+                  <th style={{ textAlign: "right" }}>발주수량</th>
                   <th style={{ textAlign: "right" }}>정발주</th>
                   <th style={{ textAlign: "right" }}>추가건</th>
                   <th style={{ textAlign: "right" }}>미구분</th>
                   <th style={{ textAlign: "right" }}>합계</th>
+                  <th style={{ textAlign: "right" }}>잔여</th>
                   <th>마지막 불출</th>
                 </tr>
               </thead>
@@ -11673,6 +11933,8 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
                   const isOpen = openCode === m.code;
                   const checked = !!adminMap[`check:${ship}:${m.code}`];
                   const heavy = m.total > 0 && m.extra / m.total >= 0.3;
+                  const remain = remainOf(m);
+                  const outOfList = planItems.length > 0 && !m.hasPlan;
                   return (
                     <React.Fragment key={m.code}>
                       <tr
@@ -11683,8 +11945,18 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
                           <input type="checkbox" checked={checked} onChange={() => toggleCheck(m.code)} />
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600, color: "#38BDF8" }}>{isOpen ? "▾ " : "▸ "}{m.name}</div>
-                          <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{m.code}</div>
+                          <div style={{ fontWeight: 600, color: "#38BDF8" }}>
+                            {isOpen ? "▾ " : "▸ "}{m.name}
+                            {outOfList && (
+                              <span style={{ marginLeft: 8, fontSize: 10, padding: "1px 6px", borderRadius: 6, color: "#EF5350", background: "#EF53501f", fontFamily: "IBM Plex Mono" }}>목록외</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                            {m.code}{m.spec ? ` · ${m.spec}` : ""}
+                          </div>
+                        </td>
+                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700, color: "#E7EEF5" }}>
+                          {m.order === null ? <span style={{ color: "#3E5975" }}>-</span> : `${m.order} ${m.unit}`}
                         </td>
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", color: "#F5A623", fontWeight: 700 }}>{m.plan} {m.unit}</td>
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700, color: heavy ? "#EF5350" : "#38BDF8" }}>
@@ -11692,55 +11964,70 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
                         </td>
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", color: "#7F97AC" }}>{m.etc} {m.unit}</td>
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{m.total} {m.unit}</td>
-                        <td style={{ fontFamily: "IBM Plex Mono", fontSize: 12, color: "#9FB4C7" }}>{m.lastAt}</td>
+                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>
+                          {remain === null ? (
+                            <span style={{ color: "#3E5975" }}>-</span>
+                          ) : remain === 0 ? (
+                            <span style={{ color: "#35D08C" }}>✓ 완료</span>
+                          ) : remain < 0 ? (
+                            <span style={{ color: "#EF5350" }}>초과 {Math.abs(remain)}</span>
+                          ) : (
+                            <span style={{ color: "#A78BFA" }}>{remain} {m.unit}</span>
+                          )}
+                        </td>
+                        <td style={{ fontFamily: "IBM Plex Mono", fontSize: 12, color: "#9FB4C7" }}>{m.lastAt || "-"}</td>
                       </tr>
 
                       {isOpen && (
                         <tr>
-                          <td colSpan={7} style={{ background: "#0B1C2C", padding: 12 }}>
-                            <table>
-                              <thead>
-                                <tr style={{ color: "#5E86A3", fontSize: 11 }}>
-                                  <th>일시</th><th>구분</th><th style={{ textAlign: "right" }}>수량</th>
-                                  <th>프로젝트</th><th>불출자</th><th style={{ minWidth: 260 }}>사유 메모 (정발주 외)</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {m.txs.map((t) => {
-                                  const k = getOutKind(t);
-                                  const key = `note:${t.id}`;
-                                  const value = Object.prototype.hasOwnProperty.call(noteDrafts, t.id)
-                                    ? noteDrafts[t.id]
-                                    : (adminMap[key] || "");
-                                  return (
-                                    <tr key={t.id}>
-                                      <td style={{ fontFamily: "IBM Plex Mono", fontSize: 11.5, color: "#7F97AC" }}>
-                                        {t.at}{t.deleted ? " (보관)" : ""}
-                                      </td>
-                                      <td style={{ fontWeight: 700, color: kindColor(k) }}>{k}</td>
-                                      <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{t.qty} {t.unit}</td>
-                                      <td>{t.project || "-"}</td>
-                                      <td>{t.worker || "-"}</td>
-                                      <td>
-                                        {k === "정발주" ? (
-                                          <span style={{ color: "#3E5975" }}>-</span>
-                                        ) : (
-                                          <input
-                                            list="issue-reasons"
-                                            style={{ ...inputStyle, height: 30, padding: "3px 8px", fontSize: 12.5 }}
-                                            placeholder="사유 입력 (예: 파손, 설계변경)"
-                                            value={value}
-                                            onChange={(e) => setNoteDrafts((p) => ({ ...p, [t.id]: e.target.value }))}
-                                            onBlur={() => commitNote(t.id)}
-                                            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                                          />
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                          <td colSpan={9} style={{ background: "#0B1C2C", padding: 12 }}>
+                            {m.txs.length === 0 ? (
+                              <div style={{ fontSize: 12, color: "#5E86A3" }}>아직 불출 기록이 없습니다.</div>
+                            ) : (
+                              <table>
+                                <thead>
+                                  <tr style={{ color: "#5E86A3", fontSize: 11 }}>
+                                    <th>일시</th><th>구분</th><th style={{ textAlign: "right" }}>수량</th>
+                                    <th>프로젝트</th><th>불출자</th><th style={{ minWidth: 260 }}>사유 메모 (정발주 외)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {m.txs.map((t) => {
+                                    const k = getOutKind(t);
+                                    const key = `note:${t.id}`;
+                                    const value = Object.prototype.hasOwnProperty.call(noteDrafts, t.id)
+                                      ? noteDrafts[t.id]
+                                      : (adminMap[key] || "");
+                                    return (
+                                      <tr key={t.id}>
+                                        <td style={{ fontFamily: "IBM Plex Mono", fontSize: 11.5, color: "#7F97AC" }}>
+                                          {t.at}{t.deleted ? " (보관)" : ""}
+                                        </td>
+                                        <td style={{ fontWeight: 700, color: kindColor(k) }}>{k}</td>
+                                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{t.qty} {t.unit}</td>
+                                        <td>{t.project || "-"}</td>
+                                        <td>{t.worker || "-"}</td>
+                                        <td>
+                                          {k === "정발주" ? (
+                                            <span style={{ color: "#3E5975" }}>-</span>
+                                          ) : (
+                                            <input
+                                              list="issue-reasons"
+                                              style={{ ...inputStyle, height: 30, padding: "3px 8px", fontSize: 12.5 }}
+                                              placeholder="사유 입력 (예: 파손, 설계변경)"
+                                              value={value}
+                                              onChange={(e) => setNoteDrafts((p) => ({ ...p, [t.id]: e.target.value }))}
+                                              onBlur={() => commitNote(t.id)}
+                                              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                                            />
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
                           </td>
                         </tr>
                       )}

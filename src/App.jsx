@@ -4193,7 +4193,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
           fps: 15,
           qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const qrboxSize = Math.max(160, Math.min(230, Math.floor(minEdge * 0.45)));
+            const qrboxSize = Math.max(220, Math.min(340, Math.floor(minEdge * 0.75)));
             return { width: qrboxSize, height: qrboxSize };
           }
         },
@@ -7156,7 +7156,7 @@ async function buildQrLabelWorkbook(items) {
   const ExcelJS = await loadExcelJS();
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("QR라벨");
-  sheet.columns = [{ width: 17 }, { width: 10 }, { width: 41 }];
+  sheet.columns = [{ width: 15 }, { width: 10 }, { width: 41 }];
 
   let row = 1;
   for (const item of items) {

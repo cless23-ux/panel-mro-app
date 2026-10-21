@@ -7162,7 +7162,6 @@ async function buildQrLabelWorkbook(items) {
   for (const item of items) {
     const startRow = row;
     const rows = [
-  ["품목번호 :", item.item_no || "-"],
   ["자재코드 :", item.code],
   ["품명   :", item.name],
   ["규격/사양:", item.spec || ""],

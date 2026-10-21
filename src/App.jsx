@@ -1876,6 +1876,7 @@ const NAV = [
   { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
   { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
   { id: "stale", label: "장기미사용자재", icon: Clock, pcOnly: true },
+  { id: "shipIssue", label: "호선 불출관리", icon: Anchor, pcOnly: true },
   { id: "chat", label: "실시간 대화", icon: MessageCircle },
 ];
 
@@ -1892,6 +1893,7 @@ const TAB_NEON = {
   settings: "#2DD4BF",
   trash: "#EF5350",
   stale: "#A78BFA",
+  shipIssue: "#60A5FA",
   chat: "#22D3EE",
 };
 
@@ -2995,6 +2997,7 @@ function AppInner() {
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} reloadTxs={reloadTxs} />}
             {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
+            {tab === "shipIssue" && <ShipIssueAdminView loadCumulativeOutTxs={loadCumulativeOutTxs} notify={notify} />}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
           </div>
         )}
@@ -11416,6 +11419,339 @@ function OutTxTrashPanel({ notify, reloadTxs }) {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+/* ---------------- 호선 불출 관리 (관리자 전용) ---------------- */
+function ShipIssueAdminView({ loadCumulativeOutTxs, notify }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [ship, setShip] = useState("");
+  const [kindFilter, setKindFilter] = useState("all"); // all | 정발주 | 추가건 | 미구분
+  const [search, setSearch] = useState("");
+  const [openCode, setOpenCode] = useState(null);
+  const [adminMap, setAdminMap] = useState({});
+  const [noteDrafts, setNoteDrafts] = useState({});
+
+  // 폴링으로 함수 주소가 계속 바뀌어도 반복 조회되지 않도록 ref 사용
+  const loadRef = useRef(loadCumulativeOutTxs);
+  loadRef.current = loadCumulativeOutTxs;
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await loadRef.current(); // 휴지통으로 간 7일 경과 기록 포함, 원복건 제외
+      setRows(Array.isArray(data) ? data : []);
+      if (supabase) {
+        const { data: adm, error } = await supabase.from("ship_issue_admin").select("key, value");
+        if (error) {
+          console.warn("ship_issue_admin 조회 실패:", error);
+        } else {
+          const m = {};
+          (adm || []).forEach((r) => { m[r.key] = r.value; });
+          setAdminMap(m);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      notify("호선 불출 기록을 불러오지 못했습니다.", "err");
+    } finally {
+      setLoading(false);
+    }
+  }, [notify]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const saveAdmin = async (key, value) => {
+    setAdminMap((p) => {
+      const n = { ...p };
+      if (value) n[key] = value; else delete n[key];
+      return n;
+    });
+    if (!supabase) return;
+    try {
+      if (value) {
+        const { error } = await supabase
+          .from("ship_issue_admin")
+          .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("ship_issue_admin").delete().eq("key", key);
+        if (error) throw error;
+      }
+    } catch (e) {
+      console.error(e);
+      notify("저장 실패: ship_issue_admin 테이블을 확인해주세요.", "err");
+    }
+  };
+
+  const ships = useMemo(() => {
+    const set = new Set();
+    rows.forEach((t) => {
+      const s = String(t.shipNo || "").trim();
+      if (s && s !== "미입력" && s !== "소모자재") set.add(s);
+    });
+    return Array.from(set).sort((a, b) => b.localeCompare(a, "ko", { numeric: true }));
+  }, [rows]);
+
+  useEffect(() => {
+    if ((!ship || !ships.includes(ship)) && ships.length) setShip(ships[0]);
+  }, [ships, ship]);
+
+  const shipTxs = useMemo(
+    () => rows.filter((t) => String(t.shipNo || "").trim() === ship),
+    [rows, ship]
+  );
+
+  const stats = useMemo(() => {
+    let plan = 0, extra = 0;
+    shipTxs.forEach((t) => {
+      const k = getOutKind(t);
+      if (k === "정발주") plan += 1;
+      else if (k === "추가건") extra += 1;
+    });
+    const total = shipTxs.length;
+    return { total, plan, extra, ratio: total ? Math.round((extra / total) * 100) : 0 };
+  }, [shipTxs]);
+
+  const list = useMemo(() => {
+    const map = {};
+    shipTxs.forEach((t) => {
+      const code = t.itemCode;
+      if (!map[code]) {
+        map[code] = { code, name: t.itemName, unit: t.unit || "EA", plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [] };
+      }
+      const m = map[code];
+      const q = Number(t.qty) || 0;
+      const k = getOutKind(t);
+      if (k === "정발주") m.plan += q;
+      else if (k === "추가건") m.extra += q;
+      else m.etc += q;
+      m.total += q;
+      if (String(t.at) > m.lastAt) m.lastAt = String(t.at);
+      m.txs.push(t);
+    });
+
+    const q = search.trim().toLowerCase();
+    return Object.values(map)
+      .filter((m) => {
+        if (q && !(String(m.name).toLowerCase().includes(q) || String(m.code).toLowerCase().includes(q))) return false;
+        if (kindFilter === "정발주") return m.plan > 0;
+        if (kindFilter === "추가건") return m.extra > 0;
+        if (kindFilter === "미구분") return m.etc > 0;
+        return true;
+      })
+      .map((m) => ({ ...m, txs: [...m.txs].sort((a, b) => String(b.at).localeCompare(String(a.at))) }))
+      .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  }, [shipTxs, search, kindFilter]);
+
+  const checkedCount = useMemo(
+    () => list.filter((m) => adminMap[`check:${ship}:${m.code}`]).length,
+    [list, adminMap, ship]
+  );
+
+  const toggleCheck = (code) => {
+    const key = `check:${ship}:${code}`;
+    saveAdmin(key, adminMap[key] ? "" : "1");
+  };
+
+  const commitNote = (txId) => {
+    const key = `note:${txId}`;
+    if (!Object.prototype.hasOwnProperty.call(noteDrafts, txId)) return;
+    const next = String(noteDrafts[txId] || "").trim();
+    const prev = adminMap[key] || "";
+    setNoteDrafts((p) => { const n = { ...p }; delete n[txId]; return n; });
+    if (next !== prev) saveAdmin(key, next);
+  };
+
+  const exportCSV = () => {
+    if (!list.length) { notify("다운로드할 내용이 없습니다.", "err"); return; }
+    const head = ["호선", "자재코드", "자재명", "단위", "정발주", "추가건", "미구분", "합계", "마지막불출", "정리확인", "추가건 사유"];
+    const lines = list.map((m) => {
+      const notes = m.txs
+        .filter((t) => getOutKind(t) !== "정발주")
+        .map((t) => adminMap[`note:${t.id}`])
+        .filter(Boolean)
+        .join(" / ");
+      return [ship, m.code, m.name, m.unit, m.plan, m.extra, m.etc, m.total, m.lastAt,
+        adminMap[`check:${ship}:${m.code}`] ? "완료" : "", notes]
+        .map((v) => `"${csvSafe(v).replace(/"/g, '""')}"`)
+        .join(",");
+    });
+    const blob = new Blob(["\uFEFF" + head.join(",") + "\n" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `MRO_호선불출_${ship}_${nowStr().split(" ")[0]}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    notify(`[${ship}] 불출 집계가 다운로드되었습니다.`, "ok");
+  };
+
+  const chip = (id, label, color) => {
+    const on = kindFilter === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        onClick={() => setKindFilter(id)}
+        style={{
+          height: 32, padding: "0 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+          border: `1px solid ${on ? color : "#1F3B54"}`,
+          background: on ? `${color}1f` : "#0B1C2C",
+          color: on ? color : "#7F97AC",
+        }}
+      >
+        {label}
+      </button>
+    );
+  };
+
+  const kindColor = (k) => (k === "정발주" ? "#F5A623" : k === "추가건" ? "#38BDF8" : "#5E86A3");
+
+  return (
+    <div>
+      <Header title="호선 불출 관리" subtitle="호선별 정발주·추가건 불출을 집계하고, 추가건 사유와 정리 여부를 관리합니다 (관리자용)" />
+
+      <datalist id="issue-reasons">
+        <option value="파손" />
+        <option value="설계변경" />
+        <option value="수량 착오" />
+        <option value="공정 추가" />
+        <option value="분실" />
+      </datalist>
+
+      <Card style={{ padding: 16, marginBottom: 14 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <select value={ship} onChange={(e) => { setShip(e.target.value); setOpenCode(null); }} style={{ ...inputStyle, width: 150 }}>
+            {ships.length === 0 && <option value="">호선 없음</option>}
+            {ships.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          {chip("all", "전체", "#38BDF8")}
+          {chip("정발주", "정발주", "#F5A623")}
+          {chip("추가건", "추가건", "#38BDF8")}
+          {chip("미구분", "미구분", "#5E86A3")}
+          <input
+            style={{ ...inputStyle, flex: 1, minWidth: 180, height: 38, padding: "4px 12px", fontSize: 13 }}
+            placeholder="자재명 또는 코드 검색"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Btn variant="subtle" onClick={loadAll} style={{ padding: "9px 14px" }}>↻ 새로고침</Btn>
+          <Btn variant="subtle" onClick={exportCSV} style={{ padding: "9px 14px" }}><Download size={14} />엑셀 다운로드</Btn>
+        </div>
+      </Card>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginBottom: 14 }}>
+        <StatCard label="총 불출 건수" value={stats.total} unit="건" icon={ArrowUpFromLine} color="#5EC8FF" />
+        <StatCard label="정발주" value={stats.plan} unit="건" icon={Package} color="#F5A623" />
+        <StatCard label="추가건" value={stats.extra} unit={`건 (${stats.ratio}%)`} icon={AlertTriangle} color={stats.ratio >= 30 ? "#EF5350" : "#38BDF8"} />
+        <StatCard label="정리 확인" value={checkedCount} unit={`/ ${list.length}종`} icon={CheckCircle2} color="#35D08C" />
+      </div>
+
+      <Card style={{ padding: 8 }}>
+        {loading ? (
+          <div style={{ padding: 30, textAlign: "center", color: "#5E86A3", fontFamily: "IBM Plex Mono" }}>불러오는 중...</div>
+        ) : list.length === 0 ? (
+          <EmptyState icon={ScanLine} text="조건에 해당하는 불출 기록이 없습니다." color="#5E86A3" />
+        ) : (
+          <div style={{ maxHeight: "calc(100vh - 380px)", overflow: "auto" }}>
+            <table>
+              <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
+                <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>
+                  <th style={{ width: 54, textAlign: "center" }}>확인</th>
+                  <th>자재</th>
+                  <th style={{ textAlign: "right" }}>정발주</th>
+                  <th style={{ textAlign: "right" }}>추가건</th>
+                  <th style={{ textAlign: "right" }}>미구분</th>
+                  <th style={{ textAlign: "right" }}>합계</th>
+                  <th>마지막 불출</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((m) => {
+                  const isOpen = openCode === m.code;
+                  const checked = !!adminMap[`check:${ship}:${m.code}`];
+                  const heavy = m.total > 0 && m.extra / m.total >= 0.3;
+                  return (
+                    <React.Fragment key={m.code}>
+                      <tr
+                        onClick={() => setOpenCode(isOpen ? null : m.code)}
+                        style={{ cursor: "pointer", opacity: checked ? 0.6 : 1 }}
+                      >
+                        <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleCheck(m.code)} />
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, color: "#38BDF8" }}>{isOpen ? "▾ " : "▸ "}{m.name}</div>
+                          <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{m.code}</div>
+                        </td>
+                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", color: "#F5A623", fontWeight: 700 }}>{m.plan} {m.unit}</td>
+                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700, color: heavy ? "#EF5350" : "#38BDF8" }}>
+                          {m.extra} {m.unit}{heavy ? " ⚠" : ""}
+                        </td>
+                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", color: "#7F97AC" }}>{m.etc} {m.unit}</td>
+                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{m.total} {m.unit}</td>
+                        <td style={{ fontFamily: "IBM Plex Mono", fontSize: 12, color: "#9FB4C7" }}>{m.lastAt}</td>
+                      </tr>
+
+                      {isOpen && (
+                        <tr>
+                          <td colSpan={7} style={{ background: "#0B1C2C", padding: 12 }}>
+                            <table>
+                              <thead>
+                                <tr style={{ color: "#5E86A3", fontSize: 11 }}>
+                                  <th>일시</th><th>구분</th><th style={{ textAlign: "right" }}>수량</th>
+                                  <th>프로젝트</th><th>불출자</th><th style={{ minWidth: 260 }}>사유 메모 (정발주 외)</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {m.txs.map((t) => {
+                                  const k = getOutKind(t);
+                                  const key = `note:${t.id}`;
+                                  const value = Object.prototype.hasOwnProperty.call(noteDrafts, t.id)
+                                    ? noteDrafts[t.id]
+                                    : (adminMap[key] || "");
+                                  return (
+                                    <tr key={t.id}>
+                                      <td style={{ fontFamily: "IBM Plex Mono", fontSize: 11.5, color: "#7F97AC" }}>
+                                        {t.at}{t.deleted ? " (보관)" : ""}
+                                      </td>
+                                      <td style={{ fontWeight: 700, color: kindColor(k) }}>{k}</td>
+                                      <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{t.qty} {t.unit}</td>
+                                      <td>{t.project || "-"}</td>
+                                      <td>{t.worker || "-"}</td>
+                                      <td>
+                                        {k === "정발주" ? (
+                                          <span style={{ color: "#3E5975" }}>-</span>
+                                        ) : (
+                                          <input
+                                            list="issue-reasons"
+                                            style={{ ...inputStyle, height: 30, padding: "3px 8px", fontSize: 12.5 }}
+                                            placeholder="사유 입력 (예: 파손, 설계변경)"
+                                            value={value}
+                                            onChange={(e) => setNoteDrafts((p) => ({ ...p, [t.id]: e.target.value }))}
+                                            onBlur={() => commitNote(t.id)}
+                                            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                                          />
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

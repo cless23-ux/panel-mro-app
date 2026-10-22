@@ -11423,6 +11423,8 @@ function OutTxTrashPanel({ notify, reloadTxs }) {
   );
 }
 /* ---------------- 호선 불출 관리 (관리자 전용) ---------------- */
+// 미구분(예전 기록)은 추가건으로 처리
+const getIssueKind = (t) => (getOutKind(t) === "정발주" ? "정발주" : "추가건");
 function ShipSearchSelect({ value, onChange, options, width = 200 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value || "");
@@ -11705,10 +11707,9 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
       if (t.unit) m.unit = t.unit;
       if ((!m.name || m.name === m.code) && t.itemName) m.name = t.itemName;
       const q = Number(t.qty) || 0;
-      const kind = getOutKind(t);
+      const kind = getIssueKind(t);
       if (kind === "정발주") m.plan += q;
-      else if (kind === "추가건") m.extra += q;
-      else m.etc += q;
+      else m.extra += q;
       m.total += q;
       if (String(t.at) > m.lastAt) m.lastAt = String(t.at);
       m.txs.push(t);
@@ -11747,7 +11748,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
   const stats = useMemo(() => {
     let plan = 0, extra = 0;
     shipTxs.forEach((t) => {
-      const k = getOutKind(t);
+      const k = getIssueKind(t);
       if (k === "정발주") plan += 1;
       else if (k === "추가건") extra += 1;
     });
@@ -11778,16 +11779,16 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
 
   const exportCSV = () => {
     if (!list.length) { notify("다운로드할 내용이 없습니다.", "err"); return; }
-    const head = ["호선", "자재코드", "자재명", "규격", "단위", "발주수량", "정발주", "추가건", "미구분", "합계", "잔여", "마지막불출", "정리확인", "추가건 사유"];
+    const head = ["호선", "자재코드", "자재명", "규격", "단위", "발주수량", "정발주", "추가건", "합계", "잔여", "마지막불출", "정리확인", "추가건 사유"];
     const lines = list.map((m) => {
       const notes = m.txs
-        .filter((t) => getOutKind(t) !== "정발주")
+        .filter((t) => getIssueKind(t) !== "정발주")
         .map((t) => adminMap[`note:${t.id}`])
         .filter(Boolean)
         .join(" / ");
       const remain = remainOf(m);
       return [ship, m.code, m.name, m.spec, m.unit, m.order === null ? "" : m.order,
-        m.plan, m.extra, m.etc, m.total, remain === null ? "" : remain, m.lastAt,
+        m.plan, m.extra, m.total, remain === null ? "" : remain, m.lastAt,
         adminMap[`check:${ship}:${m.code}`] ? "완료" : "", notes]
         .map((v) => `"${csvSafe(v).replace(/"/g, '""')}"`)
         .join(",");
@@ -11852,8 +11853,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
           />
           {chip("all", "전체", "#38BDF8")}
           {chip("정발주", "정발주", "#F5A623")}
-          {chip("추가건", "추가건", "#38BDF8")}
-          {chip("미구분", "미구분", "#5E86A3")}
+          {chip("추가건", "추가건", "#38BDF8")}          
           {planItems.length > 0 && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
           {planItems.length > 0 && chip("목록외", `목록외 (${planSummary.outOfList})`, "#EF5350")}
           <input
@@ -11922,7 +11922,6 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
                   <th style={{ textAlign: "right" }}>발주수량</th>
                   <th style={{ textAlign: "right" }}>정발주</th>
                   <th style={{ textAlign: "right" }}>추가건</th>
-                  <th style={{ textAlign: "right" }}>미구분</th>
                   <th style={{ textAlign: "right" }}>합계</th>
                   <th style={{ textAlign: "right" }}>잔여</th>
                   <th>마지막 불출</th>
@@ -11961,8 +11960,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", color: "#F5A623", fontWeight: 700 }}>{m.plan} {m.unit}</td>
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700, color: heavy ? "#EF5350" : "#38BDF8" }}>
                           {m.extra} {m.unit}{heavy ? " ⚠" : ""}
-                        </td>
-                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", color: "#7F97AC" }}>{m.etc} {m.unit}</td>
+                        </td>                       
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{m.total} {m.unit}</td>
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>
                           {remain === null ? (
@@ -11980,7 +11978,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
 
                       {isOpen && (
                         <tr>
-                          <td colSpan={9} style={{ background: "#0B1C2C", padding: 12 }}>
+                          <td colSpan={8} style={{ background: "#0B1C2C", padding: 12 }}>
                             {m.txs.length === 0 ? (
                               <div style={{ fontSize: 12, color: "#5E86A3" }}>아직 불출 기록이 없습니다.</div>
                             ) : (
@@ -11993,7 +11991,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
                                 </thead>
                                 <tbody>
                                   {m.txs.map((t) => {
-                                    const k = getOutKind(t);
+                                    const k = getIssueKind(t);
                                     const key = `note:${t.id}`;
                                     const value = Object.prototype.hasOwnProperty.call(noteDrafts, t.id)
                                       ? noteDrafts[t.id]

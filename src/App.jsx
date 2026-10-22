@@ -2997,7 +2997,7 @@ function AppInner() {
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} reloadTxs={reloadTxs} />}
             {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
-            {tab === "shipIssue" && <ShipIssueAdminView loadCumulativeOutTxs={loadCumulativeOutTxs} notify={notify} shipOptions={outFormSettings?.ships || []} />}
+            {tab === "shipIssue" && <ShipIssueAdminView loadCumulativeOutTxs={loadCumulativeOutTxs} notify={notify} shipOptions={outFormSettings?.ships || []} projectList={outFormSettings?.projects || []} />}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
           </div>
         )}
@@ -11492,7 +11492,7 @@ function ShipSearchSelect({ value, onChange, options, width = 200 }) {
   );
 }
 
-function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) {
+function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], projectList = [] }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ship, setShip] = useState("");
@@ -11581,15 +11581,19 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
     [rows, ship]
   );
 
-  // 선택한 호선에서 실제 불출된 프로젝트 목록
+  // 프로젝트 목록: 불출설정 등록 프로젝트 + 이 호선에서 불출된 프로젝트 + 발주목록을 올린 프로젝트
   const projectOptions = useMemo(() => {
     const set = new Set();
-    shipAllTxs.forEach((t) => {
-      const p = String(t.project || "").trim();
+    const add = (v) => {
+      const p = String(v || "").trim();
       if (p && p !== "미입력") set.add(p);
-    });
+    };
+    (projectList || []).forEach(add);
+    shipAllTxs.forEach((t) => add(t.project));
+    const prefix = `plan:${ship}::`;
+    Object.keys(adminMap).forEach((k) => { if (k.startsWith(prefix)) add(k.slice(prefix.length)); });
     return ["전체", ...Array.from(set).sort((a, b) => a.localeCompare(b, "ko"))];
-  }, [shipAllTxs]);
+  }, [shipAllTxs, projectList, adminMap, ship]);
 
   useEffect(() => {
     if (!projectOptions.includes(project)) setProject("전체");
@@ -11603,12 +11607,37 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
   );
 
   /* ---------- 발주목록 (엑셀로 불러와 호선별로 저장) ---------- */
+  // 발주목록 저장 위치: 프로젝트를 고르면 '호선+프로젝트', 전체면 '호선 단위'
+  const planKey = project === "전체" ? `plan:${ship}` : `plan:${ship}::${project}`;
+  const planLabel = project === "전체" ? ship : `${ship} / ${project}`;
+
   const plan = useMemo(() => {
-    try {
-      const v = adminMap[`plan:${ship}`];
-      return v ? JSON.parse(v) : null;
-    } catch { return null; }
-  }, [adminMap, ship]);
+    const parsePlan = (v) => { try { return v ? JSON.parse(v) : null; } catch { return null; } };
+
+    if (project !== "전체") return parsePlan(adminMap[`plan:${ship}::${project}`]);
+
+    // 전체: 호선 단위로 올린 목록이 있으면 그것을, 없으면 프로젝트별 목록을 합산해서 표시
+    const whole = parsePlan(adminMap[`plan:${ship}`]);
+    if (whole) return whole;
+
+    const prefix = `plan:${ship}::`;
+    const merged = {};
+    let at = "";
+    let count = 0;
+    Object.keys(adminMap).forEach((k) => {
+      if (!k.startsWith(prefix)) return;
+      const p = parsePlan(adminMap[k]);
+      if (!p) return;
+      count += 1;
+      if (String(p.at || "") > at) at = String(p.at || "");
+      (p.items || []).forEach((it) => {
+        const key = String(it.code || "").trim().toUpperCase();
+        if (!merged[key]) merged[key] = { ...it, qty: 0 };
+        merged[key].qty += Number(it.qty) || 0;
+      });
+    });
+    return count ? { items: Object.values(merged), at, file: `프로젝트별 ${count}개 합산` } : null;
+  }, [adminMap, ship, project]);
   const planItems = plan?.items || [];
 
   useEffect(() => {
@@ -11685,8 +11714,8 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
           `[${ship}] 기존 발주목록(${planItems.length}종)을 지우고\n새 파일(${itemsArr.length}종)로 교체할까요?`
         )) return;
 
-        saveAdmin(`plan:${ship}`, JSON.stringify({ items: itemsArr, at: nowStr(), file: file.name }));
-        notify(`[${ship}] 발주목록 ${itemsArr.length}종을 불러왔습니다.`, "ok");
+        saveAdmin(planKey, JSON.stringify({ items: itemsArr, at: nowStr(), file: file.name }));
+        notify(`[${planLabel}] 발주목록 ${itemsArr.length}종을 불러왔습니다.`, "ok");
       } catch (err) {
         console.error("발주목록 불러오기 오류:", err);
         notify("엑셀 파일을 처리하는 중 오류가 발생했습니다.", "err");
@@ -11697,9 +11726,9 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
     reader.readAsArrayBuffer(file);
   };
 
-  const clearPlan = () => {
-    if (!window.confirm(`[${ship}] 발주목록을 삭제할까요?\n(불출 기록과 사유 메모는 그대로 남습니다)`)) return;
-    saveAdmin(`plan:${ship}`, "");
+    const clearPlan = () => {
+    if (!window.confirm(`[${planLabel}] 발주목록을 삭제할까요?\n(불출 기록과 사유 메모는 그대로 남습니다)`)) return;
+    saveAdmin(planKey, "");
     notify("발주목록이 삭제되었습니다.", "info");
   };
 
@@ -11710,16 +11739,14 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
     const planMap = {};
     planItems.forEach((p) => { planMap[normCode(p.code)] = p; });
 
-    // 프로젝트 '전체'일 때만 아직 불출 안 된 발주 자재도 0으로 미리 표시
-    if (project === "전체") {
-      planItems.forEach((p) => {
-        map[normCode(p.code)] = {
-          code: p.code, name: p.name || p.code, spec: p.spec || "", unit: "EA",
-          order: Number(p.qty) || 0, hasPlan: true,
-          plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [],
-        };
-      });
-    }
+    // 발주목록 자재는 아직 불출 전이어도 0으로 미리 표시
+    planItems.forEach((p) => {
+      map[normCode(p.code)] = {
+        code: p.code, name: p.name || p.code, spec: p.spec || "", unit: "EA",
+        order: Number(p.qty) || 0, hasPlan: true,
+        plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [],
+      };
+    });
 
     shipTxs.forEach((t) => {
       const k = normCode(t.itemCode);
@@ -11803,11 +11830,12 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
     if (next !== prev) saveAdmin(key, next);
   };
 
-  const remainOf = (m) => (m.order === null || project !== "전체" ? null : m.order - (m.plan + m.etc));
+  // 정발주 지급가능 = 발주수량 - 추가건 - 이미 불출한 정발주 (선택한 호선/프로젝트 기준)
+  const remainOf = (m) => (m.order === null ? null : m.order - m.plan - m.extra);
 
   const exportCSV = () => {
     if (!list.length) { notify("다운로드할 내용이 없습니다.", "err"); return; }
-    const head = ["호선", "자재코드", "자재명", "규격", "단위", "발주수량", "정발주", "추가건", "합계", "잔여", "마지막불출", "정리확인", "추가건 사유"];
+    const head = ["호선", "자재코드", "자재명", "규격", "단위", "발주수량", "정발주", "추가건", "합계", "정발주 지급가능", "마지막불출", "정리확인", "추가건 사유"];
     const lines = list.map((m) => {
       const notes = m.txs
         .filter((t) => getIssueKind(t) !== "정발주")
@@ -11889,15 +11917,15 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
               <option key={p} value={p}>{p === "전체" ? "프로젝트 전체" : p}</option>
             ))}
           </select>
-          {project !== "전체" && planItems.length > 0 && (
+          {project !== "전체" && planItems.length === 0 && (
             <span style={{ fontSize: 11, color: "#F5A623", fontFamily: "'IBM Plex Mono', monospace" }}>
-              발주수량은 호선 전체 기준 · 잔여 미표시
+              이 프로젝트의 발주목록을 불러오면 지급가능 수량이 계산됩니다
             </span>
           )}
           {chip("all", "전체", "#38BDF8")}
           {chip("정발주", "정발주", "#F5A623")}
           {chip("추가건", "추가건", "#38BDF8")}          
-          {planItems.length > 0 && project === "전체" && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
+          {planItems.length > 0 && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
           {planItems.length > 0 && chip("목록외", `목록외 (${planSummary.outOfList})`, "#EF5350")}
           <input
             style={{ ...inputStyle, flex: 1, minWidth: 180, height: 38, padding: "4px 12px", fontSize: 13 }}
@@ -11922,7 +11950,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
             </span>
           ) : (
             <span style={{ fontSize: 12, color: "#5E86A3" }}>
-              [{ship || "호선 미선택"}]에 등록된 발주목록이 없습니다. 엑셀(품목 코드 · 품명 · 규격 · 수량)을 불러오세요.
+              [{planLabel || "호선 미선택"}]에 등록된 발주목록이 없습니다. 엑셀(품목 코드 · 품명 · 규격 · 수량)을 불러오세요.
             </span>
           )}
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -11932,9 +11960,9 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
               disabled={!ship}
               style={{ padding: "6px 12px", fontSize: 12 }}
             >
-              <Upload size={13} />{planItems.length > 0 ? "발주목록 교체" : "발주목록 불러오기"}
+              <Upload size={13} />{adminMap[planKey] ? "발주목록 교체" : (project === "전체" ? "호선 전체 발주목록 불러오기" : `${project} 발주목록 불러오기`)}
             </Btn>
-            {planItems.length > 0 && (
+            {adminMap[planKey] && (
               <Btn variant="danger" onClick={clearPlan} style={{ padding: "6px 12px", fontSize: 12 }}>
                 <Trash2 size={13} />목록 삭제
               </Btn>
@@ -11966,7 +11994,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
                   <th style={{ textAlign: "right" }}>정발주</th>
                   <th style={{ textAlign: "right" }}>추가건</th>
                   <th style={{ textAlign: "right" }}>합계</th>
-                  <th style={{ textAlign: "right" }}>잔여</th>
+                  <th style={{ textAlign: "right" }} title="발주수량 − 추가건 − 이미 불출한 정발주 (선택한 호선/프로젝트 기준)">정발주 지급가능</th>
                   <th>마지막 불출</th>
                 </tr>
               </thead>
@@ -11976,6 +12004,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
                   const checked = !!adminMap[`check:${ship}:${m.code}`];
                   const heavy = m.total > 0 && m.extra / m.total >= 0.3;
                   const remain = remainOf(m);
+                  const tot = { plan: m.plan, extra: m.extra };
                   const outOfList = planItems.length > 0 && !m.hasPlan;
                   return (
                     <React.Fragment key={m.code}>
@@ -12008,12 +12037,19 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>
                           {remain === null ? (
                             <span style={{ color: "#3E5975" }}>-</span>
-                          ) : remain === 0 ? (
-                            <span style={{ color: "#35D08C" }}>✓ 완료</span>
-                          ) : remain < 0 ? (
-                            <span style={{ color: "#EF5350" }}>초과 {Math.abs(remain)}</span>
                           ) : (
-                            <span style={{ color: "#A78BFA" }}>{remain} {m.unit}</span>
+                            <>
+                              {remain === 0 ? (
+                                <span style={{ color: "#35D08C" }}>✓ 완료</span>
+                              ) : remain < 0 ? (
+                                <span style={{ color: "#EF5350" }}>초과 {Math.abs(remain)} {m.unit}</span>
+                              ) : (
+                                <span style={{ color: "#A78BFA" }}>{remain} {m.unit}</span>
+                              )}
+                              <div style={{ fontSize: 9.5, fontWeight: 400, color: "#5E86A3", marginTop: 1 }}>
+                                발주 {m.order} − 추가 {tot.extra} − 정발주 {tot.plan}
+                              </div>
+                            </>
                           )}
                         </td>
                         <td style={{ fontFamily: "IBM Plex Mono", fontSize: 12, color: "#9FB4C7" }}>{m.lastAt || "-"}</td>

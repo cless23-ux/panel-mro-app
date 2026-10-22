@@ -11565,7 +11565,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
     };
     (shipOptions || []).forEach(add);
     rows.forEach((t) => add(t.shipNo));
-    Object.keys(adminMap).forEach((k) => { if (k.startsWith("plan:")) add(k.slice(5)); });
+    Object.keys(adminMap).forEach((k) => { if (k.startsWith("plan:")) add(k.slice(5).split("::")[0]); });
     return Array.from(set).sort((a, b) => b.localeCompare(a, "ko", { numeric: true }));
   }, [rows, adminMap, shipOptions]);
 
@@ -11639,6 +11639,34 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
     return count ? { items: Object.values(merged), at, file: `프로젝트별 ${count}개 합산` } : null;
   }, [adminMap, ship, project]);
   const planItems = plan?.items || [];
+    // 지금까지 불러온 발주목록 전체 (최근에 불러온 순서)
+  const savedPlans = useMemo(() => {
+    const list = [];
+    Object.keys(adminMap).forEach((k) => {
+      if (!k.startsWith("plan:")) return;
+      const body = k.slice(5);
+      const idx = body.indexOf("::");
+      const s = idx >= 0 ? body.slice(0, idx) : body;
+      const p = idx >= 0 ? body.slice(idx + 2) : "전체";
+      let count = 0;
+      let at = "";
+      try {
+        const v = JSON.parse(adminMap[k]);
+        count = (v.items || []).length;
+        at = String(v.at || "");
+      } catch { /* 깨진 데이터는 건너뜀 */ }
+      if (count > 0) list.push({ key: k, ship: s, project: p, count, at });
+    });
+    return list.sort((a, b) => b.at.localeCompare(a.at));
+  }, [adminMap]);
+
+  const goToPlan = (sp) => {
+    setShip(sp.ship);
+    setProject(sp.project);
+    setOpenCode(null);
+    setKindFilter("all");
+    setSearch("");
+  };
 
   useEffect(() => {
     if (!planItems.length && (kindFilter === "미불출" || kindFilter === "목록외")) setKindFilter("all");
@@ -11936,7 +11964,38 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
           <Btn variant="subtle" onClick={loadAll} style={{ padding: "9px 14px" }}>↻ 새로고침</Btn>
           <Btn variant="subtle" onClick={exportCSV} style={{ padding: "9px 14px" }}><Download size={14} />엑셀 다운로드</Btn>
         </div>
-
+        {savedPlans.length > 0 && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
+            marginTop: 12, maxHeight: 96, overflowY: "auto",
+          }}>
+            <span style={{ fontSize: 11.5, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0 }}>
+              불러온 발주목록 바로가기
+            </span>
+            {savedPlans.map((sp) => {
+              const active = sp.ship === ship && sp.project === project;
+              return (
+                <button
+                  key={sp.key}
+                  type="button"
+                  onClick={() => goToPlan(sp)}
+                  title={`${sp.at} 불러옴`}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px",
+                    borderRadius: 999, cursor: "pointer", fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    border: `1px solid ${active ? "#A78BFA" : "#315775"}`,
+                    background: active ? "#A78BFA22" : "transparent",
+                    color: active ? "#A78BFA" : "#38BDF8",
+                  }}
+                >
+                  {sp.ship} / {sp.project === "전체" ? "호선 전체" : sp.project}
+                  <span style={{ fontSize: 10, fontWeight: 600, color: active ? "#A78BFA" : "#7F97AC" }}>{sp.count}종</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         {/* 발주목록 안내 줄 */}
         <div style={{
           display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 12,

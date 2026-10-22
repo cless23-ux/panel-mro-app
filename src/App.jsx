@@ -11497,6 +11497,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
   const [loading, setLoading] = useState(true);
   const [ship, setShip] = useState("");
   const [kindFilter, setKindFilter] = useState("all"); // all | 정발주 | 추가건 | 미구분 | 미불출 | 목록외
+  const [project, setProject] = useState("전체");
   const [search, setSearch] = useState("");
   const [openCode, setOpenCode] = useState(null);
   const [adminMap, setAdminMap] = useState({});
@@ -11575,9 +11576,30 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
     setShip(latest || ships[0] || "");
   }, [ships, ship, rows]);
 
-  const shipTxs = useMemo(
+  const shipAllTxs = useMemo(
     () => rows.filter((t) => String(t.shipNo || "").trim() === ship),
     [rows, ship]
+  );
+
+  // 선택한 호선에서 실제 불출된 프로젝트 목록
+  const projectOptions = useMemo(() => {
+    const set = new Set();
+    shipAllTxs.forEach((t) => {
+      const p = String(t.project || "").trim();
+      if (p && p !== "미입력") set.add(p);
+    });
+    return ["전체", ...Array.from(set).sort((a, b) => a.localeCompare(b, "ko"))];
+  }, [shipAllTxs]);
+
+  useEffect(() => {
+    if (!projectOptions.includes(project)) setProject("전체");
+  }, [projectOptions, project]);
+
+  const shipTxs = useMemo(
+    () => (project === "전체"
+      ? shipAllTxs
+      : shipAllTxs.filter((t) => String(t.project || "").trim() === project)),
+    [shipAllTxs, project]
   );
 
   /* ---------- 발주목록 (엑셀로 불러와 호선별로 저장) ---------- */
@@ -11685,21 +11707,27 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
   const allRows = useMemo(() => {
     const normCode = (c) => String(c || "").trim().toUpperCase();
     const map = {};
+    const planMap = {};
+    planItems.forEach((p) => { planMap[normCode(p.code)] = p; });
 
-    planItems.forEach((p) => {
-      map[normCode(p.code)] = {
-        code: p.code, name: p.name || p.code, spec: p.spec || "", unit: "EA",
-        order: Number(p.qty) || 0, hasPlan: true,
-        plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [],
-      };
-    });
+    // 프로젝트 '전체'일 때만 아직 불출 안 된 발주 자재도 0으로 미리 표시
+    if (project === "전체") {
+      planItems.forEach((p) => {
+        map[normCode(p.code)] = {
+          code: p.code, name: p.name || p.code, spec: p.spec || "", unit: "EA",
+          order: Number(p.qty) || 0, hasPlan: true,
+          plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [],
+        };
+      });
+    }
 
     shipTxs.forEach((t) => {
       const k = normCode(t.itemCode);
       if (!map[k]) {
+        const pp = planMap[k];
         map[k] = {
-          code: t.itemCode, name: t.itemName, spec: "", unit: t.unit || "EA",
-          order: null, hasPlan: false,
+          code: t.itemCode, name: t.itemName, spec: pp?.spec || "", unit: t.unit || "EA",
+          order: pp ? (Number(pp.qty) || 0) : null, hasPlan: !!pp,
           plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [],
         };
       }
@@ -11719,7 +11747,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
       ...m,
       txs: [...m.txs].sort((a, b) => String(b.at).localeCompare(String(a.at))),
     }));
-  }, [planItems, shipTxs]);
+  }, [planItems, shipTxs, project]);
 
   const planSummary = useMemo(() => ({
     notIssued: allRows.filter((m) => m.hasPlan && m.total === 0).length,
@@ -11775,7 +11803,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
     if (next !== prev) saveAdmin(key, next);
   };
 
-  const remainOf = (m) => (m.order === null ? null : m.order - (m.plan + m.etc));
+  const remainOf = (m) => (m.order === null || project !== "전체" ? null : m.order - (m.plan + m.etc));
 
   const exportCSV = () => {
     if (!list.length) { notify("다운로드할 내용이 없습니다.", "err"); return; }
@@ -11796,7 +11824,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
     const blob = new Blob(["\uFEFF" + head.join(",") + "\n" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
-    link.download = `MRO_호선불출_${ship}_${nowStr().split(" ")[0]}.csv`;
+    link.download = `MRO_호선불출_${ship}${project !== "전체" ? `_${project.replace(/[\\/:*?"<>|]/g, "_")}` : ""}_${nowStr().split(" ")[0]}.csv`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     notify(`[${ship}] 불출 집계가 다운로드되었습니다.`, "ok");
@@ -11848,13 +11876,28 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [] }) 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <ShipSearchSelect
             value={ship}
-            onChange={(v) => { setShip(v); setOpenCode(null); setKindFilter("all"); }}
+            onChange={(v) => { setShip(v); setProject("전체"); setOpenCode(null); setKindFilter("all"); }}
             options={ships}
           />
+          <select
+            value={project}
+            onChange={(e) => { setProject(e.target.value); setOpenCode(null); setKindFilter("all"); }}
+            aria-label="프로젝트 선택"
+            style={{ ...inputStyle, width: 160 }}
+          >
+            {projectOptions.map((p) => (
+              <option key={p} value={p}>{p === "전체" ? "프로젝트 전체" : p}</option>
+            ))}
+          </select>
+          {project !== "전체" && planItems.length > 0 && (
+            <span style={{ fontSize: 11, color: "#F5A623", fontFamily: "'IBM Plex Mono', monospace" }}>
+              발주수량은 호선 전체 기준 · 잔여 미표시
+            </span>
+          )}
           {chip("all", "전체", "#38BDF8")}
           {chip("정발주", "정발주", "#F5A623")}
           {chip("추가건", "추가건", "#38BDF8")}          
-          {planItems.length > 0 && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
+          {planItems.length > 0 && project === "전체" && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
           {planItems.length > 0 && chip("목록외", `목록외 (${planSummary.outOfList})`, "#EF5350")}
           <input
             style={{ ...inputStyle, flex: 1, minWidth: 180, height: 38, padding: "4px 12px", fontSize: 13 }}

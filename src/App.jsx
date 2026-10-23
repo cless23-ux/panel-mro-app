@@ -1703,6 +1703,137 @@ function ChatMemoView({ onClose, unreadCount = 0, onClearUnread }) {
     </div>
   );
 }
+/* ---------------- 새 버전 알림 (배포 감지 + 업데이트 안내) ---------------- */
+const APP_BUILD_ID = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID__ : "dev";
+const UPDATE_CHECK_MS = 5 * 60 * 1000; // 5분마다 확인
+
+function useAppUpdateCheck() {
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const latestRef = useRef("");
+  const dismissedRef = useRef("");
+
+  const check = useCallback(async () => {
+    if (APP_BUILD_ID === "dev") return;
+    try {
+      const res = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const latest = String(data?.build || "");
+      if (latest && latest !== APP_BUILD_ID && latest !== dismissedRef.current) {
+        latestRef.current = latest;
+        setUpdateAvailable(true);
+      }
+    } catch {
+      /* 오프라인이거나 파일이 없으면 조용히 무시 */
+    }
+  }, []);
+
+  useEffect(() => {
+    check();
+    const t = setInterval(check, UPDATE_CHECK_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVisible); // 앱을 다시 열 때도 확인
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [check]);
+
+  const dismissUpdate = useCallback(() => {
+    dismissedRef.current = latestRef.current;
+    setUpdateAvailable(false);
+  }, []);
+
+  const applyUpdate = useCallback(async () => {
+    try {
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.update()));
+      }
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch { /* 실패해도 새로고침은 진행 */ }
+    window.location.reload();
+  }, []);
+
+  return { updateAvailable, dismissUpdate, applyUpdate };
+}
+
+function UpdateBanner({ show, onUpdate, onLater }) {
+  if (!show) return null;
+  return (
+    <div style={{
+      position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)",
+      width: "min(92vw, 520px)", zIndex: 99998, background: "#0F2233",
+      border: "1px solid #38BDF8", borderRadius: 12, padding: "12px 14px",
+      boxShadow: "0 10px 30px rgba(0,0,0,0.6)",
+      display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+    }}>
+      <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 800, color: "#7DD3FC" }}>🔄 새 버전이 나왔어요</div>
+        <div style={{ fontSize: 11.5, color: "#9FB4C7", marginTop: 2, lineHeight: 1.45 }}>
+          지금 업데이트하면 최신 기능과 수정사항이 적용돼요. 입력 중인 내용이 있다면 저장한 뒤 눌러주세요.
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <Btn variant="ghost" onClick={onLater} style={{ padding: "8px 12px", fontSize: 12 }}>나중에</Btn>
+        <Btn onClick={onUpdate} style={{ padding: "8px 14px", fontSize: 12, background: "#38BDF8", border: "1px solid #38BDF8", color: "#0A1622" }}>
+          지금 업데이트
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+/* 업데이트 후 처음 열 때 한 번 보여주는 '이번에 바뀐 점' 안내
+   → 알리고 싶을 때만 id와 items를 고쳐서 배포하세요 (id가 바뀌면 모두에게 다시 한 번 뜹니다) */
+const RELEASE_NOTE = {
+  id: "2026-10-24",
+  title: "이번 업데이트 안내",
+  items: [
+    "호선 불출관리 메뉴가 생겼어요 (모바일 하단 '호선불출')",
+    "호선별 발주목록 대비 불출 현황과 정발주 지급가능 수량을 볼 수 있어요",
+    "QR 라벨에서 품목번호 칸이 빠졌어요",
+    "스캔 화면의 인식 박스가 커졌어요",
+  ],
+};
+const RELEASE_NOTE_SEEN_KEY = "panel:releaseNoteSeen";
+
+function ReleaseNoteModal() {
+  const [open, setOpen] = useState(() => {
+    try { return !!RELEASE_NOTE.id && localStorage.getItem(RELEASE_NOTE_SEEN_KEY) !== RELEASE_NOTE.id; }
+    catch { return false; }
+  });
+  if (!open) return null;
+
+  const close = () => {
+    try { localStorage.setItem(RELEASE_NOTE_SEEN_KEY, RELEASE_NOTE.id); } catch {}
+    setOpen(false);
+  };
+
+  return (
+    <div
+      onClick={close}
+      style={{
+        position: "fixed", inset: 0, zIndex: 99997, background: "rgba(6,14,22,0.78)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 400, background: "#0F2233", border: "1px solid #38BDF866", borderRadius: 14, padding: 22 }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 800, color: "#7DD3FC", marginBottom: 12 }}>🎉 {RELEASE_NOTE.title}</div>
+        <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 7, color: "#E7EEF5", fontSize: 13, lineHeight: 1.5 }}>
+          {RELEASE_NOTE.items.map((text, i) => <li key={i}>{text}</li>)}
+        </ul>
+        <Btn onClick={close} style={{ width: "100%", marginTop: 16 }}>확인</Btn>
+      </div>
+    </div>
+  );
+}
 
 /* ---------------- 간단 접근 코드 게이트 ---------------- */
 const APP_ACCESS_CODE = "a1234"; // ← 원하는 비밀번호로 바꾸세요
@@ -1910,6 +2041,7 @@ function AppInner() {
 
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
+  const { updateAvailable, dismissUpdate, applyUpdate } = useAppUpdateCheck();
 
   // 누적출고 전용 조회:
   // 일반 txs는 deleted=false만 보여주므로, 누적출고 창에서만 전체 거래를 가져온다.
@@ -3063,6 +3195,8 @@ function AppInner() {
         <button className="pwa-mobile-install" onClick={installPwa} style={{ position: "fixed", right: 12, bottom: 76, zIndex: 9990, alignItems: "center", gap: 6, padding: "9px 12px", borderRadius: 999, border: "1px solid #38BDF8", background: "#0F2233", color: "#7DD3FC", fontWeight: 800, fontSize: 12, boxShadow: "0 8px 24px #0008", cursor: "pointer" }}>📲 앱 설치</button>
       )}
       <PwaInstallModal open={showPwaInstall} onClose={() => setShowPwaInstall(false)} installApp={installPwa} canInstall={!!pwaInstallEvent} />
+      <UpdateBanner show={updateAvailable} onUpdate={applyUpdate} onLater={dismissUpdate} />
+      <ReleaseNoteModal />
       <Toast toast={toast} />
     </div>
   );

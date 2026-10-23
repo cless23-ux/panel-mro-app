@@ -11918,6 +11918,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
         }
         @media (max-width: 768px) {
           .si-table-card { display: none !important; }
+          .si-pc-only { display: none !important; }
           .si-cards-view { display: flex; flex-direction: column; gap: 10px; }
           .si-pick-row { display: flex; gap: 8px; width: 100%; }
           .si-pick-row > * { flex: 1 1 0; min-width: 0; width: 100% !important; }
@@ -11978,8 +11979,10 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <Btn variant="subtle" onClick={loadAll} style={{ padding: "9px 14px" }}>↻ 새로고침</Btn>
-          <Btn variant="subtle" onClick={exportCSV} style={{ padding: "9px 14px" }}><Download size={14} />엑셀 다운로드</Btn>
+          <div className="si-pc-only" style={{ display: "contents" }}>
+            <Btn variant="subtle" onClick={loadAll} style={{ padding: "9px 14px" }}>↻ 새로고침</Btn>
+            <Btn variant="subtle" onClick={exportCSV} style={{ padding: "9px 14px" }}><Download size={14} />엑셀 다운로드</Btn>
+          </div>
         </div>
         {savedPlans.length > 0 && (
           <div style={{
@@ -12014,7 +12017,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
           </div>
         )}
         {/* 발주목록 안내 줄 */}
-        <div style={{
+        <div className="si-pc-only" style={{
           display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 12,
           padding: "8px 12px", background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8,
         }}>

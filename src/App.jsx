@@ -3005,14 +3005,14 @@ function AppInner() {
 
       {/* 모바일 하단 탭 */}
           <nav className="mobile-bottom-nav">
-        {["stock", "in", "out", "consumable", "shipMaterial"].map((id) => {
+        {["stock", "in", "out", "consumable", "shipIssue"].map((id) => {
           const n = NAV.find((item) => item.id === id);
           if (!n) return null;
           const active = tab === n.id;
           const Icon = n.icon;
           const neon = TAB_NEON[n.id] || "#7F97AC";
           const isOut = n.id === "out";
-          const mobileLabel = n.id === "rawInbound" ? "원자재입고" : n.label;
+          const mobileLabel = n.id === "rawInbound" ? "원자재입고" : n.id === "shipIssue" ? "호선불출" : n.label;
 
           return (
             <button
@@ -11911,7 +11911,21 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
   return (
     <div>
       <Header title="호선 불출 관리" subtitle="호선별 발주목록 대비 정발주·추가건 불출을 집계하고, 추가건 사유와 정리 여부를 관리합니다 (관리자용)" />
-
+      <style>{`
+        .si-cards-view { display: none; }
+        @media (min-width: 769px) {
+          .si-pick-row { display: contents; }
+        }
+        @media (max-width: 768px) {
+          .si-table-card { display: none !important; }
+          .si-cards-view { display: flex; flex-direction: column; gap: 10px; }
+          .si-pick-row { display: flex; gap: 8px; width: 100%; }
+          .si-pick-row > * { flex: 1 1 0; min-width: 0; width: 100% !important; }
+          .si-search { flex: 1 1 100% !important; min-width: 0 !important; }
+          .si-stats { grid-template-columns: 1fr 1fr !important; gap: 8px !important; }
+          .si-stats > div { padding: 10px 12px !important; }
+        }
+      `}</style>
       <datalist id="issue-reasons">
         <option value="파손" />
         <option value="설계변경" />
@@ -11929,7 +11943,8 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
       />
 
       <Card style={{ padding: 16, marginBottom: 14 }}>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div className="si-controls" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div className="si-pick-row">
           <ShipSearchSelect
             value={ship}
             onChange={(v) => { setShip(v); setProject("전체"); setOpenCode(null); setKindFilter("all"); }}
@@ -11945,6 +11960,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
               <option key={p} value={p}>{p === "전체" ? "프로젝트 전체" : p}</option>
             ))}
           </select>
+         </div>
           {project !== "전체" && planItems.length === 0 && (
             <span style={{ fontSize: 11, color: "#F5A623", fontFamily: "'IBM Plex Mono', monospace" }}>
               이 프로젝트의 발주목록을 불러오면 지급가능 수량이 계산됩니다
@@ -11957,6 +11973,7 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
           {planItems.length > 0 && chip("목록외", `목록외 (${planSummary.outOfList})`, "#EF5350")}
           <input
             style={{ ...inputStyle, flex: 1, minWidth: 180, height: 38, padding: "4px 12px", fontSize: 13 }}
+                       className="si-search"
             placeholder="자재명, 코드, 규격 검색"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -12030,20 +12047,20 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
         </div>
       </Card>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginBottom: 14 }}>
+      <div className="si-stats" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginBottom: 14 }}>
         <StatCard label="총 불출 건수" value={stats.total} unit="건" icon={ArrowUpFromLine} color="#5EC8FF" />
         <StatCard label="정발주" value={stats.plan} unit="건" icon={Package} color="#F5A623" />
         <StatCard label="추가건" value={stats.extra} unit={`건 (${stats.ratio}%)`} icon={AlertTriangle} color={stats.ratio >= 30 ? "#EF5350" : "#38BDF8"} />
         <StatCard label="정리 확인" value={checkedCount} unit={`/ ${list.length}종`} icon={CheckCircle2} color="#35D08C" />
       </div>
 
-      <Card style={{ padding: 8 }}>
+      <Card className={!loading && list.length > 0 ? "si-table-card" : ""} style={{ padding: 8 }}>
         {loading ? (
           <div style={{ padding: 30, textAlign: "center", color: "#5E86A3", fontFamily: "IBM Plex Mono" }}>불러오는 중...</div>
         ) : list.length === 0 ? (
           <EmptyState icon={ScanLine} text="조건에 해당하는 자재가 없습니다. (필터가 '전체'인지 확인해보세요)" color="#5E86A3" />
         ) : (
-          <div style={{ maxHeight: "calc(100vh - 440px)", minHeight: 240, overflow: "auto" }}>
+          <div style={{ maxHeight: window.innerWidth <= 768 ? "none" : "calc(100vh - 440px)", minHeight: 240, overflow: "auto" }}>
             <table>
               <thead style={{ position: "sticky", top: 0, background: "#0F2233", zIndex: 1 }}>
                 <tr style={{ color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11.5 }}>
@@ -12175,6 +12192,149 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
           </div>
         )}
       </Card>
+      
+      {/* 모바일 전용: 자재별 카드 */}
+      {!loading && list.length > 0 && (
+        <div className="si-cards-view">
+          {list.map((m) => {
+            const isOpen = openCode === m.code;
+            const checked = !!adminMap[`check:${ship}:${m.code}`];
+            const heavy = m.total > 0 && m.extra / m.total >= 0.3;
+            const remain = remainOf(m);
+            const outOfList = planItems.length > 0 && !m.hasPlan;
+            const lastText = m.lastAt ? String(m.lastAt).replace("T", " ").slice(0, 16) : "불출 기록 없음";
+            const remainColor = remain === null ? "#3E5975" : remain === 0 ? "#35D08C" : remain < 0 ? "#EF5350" : "#A78BFA";
+            const remainText = remain === null
+              ? "-"
+              : remain === 0
+                ? "✓ 완료"
+                : remain < 0
+                  ? `초과 ${Math.abs(remain)} ${m.unit}`
+                  : `${remain} ${m.unit}`;
+
+            return (
+              <div
+                key={m.code}
+                style={{
+                  background: "var(--bg-card-grad)",
+                  border: `1px solid ${remain !== null && remain < 0 ? "#EF535066" : "#1F3B54"}`,
+                  borderRadius: 12, padding: 12, opacity: checked ? 0.6 : 1,
+                }}
+              >
+                {/* 머리: 확인 체크 + 자재명 */}
+                <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleCheck(m.code)}
+                    style={{ marginTop: 3, width: 18, height: 18, flexShrink: 0 }}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }} onClick={() => setOpenCode(isOpen ? null : m.code)}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8", lineHeight: 1.35, wordBreak: "break-word" }}>
+                      {m.name}
+                      {outOfList && (
+                        <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 6, color: "#EF5350", background: "#EF53501f", fontFamily: "IBM Plex Mono" }}>목록외</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-all" }}>
+                      {m.code}{m.spec ? ` · ${m.spec}` : ""}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 발주 / 추가건 / 정발주 */}
+                <div
+                  onClick={() => setOpenCode(isOpen ? null : m.code)}
+                  style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 10 }}
+                >
+                  {[
+                    { label: "발주", value: m.order === null ? "-" : `${m.order} ${m.unit}`, color: "#E7EEF5" },
+                    { label: "추가건", value: `${m.extra} ${m.unit}${heavy ? " ⚠" : ""}`, color: heavy ? "#EF5350" : "#38BDF8" },
+                    { label: "정발주", value: `${m.plan} ${m.unit}`, color: "#F5A623" },
+                  ].map((s) => (
+                    <div
+                      key={s.label}
+                      style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "6px 8px", textAlign: "center", minWidth: 0 }}
+                    >
+                      <div style={{ fontSize: 10, color: "#5E86A3" }}>{s.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: s.color, fontFamily: "IBM Plex Mono", wordBreak: "break-all" }}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 정발주 지급가능 */}
+                <div
+                  onClick={() => setOpenCode(isOpen ? null : m.code)}
+                  style={{ marginTop: 8, padding: "8px 10px", background: "#0B1C2C", border: `1px solid ${remainColor}55`, borderRadius: 8 }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: "#9FB4C7" }}>정발주 지급가능</span>
+                    <span style={{ fontSize: 17, fontWeight: 800, color: remainColor, fontFamily: "IBM Plex Mono" }}>{remainText}</span>
+                  </div>
+                  {remain !== null && (
+                    <div style={{ fontSize: 10, color: "#5E86A3", marginTop: 3, fontFamily: "IBM Plex Mono" }}>
+                      발주 {m.order} − 추가 {m.extra} − 정발주 {m.plan}
+                    </div>
+                  )}
+                </div>
+
+                {/* 마지막 불출 + 펼치기 */}
+                <button
+                  type="button"
+                  onClick={() => setOpenCode(isOpen ? null : m.code)}
+                  style={{
+                    width: "100%", marginTop: 8, padding: 0, background: "none", border: "none", cursor: "pointer",
+                    display: "flex", justifyContent: "space-between", color: "#7F97AC", fontSize: 11,
+                    fontFamily: "'IBM Plex Mono', monospace",
+                  }}
+                >
+                  <span>마지막 불출 {lastText}</span>
+                  <span>{isOpen ? "▲ 접기" : `▼ 상세 ${m.txs.length}건`}</span>
+                </button>
+
+                {/* 불출 상세 + 사유 입력 */}
+                {isOpen && (
+                  <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid #1A3146", paddingTop: 8 }}>
+                    {m.txs.length === 0 ? (
+                      <div style={{ fontSize: 12, color: "#5E86A3" }}>아직 불출 기록이 없습니다.</div>
+                    ) : (
+                      m.txs.map((t) => {
+                        const k = getIssueKind(t);
+                        const key = `note:${t.id}`;
+                        const value = Object.prototype.hasOwnProperty.call(noteDrafts, t.id)
+                          ? noteDrafts[t.id]
+                          : (adminMap[key] || "");
+                        return (
+                          <div key={t.id} style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "8px 10px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 11.5, fontWeight: 700, color: kindColor(k) }}>{k}</span>
+                              <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13 }}>{t.qty} {t.unit}</span>
+                            </div>
+                            <div style={{ fontSize: 10.5, color: "#7F97AC", marginTop: 3, lineHeight: 1.45 }}>
+                              {String(t.at).replace("T", " ").slice(0, 16)}{t.deleted ? " (보관)" : ""} · {t.project || "-"} · {t.worker || "-"}
+                            </div>
+                            {k !== "정발주" && (
+                              <input
+                                list="issue-reasons"
+                                style={{ ...inputStyle, height: 36, marginTop: 6, padding: "4px 10px", fontSize: 15 }}
+                                placeholder="사유 입력 (예: 파손, 설계변경)"
+                                value={value}
+                                onChange={(e) => setNoteDrafts((p) => ({ ...p, [t.id]: e.target.value }))}
+                                onBlur={() => commitNote(t.id)}
+                                onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

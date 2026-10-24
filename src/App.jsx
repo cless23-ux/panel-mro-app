@@ -3129,7 +3129,27 @@ function AppInner() {
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} reloadTxs={reloadTxs} />}
             {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
-            {tab === "shipIssue" && <ShipIssueAdminView loadCumulativeOutTxs={loadCumulativeOutTxs} notify={notify} shipOptions={outFormSettings?.ships || []} projectList={outFormSettings?.projects || []} />}
+            {tab === "shipIssue" && (
+  <ShipIssueAdminView
+    loadCumulativeOutTxs={loadCumulativeOutTxs}
+    notify={notify}
+    shipOptions={outFormSettings?.ships || []}
+    projectList={outFormSettings?.projects || []}
+    onOpenOut={(m) => {
+      const item = items.find(
+        (i) => String(i.code).trim() === String(m.code).trim()
+      );
+
+      if (!item) {
+        notify(`자재마스터에서 [${m.code}] 품목을 찾을 수 없습니다.`, "err");
+        return;
+      }
+
+      setPresetItem(item);
+      goToTab("out");
+    }}
+  />
+)}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
           </div>
         )}
@@ -11626,7 +11646,13 @@ function ShipSearchSelect({ value, onChange, options, width = 200 }) {
   );
 }
 
-function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], projectList = [] }) {
+function ShipIssueAdminView({
+  loadCumulativeOutTxs,
+  notify,
+  shipOptions = [],
+  projectList = [],
+  onOpenOut,
+}) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ship, setShip] = useState("");
@@ -12360,24 +12386,85 @@ function ShipIssueAdminView({ loadCumulativeOutTxs, notify, shipOptions = [], pr
               >
                 {/* 머리: 확인 체크 + 자재명 */}
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleCheck(m.code)}
-                    style={{ marginTop: 3, width: 18, height: 18, flexShrink: 0 }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }} onClick={() => setOpenCode(isOpen ? null : m.code)}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8", lineHeight: 1.35, wordBreak: "break-word" }}>
-                      {m.name}
-                      {outOfList && (
-                        <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 6, color: "#EF5350", background: "#EF53501f", fontFamily: "IBM Plex Mono" }}>목록외</span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-all" }}>
-                      {m.code}{m.spec ? ` · ${m.spec}` : ""}
-                    </div>
-                  </div>
-                </div>
+  <input
+    type="checkbox"
+    checked={checked}
+    onChange={() => toggleCheck(m.code)}
+    style={{ marginTop: 3, width: 18, height: 18, flexShrink: 0 }}
+  />
+
+  <div
+    style={{ flex: 1, minWidth: 0 }}
+    onClick={() => setOpenCode(isOpen ? null : m.code)}
+  >
+    <div
+      style={{
+        fontWeight: 700,
+        fontSize: 14,
+        color: "#38BDF8",
+        lineHeight: 1.35,
+        wordBreak: "break-word",
+      }}
+    >
+      {m.name}
+
+      {outOfList && (
+        <span
+          style={{
+            marginLeft: 6,
+            fontSize: 10,
+            padding: "1px 6px",
+            borderRadius: 6,
+            color: "#EF5350",
+            background: "#EF53501f",
+            fontFamily: "IBM Plex Mono",
+          }}
+        >
+          목록외
+        </span>
+      )}
+    </div>
+
+    <div
+      style={{
+        fontSize: 10.5,
+        color: "#7F97AC",
+        fontFamily: "IBM Plex Mono",
+        marginTop: 2,
+        wordBreak: "break-all",
+      }}
+    >
+      {m.code}{m.spec ? ` · ${m.spec}` : ""}
+    </div>
+  </div>
+
+  {/* 불출정보 바로가기 */}
+<button
+  type="button"
+  title="불출정보 입력"
+  aria-label="불출정보 입력"
+  onClick={(e) => {
+    e.stopPropagation();
+    if (onOpenOut) onOpenOut(m);
+  }}
+  style={{
+    flexShrink: 0,
+    width: 34,
+    height: 34,
+    padding: 0,
+    borderRadius: 9,
+    border: "1px solid #F5A62388",
+    background: "#F5A62318",
+    color: "#F5A623",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  }}
+>
+  <ArrowUpFromLine size={17} />
+</button>
+</div>
 
                 {/* 발주 / 추가건 / 정발주 */}
                 <div

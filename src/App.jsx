@@ -2960,6 +2960,7 @@ function AppInner() {
             {tab === "shipIssue" && (
   <ShipIssueAdminView
     loadCumulativeOutTxs={loadCumulativeOutTxs}
+    items={items}
     notify={notify}
     shipOptions={outFormSettings?.ships || []}
     projectList={outFormSettings?.projects || []}
@@ -11476,6 +11477,7 @@ function ShipSearchSelect({ value, onChange, options, width = 200 }) {
 
 function ShipIssueAdminView({
   loadCumulativeOutTxs,
+  items = [],
   notify,
   shipOptions = [],
   projectList = [],
@@ -11731,7 +11733,9 @@ function ShipIssueAdminView({
         )) return;
 
         saveAdmin(planKey, JSON.stringify({ items: itemsArr, at: nowStr(), file: file.name }));
-        notify(`[${planLabel}] 발주목록 ${itemsArr.length}종을 불러왔습니다.`, "ok");
+        notify(
+          `[${planLabel}] 발주목록 ${itemsArr.length}종을 불러왔습니다.`, "ok"
+        );
       } catch (err) {
         console.error("발주목록 불러오기 오류:", err);
         notify("엑셀 파일을 처리하는 중 오류가 발생했습니다.", "err");
@@ -11749,6 +11753,11 @@ function ShipIssueAdminView({
   };
 
   /* ---------- 자재별 집계 (발주목록 + 불출 기록 합치기) ---------- */
+    const masterCodeSet = useMemo(
+    () => new Set((items || []).map((i) => String(i.code || "").trim().toUpperCase())),
+    [items]
+  );
+  const isUnregistered = (code) => !masterCodeSet.has(String(code || "").trim().toUpperCase());
   const allRows = useMemo(() => {
     const normCode = (c) => String(c || "").trim().toUpperCase();
     const map = {};
@@ -11792,10 +11801,11 @@ function ShipIssueAdminView({
     }));
   }, [planItems, shipTxs, project]);
 
-  const planSummary = useMemo(() => ({
+    const planSummary = useMemo(() => ({
     notIssued: allRows.filter((m) => m.hasPlan && m.total === 0).length,
     outOfList: planItems.length > 0 ? allRows.filter((m) => !m.hasPlan).length : 0,
-  }), [allRows, planItems.length]);
+    unregistered: allRows.filter((m) => isUnregistered(m.code)).length,
+  }), [allRows, planItems.length, masterCodeSet]);
 
   const list = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -11811,10 +11821,11 @@ function ShipIssueAdminView({
         if (kindFilter === "미구분") return m.etc > 0;
         if (kindFilter === "미불출") return m.hasPlan && m.total === 0;
         if (kindFilter === "목록외") return planItems.length > 0 && !m.hasPlan;
+        if (kindFilter === "미등록") return isUnregistered(m.code);
         return true;
       })
       .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
-  }, [allRows, search, kindFilter, planItems.length]);
+  }, [allRows, search, kindFilter, planItems.length, masterCodeSet]);
 
   const stats = useMemo(() => {
     let plan = 0, extra = 0;
@@ -11960,6 +11971,7 @@ function ShipIssueAdminView({
           {chip("추가건", "추가건", "#38BDF8")}          
           {planItems.length > 0 && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
           {planItems.length > 0 && chip("목록외", `목록외 (${planSummary.outOfList})`, "#EF5350")}
+          {planSummary.unregistered > 0 && chip("미등록", `미등록 (${planSummary.unregistered})`, "#F472B6")}
           <input
             style={{ ...inputStyle, flex: 1, minWidth: 180, height: 38, padding: "4px 12px", fontSize: 13 }}
                        className="si-search"
@@ -12085,6 +12097,9 @@ function ShipIssueAdminView({
                         <td>
                           <div style={{ fontWeight: 600, color: "#38BDF8" }}>
                             {isOpen ? "▾ " : "▸ "}{m.name}
+                            {isUnregistered(m.code) && (
+  <span style={{ marginLeft: 8, fontSize: 10, padding: "1px 6px", borderRadius: 6, color: "#F472B6", background: "#F472B61f", fontFamily: "IBM Plex Mono" }}>미등록</span>
+)}
                             {outOfList && (
                               <span style={{ marginLeft: 8, fontSize: 10, padding: "1px 6px", borderRadius: 6, color: "#EF5350", background: "#EF53501f", fontFamily: "IBM Plex Mono" }}>목록외</span>
                             )}
@@ -12235,7 +12250,9 @@ function ShipIssueAdminView({
       }}
     >
       {m.name}
-
+{isUnregistered(m.code) && (
+  <span style={{ marginLeft: 8, fontSize: 10, padding: "1px 6px", borderRadius: 6, color: "#F472B6", background: "#F472B61f", fontFamily: "IBM Plex Mono" }}>미등록</span>
+)}
       {outOfList && (
         <span
           style={{

@@ -1402,304 +1402,131 @@ function Toast({ toast }) {
 ----------------------------------------------------------------------- */
 const PERSONAL_MEMO_KEY = "panel:personalMemos";
 
-function ChatMemoView({ onClose, unreadCount = 0, onClearUnread }) {
-  const CHAT_NAME_KEY = "panel:chatDisplayName";
-  const [messages, setMessages] = useState([]);
-  const [draft, setDraft] = useState("");
-  const [senderName, setSenderName] = useState(() => {
+function ChatMemoView({ onClose }) {
+  const [memos, setMemos] = useState(() => {
     try {
-      return localStorage.getItem(CHAT_NAME_KEY) || "사용자";
+      const raw = localStorage.getItem(PERSONAL_MEMO_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
-      return "사용자";
+      return [];
     }
   });
-  const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-  const [online, setOnline] = useState(false);
-  const messagesEndRef = useRef(null);
+  const [activeId, setActiveId] = useState(null);
+  const [search, setSearch] = useState("");
 
-  const scrollToBottom = useCallback(() => {
-    requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    });
-  }, []);
-
-  const normalizeMessage = useCallback((row) => ({
-    id: row.id,
-    senderName: row.sender_name || "사용자",
-    message: row.message || "",
-    createdAt: row.created_at || new Date().toISOString(),
-  }), []);
-
-  useEffect(() => {
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
-
-    let mounted = true;
-    const loadMessages = async () => {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("chat_messages")
-        .select("id, sender_name, message, created_at")
-        .order("created_at", { ascending: true })
-        .limit(100);
-
-      if (!mounted) return;
-      if (error) {
-        console.error("실시간 대화 불러오기 실패:", error);
-        setMessages([]);
-      } else {
-        setMessages((data || []).map(normalizeMessage));
-      }
-      setLoading(false);
-      scrollToBottom();
-    };
-
-    loadMessages();
-
-    const channel = supabase
-      .channel("panel-chat-messages")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "chat_messages" },
-        (payload) => {
-          if (!mounted) return;
-          const next = normalizeMessage(payload.new);
-          setMessages((prev) => {
-            if (prev.some((m) => String(m.id) === String(next.id))) return prev;
-            return [...prev, next].slice(-100);
-          });
-          scrollToBottom();
-        }
-      )
-      .subscribe((status) => {
-        if (!mounted) return;
-        setOnline(status === "SUBSCRIBED");
-      });
-
-    return () => {
-      mounted = false;
-      supabase.removeChannel(channel);
-    };
-  }, [normalizeMessage, scrollToBottom]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(CHAT_NAME_KEY, senderName.trim() || "사용자");
-    } catch {}
-  }, [senderName]);
-
-  const sendMessage = async () => {
-    const message = draft.trim();
-    const name = senderName.trim() || "사용자";
-    if (!message || sending) return;
-
-    if (!supabase) {
-      alert("Supabase 연결이 없어 실시간 대화를 사용할 수 없습니다.");
-      return;
-    }
-
-    setSending(true);
-    const { data, error } = await supabase
-      .from("chat_messages")
-      .insert({
-        sender_name: name,
-        message,
-      })
-      .select("id, sender_name, message, created_at")
-      .single();
-
-    if (error) {
-      console.error("메시지 전송 실패:", error);
-      alert("메시지 전송에 실패했습니다. Supabase의 chat_messages 설정을 확인해주세요.");
-    } else if (data) {
-      setMessages((prev) => {
-        if (prev.some((m) => String(m.id) === String(data.id))) return prev;
-        return [...prev, normalizeMessage(data)].slice(-100);
-      });
-      setDraft("");
-      scrollToBottom();
-    }
-    setSending(false);
+  const persist = (next) => {
+    setMemos(next);
+    try { localStorage.setItem(PERSONAL_MEMO_KEY, JSON.stringify(next)); } catch {}
   };
 
+  const addMemo = () => {
+    const m = { id: uid("MEMO"), title: "", body: "", updatedAt: new Date().toISOString() };
+    persist([m, ...memos]);
+    setActiveId(m.id);
+  };
+
+  const updateMemo = (id, patch) => {
+    persist(memos.map((m) => (m.id === id ? { ...m, ...patch, updatedAt: new Date().toISOString() } : m)));
+  };
+
+  const deleteMemo = (id) => {
+    if (!window.confirm("이 메모를 삭제할까요?")) return;
+    persist(memos.filter((m) => m.id !== id));
+    setActiveId(null);
+  };
+
+  const active = memos.find((m) => m.id === activeId) || null;
+
+  const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return [...memos]
+      .filter((m) => !q || String(m.title).toLowerCase().includes(q) || String(m.body).toLowerCase().includes(q))
+      .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  }, [memos, search]);
+
   return (
-    <div className="chat-view" style={{ width: "100%", maxWidth: 900, margin: "0 auto" }}>
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 10,
-        marginBottom: 14,
-      }}>
+    <div style={{ width: "100%", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
           <MessageCircle size={21} color="#22D3EE" />
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ fontSize: 17, fontWeight: 800, color: "#E7EEF5" }}>
-                실시간 대화
-              </div>
-              {unreadCount > 0 && (
-                <button
-                  type="button"
-                  onClick={onClearUnread}
-                  style={{
-                    border: "none",
-                    background: "#EF4444",
-                    color: "#FFFFFF",
-                    borderRadius: 999,
-                    padding: "3px 8px",
-                    fontSize: 10.5,
-                    fontWeight: 900,
-                    cursor: "pointer",
-                    lineHeight: 1.2,
-                  }}
-                >
-                  새 글 {unreadCount > 99 ? "99+" : unreadCount}
-                </button>
-              )}
-            </div>
-            <div style={{ fontSize: 11, color: online ? "#35D08C" : "#F5A623", marginTop: 2 }}>
-              {online ? "● 실시간 연결됨" : "● 연결 중..."}
-            </div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#E7EEF5" }}>개인 메모</div>
+            <div style={{ fontSize: 11, color: "#7F97AC", marginTop: 2 }}>이 기기에만 저장됩니다</div>
           </div>
         </div>
-
-        <Btn
-          variant="ghost"
-          onClick={onClose}
-          style={{ padding: "7px 11px", fontSize: 11.5 }}
-        >
-          닫기
-        </Btn>
+        <Btn variant="ghost" onClick={onClose} style={{ padding: "7px 11px", fontSize: 11.5 }}>닫기</Btn>
       </div>
 
-      <Card style={{ padding: 12, marginBottom: 12 }}>
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 9,
-          flexWrap: "wrap",
-        }}>
-          <span style={{ color: "#7F97AC", fontSize: 11.5, whiteSpace: "nowrap" }}>내 이름</span>
+      {active ? (
+        <Card style={{ padding: 14 }}>
           <input
-            value={senderName}
-            onChange={(e) => setSenderName(e.target.value)}
-            maxLength={30}
-            placeholder="사용자"
-            style={{
-              ...inputStyle,
-              flex: "1 1 180px",
-              minWidth: 140,
-              height: 38,
-              fontSize: 13,
-            }}
+            style={{ ...inputStyle, fontWeight: 700, fontSize: 15, marginBottom: 10 }}
+            placeholder="제목"
+            value={active.title}
+            onChange={(e) => updateMemo(active.id, { title: e.target.value })}
           />
-          <span style={{ color: "#5E86A3", fontSize: 10.5 }}>
-            이름은 이 기기에 저장됩니다.
-          </span>
-        </div>
-      </Card>
-
-      <Card style={{ padding: 12 }}>
-        <div className="chat-messages" style={{
-          height: "min(55vh, 560px)",
-          minHeight: 300,
-          overflowY: "auto",
-          padding: "4px 3px 8px",
-          display: "flex",
-          flexDirection: "column",
-          gap: 9,
-        }}>
-          {loading ? (
-            <div style={{ textAlign: "center", color: "#5E86A3", padding: 40, fontSize: 12 }}>
-              대화 내용을 불러오는 중...
-            </div>
-          ) : messages.length === 0 ? (
-            <div style={{ textAlign: "center", color: "#5E86A3", padding: 50, fontSize: 12 }}>
-              아직 대화 내용이 없습니다.<br />첫 메시지를 남겨보세요.
-            </div>
-          ) : (
-            messages.map((item) => {
-              const mine = (item.senderName || "") === (senderName.trim() || "사용자");
-              return (
-                <div
-                  key={String(item.id)}
-                  style={{
-                    display: "flex",
-                    justifyContent: mine ? "flex-end" : "flex-start",
-                  }}
-                >
-                  <div style={{ maxWidth: "82%" }}>
-                    <div style={{
-                      fontSize: 10.5,
-                      color: "#7F97AC",
-                      marginBottom: 4,
-                      textAlign: mine ? "right" : "left",
-                    }}>
-                      {item.senderName} · {timeAgoStr(item.createdAt) || "방금 전"}
-                    </div>
-                    <div style={{
-                      padding: "9px 12px",
-                      borderRadius: mine ? "12px 12px 3px 12px" : "12px 12px 12px 3px",
-                      background: mine ? "#22D3EE18" : "#152C42",
-                      border: `1px solid ${mine ? "#22D3EE55" : "#274460"}`,
-                      color: "#E7EEF5",
-                      fontSize: 13,
-                      lineHeight: 1.55,
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                    }}>
-                      {item.message}
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        <div className="chat-composer" style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "flex-end",
-          marginTop: 10,
-          paddingTop: 10,
-          borderTop: "1px solid #1F3B54",
-        }}>
           <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-              }
-            }}
-            placeholder="메시지를 입력하세요... (Enter 전송 / Shift+Enter 줄바꿈)"
-            rows={2}
-            style={{
-              ...inputStyle,
-              flex: 1,
-              resize: "none",
-              minHeight: 52,
-              lineHeight: 1.5,
-              fontFamily: "Inter, sans-serif",
-              fontSize: 13,
-            }}
+            style={{ ...inputStyle, minHeight: 320, resize: "vertical", lineHeight: 1.6, fontFamily: "Inter, sans-serif", fontSize: 15 }}
+            placeholder="메모를 입력하세요 (자동 저장)"
+            value={active.body}
+            onChange={(e) => updateMemo(active.id, { body: e.target.value })}
+            autoFocus
           />
-          <Btn
-            onClick={sendMessage}
-            disabled={!draft.trim() || sending || !online}
-            style={{ minHeight: 52, padding: "0 16px", fontSize: 12.5 }}
-          >
-            {sending ? "전송중..." : "전송"}
-          </Btn>
-        </div>
-      </Card>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 12 }}>
+            <Btn variant="ghost" onClick={() => setActiveId(null)} style={{ padding: "9px 14px", fontSize: 12.5 }}>← 목록</Btn>
+            <span style={{ fontSize: 10.5, color: "#5E86A3" }}>{timeAgoStr(active.updatedAt)} 저장됨</span>
+            <Btn variant="danger" onClick={() => deleteMemo(active.id)} style={{ padding: "9px 14px", fontSize: 12.5 }}>
+              <Trash2 size={14} />삭제
+            </Btn>
+          </div>
+        </Card>
+      ) : (
+        <>
+          <Card style={{ padding: 12, marginBottom: 12 }}>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ position: "relative", flex: 1 }}>
+                <Search size={14} color="#5E86A3" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+                <input
+                  style={{ ...inputStyle, paddingLeft: 34, height: 42 }}
+                  placeholder="메모 검색"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <Btn onClick={addMemo} style={{ padding: "0 16px", whiteSpace: "nowrap" }}>
+                <Plus size={16} />새 메모
+              </Btn>
+            </div>
+          </Card>
+
+          {list.length === 0 ? (
+            <Card style={{ padding: 20 }}>
+              <EmptyState
+                icon={MessageCircle}
+                text={search.trim() ? "검색 결과가 없습니다." : "메모가 없습니다. '새 메모'를 눌러 작성해보세요."}
+                color="#5E86A3"
+              />
+            </Card>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {list.map((m) => (
+                <Card key={m.id} onClick={() => setActiveId(m.id)} style={{ padding: "12px 14px", cursor: "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {m.title || "(제목 없음)"}
+                    </div>
+                    <span style={{ fontSize: 10.5, color: "#5E86A3", flexShrink: 0 }}>{timeAgoStr(m.updatedAt)}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#9FB4C7", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {m.body ? m.body.replace(/\s+/g, " ") : "내용 없음"}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -2008,7 +1835,7 @@ const NAV = [
   { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
   { id: "stale", label: "장기미사용자재", icon: Clock, pcOnly: true },
   { id: "shipIssue", label: "호선 불출관리", icon: Anchor, pcOnly: true },
-  { id: "chat", label: "실시간 대화", icon: MessageCircle },
+  { id: "chat", label: "개인 메모", icon: MessageCircle },
 ];
 
 /* 탭(메뉴창)별 네온 포인트 컬러 - 테두리/그로우에 사용 */
@@ -2183,7 +2010,8 @@ function AppInner() {
   /* 실시간 대화 새 글 알림: 대화창 밖에서도 수신하고, 채팅 아이콘에 빨간 배지를 표시합니다. */
   useEffect(() => {
     if (!supabase) return;
-
+    
+ return; // 메모장으로 변경: 채팅 알림 사용 안 함
     const LAST_SEEN_KEY = "panel:chatLastSeenAt";
     const CHAT_NAME_KEY = "panel:chatDisplayName";
     let mounted = true;
@@ -3053,7 +2881,7 @@ function AppInner() {
         </div>
         <button
           onClick={() => goToTab("chat")}
-          title="실시간 대화 / 개인 메모"
+          title="개인 메모"
           style={{
             background: tab === "chat"
               ? "linear-gradient(135deg, #22D3EE33, #8B5CF633)"
@@ -3098,7 +2926,7 @@ function AppInner() {
               >{chatUnreadCount > 99 ? "99+" : chatUnreadCount}</span>
             )}
           </span>
-          대화
+          메모
         </button>
       </header>
 

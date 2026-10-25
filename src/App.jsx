@@ -11492,6 +11492,7 @@ function ShipIssueAdminView({
   const [openCode, setOpenCode] = useState(null);
   const [adminMap, setAdminMap] = useState({});
   const [noteDrafts, setNoteDrafts] = useState({});
+  const [recvDrafts, setRecvDrafts] = useState({});
   const planFileRef = useRef(null);
 
   // 폴링으로 함수 주소가 계속 바뀌어도 반복 조회되지 않도록 ref 사용
@@ -11801,15 +11802,44 @@ function ShipIssueAdminView({
     }));
   }, [planItems, shipTxs, project]);
 
-    const planSummary = useMemo(() => ({
-    notIssued: allRows.filter((m) => m.hasPlan && m.total === 0).length,
-    outOfList: planItems.length > 0 ? allRows.filter((m) => !m.hasPlan).length : 0,
-    unregistered: allRows.filter((m) => isUnregistered(m.code)).length,
-  }), [allRows, planItems.length, masterCodeSet]);
+  // 자재마스터에 등록된 자재만 (전체/정발주/추가건 목록에 사용)
+  const registeredRows = useMemo(
+    () => allRows.filter((m) => !isUnregistered(m.code)),
+    [allRows, masterCodeSet]
+  );
 
-  const list = useMemo(() => {
+  // 미등록 자재만 (아래 별도 칸에 사용)
+  const unregisteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return allRows
+      .filter((m) => isUnregistered(m.code))
+      .filter((m) => !q || [m.name, m.code, m.spec].some((v) => String(v || "").toLowerCase().includes(q)))
+      .sort((a, b) => String(a.code).localeCompare(String(b.code)));
+  }, [allRows, search, masterCodeSet]);
+
+  const planSummary = useMemo(() => ({
+    notIssued: registeredRows.filter((m) => m.hasPlan && m.total === 0).length,
+    outOfList: planItems.length > 0 ? registeredRows.filter((m) => !m.hasPlan).length : 0,
+  }), [registeredRows, planItems.length]);
+
+  // 입고수량 수기 저장 (호선 + 프로젝트별로 따로 저장)
+  const recvKeyOf = (code) => `recv:${ship}${project === "전체" ? "" : `::${project}`}:${code}`;
+  const commitRecv = (code) => {
+    if (!Object.prototype.hasOwnProperty.call(recvDrafts, code)) return;
+    const raw = String(recvDrafts[code]).trim();
+    if (raw !== "" && (Number.isNaN(Number(raw)) || Number(raw) < 0)) {
+      notify("입고수량은 0 이상의 숫자로 입력해주세요.", "err");
+      return;
+    }
+    const key = recvKeyOf(code);
+    const next = raw === "" ? "" : String(Number(raw));
+    setRecvDrafts((p) => { const n = { ...p }; delete n[code]; return n; });
+    if (next !== (adminMap[key] || "")) saveAdmin(key, next);
+  };
+
+   const list = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return registeredRows
       .filter((m) => {
         if (q && !(
           String(m.name).toLowerCase().includes(q) ||
@@ -11821,22 +11851,21 @@ function ShipIssueAdminView({
         if (kindFilter === "미구분") return m.etc > 0;
         if (kindFilter === "미불출") return m.hasPlan && m.total === 0;
         if (kindFilter === "목록외") return planItems.length > 0 && !m.hasPlan;
-        if (kindFilter === "미등록") return isUnregistered(m.code);
         return true;
       })
       .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
-  }, [allRows, search, kindFilter, planItems.length, masterCodeSet]);
-
+  }, [registeredRows, search, kindFilter, planItems.length]);
   const stats = useMemo(() => {
     let plan = 0, extra = 0;
     shipTxs.forEach((t) => {
+      if (isUnregistered(t.itemCode)) return;
       const k = getIssueKind(t);
       if (k === "정발주") plan += 1;
       else if (k === "추가건") extra += 1;
     });
     const total = shipTxs.length;
     return { total, plan, extra, ratio: total ? Math.round((extra / total) * 100) : 0 };
-  }, [shipTxs]);
+  }, [shipTxs, masterCodeSet]);
 
   const checkedCount = useMemo(
     () => list.filter((m) => adminMap[`check:${ship}:${m.code}`]).length,
@@ -11971,7 +12000,7 @@ function ShipIssueAdminView({
           {chip("추가건", "추가건", "#38BDF8")}          
           {planItems.length > 0 && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
           {planItems.length > 0 && chip("목록외", `목록외 (${planSummary.outOfList})`, "#EF5350")}
-          {planSummary.unregistered > 0 && chip("미등록", `미등록 (${planSummary.unregistered})`, "#F472B6")}
+
           <input
             style={{ ...inputStyle, flex: 1, minWidth: 180, height: 38, padding: "4px 12px", fontSize: 13 }}
                        className="si-search"
@@ -12403,6 +12432,88 @@ function ShipIssueAdminView({
             );
           })}
         </div>
+      )}
+      
+      {/* 미등록 자재: 전체 목록과 분리해서 별도 관리 */}
+      {!loading && unregisteredRows.length > 0 && (
+        <Card neon="#F472B6" style={{ padding: 14, marginTop: 14 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "#F472B6", marginBottom: 4 }}>
+            미등록 자재 별도 관리 ({unregisteredRows.length}종)
+          </div>
+          <div style={{ fontSize: 11.5, color: "#7F97AC", marginBottom: 12, lineHeight: 1.5 }}>
+            자재마스터에 없는 코드입니다. 입고수량을 직접 적어두면 불출 기록과 비교해 남은 수량을 계산합니다.
+            (선택한 호선/프로젝트별로 따로 저장됩니다)
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {unregisteredRows.map((m) => {
+              const saved = adminMap[recvKeyOf(m.code)];
+              const hasRecv = saved !== undefined && saved !== "";
+              const left = hasRecv ? Number(saved) - m.total : null;
+              const leftColor = left === null ? "#3E5975" : left < 0 ? "#EF5350" : left === 0 ? "#35D08C" : "#A78BFA";
+              const inputValue = Object.prototype.hasOwnProperty.call(recvDrafts, m.code)
+                ? recvDrafts[m.code]
+                : (hasRecv ? saved : "");
+
+              return (
+                <div
+                  key={m.code}
+                  style={{ background: "#0B1C2C", border: "1px solid #F472B655", borderRadius: 10, padding: "10px 12px" }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: "#38BDF8", wordBreak: "break-word" }}>
+                        {m.name}
+                        <span style={{ marginLeft: 8, fontSize: 10, padding: "1px 6px", borderRadius: 6, color: "#F472B6", background: "#F472B61f", fontFamily: "IBM Plex Mono" }}>미등록</span>
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-all" }}>
+                        {m.code}{m.spec ? ` · ${m.spec}` : ""}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                      <div style={{ textAlign: "center", minWidth: 56 }}>
+                        <div style={{ fontSize: 10, color: "#5E86A3" }}>발주</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "IBM Plex Mono", color: "#E7EEF5" }}>
+                          {m.order === null ? "-" : `${m.order}`}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "center", minWidth: 56 }}>
+                        <div style={{ fontSize: 10, color: "#5E86A3" }}>불출 합계</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, fontFamily: "IBM Plex Mono", color: "#F5A623" }}>
+                          {m.total}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: "#F472B6", fontWeight: 700 }}>입고수량 (직접 입력)</div>
+                        <input
+                          type="number"
+                          min="0"
+                          inputMode="decimal"
+                          placeholder="입고 수량"
+                          value={inputValue}
+                          onChange={(e) => setRecvDrafts((p) => ({ ...p, [m.code]: e.target.value }))}
+                          onBlur={() => commitRecv(m.code)}
+                          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                          style={{ ...inputStyle, width: 104, height: 34, padding: "4px 8px", fontSize: 14, textAlign: "center", borderColor: "#F472B666" }}
+                        />
+                      </div>
+                      <div style={{ textAlign: "center", minWidth: 70 }}>
+                        <div style={{ fontSize: 10, color: "#5E86A3" }}>남은 수량</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: "IBM Plex Mono", color: leftColor }}>
+                          {left === null ? "-" : left < 0 ? `초과 ${Math.abs(left)}` : left}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 10, color: "#5E86A3", marginTop: 6, fontFamily: "IBM Plex Mono" }}>
+                    정발주 {m.plan} · 추가건 {m.extra}{m.lastAt ? ` · 마지막 불출 ${String(m.lastAt).slice(0, 16)}` : ""}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
       )}
     </div>
   );

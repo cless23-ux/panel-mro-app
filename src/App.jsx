@@ -11820,7 +11820,13 @@ function ShipIssueAdminView({
   const planSummary = useMemo(() => ({
     notIssued: registeredRows.filter((m) => m.hasPlan && m.total === 0).length,
     outOfList: planItems.length > 0 ? registeredRows.filter((m) => !m.hasPlan).length : 0,
-  }), [registeredRows, planItems.length]);
+    unregistered: allRows.filter((m) => isUnregistered(m.code)).length,
+  }), [registeredRows, allRows, planItems.length, masterCodeSet]);
+
+  // 미등록 자재가 하나도 없으면 '미등록' 필터를 자동으로 '전체'로 되돌립니다
+  useEffect(() => {
+    if (kindFilter === "미등록" && planSummary.unregistered === 0) setKindFilter("all");
+  }, [kindFilter, planSummary.unregistered]);
 
   // 입고수량 수기 저장 (호선 + 프로젝트별로 따로 저장)
   const recvKeyOf = (code) => `recv:${ship}${project === "전체" ? "" : `::${project}`}:${code}`;
@@ -12000,6 +12006,7 @@ function ShipIssueAdminView({
           {chip("추가건", "추가건", "#38BDF8")}          
           {planItems.length > 0 && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
           {planItems.length > 0 && chip("목록외", `목록외 (${planSummary.outOfList})`, "#EF5350")}
+          {planSummary.unregistered > 0 && chip("미등록", `미등록 (${planSummary.unregistered})`, "#F472B6")}
 
           <input
             style={{ ...inputStyle, flex: 1, minWidth: 180, height: 38, padding: "4px 12px", fontSize: 13 }}
@@ -12086,7 +12093,7 @@ function ShipIssueAdminView({
         <StatCard label="정리 확인" value={checkedCount} unit={`/ ${list.length}종`} icon={CheckCircle2} color="#35D08C" />
       </div>
 
-      <Card className={!loading && list.length > 0 ? "si-table-card" : ""} style={{ padding: 8 }}>
+      <Card className={!loading && list.length > 0 ? "si-table-card" : ""} style={{ padding: 8, display: kindFilter === "미등록" ? "none" : undefined }}>
         {loading ? (
           <div style={{ padding: 30, textAlign: "center", color: "#5E86A3", fontFamily: "IBM Plex Mono" }}>불러오는 중...</div>
         ) : list.length === 0 ? (
@@ -12230,7 +12237,7 @@ function ShipIssueAdminView({
       
       {/* 모바일 전용: 자재별 카드 */}
       {!loading && list.length > 0 && (
-        <div className="si-cards-view">
+        <div className="si-cards-view" style={kindFilter === "미등록" ? { display: "none" } : undefined}>
           {list.map((m) => {
             const isOpen = openCode === m.code;
             const checked = !!adminMap[`check:${ship}:${m.code}`];

@@ -12929,11 +12929,15 @@ function OptionListEditor({ title, description, category, options, saveCategory,
   const [saving, setSaving] = useState(false);
   const [expanded, setExpanded] = useState(!collapsible);
 
+  // 목록 순서 변경용
+  const [dragIndex, setDragIndex] = useState(null);
+
   const addMultiple = async (rawText) => {
     const parts = rawText
       .split(/[\n\r,\t]+/)
       .map((s) => s.trim())
       .filter(Boolean);
+
     if (parts.length === 0) return;
 
     const uniqueParts = Array.from(new Set(parts));
@@ -12953,7 +12957,12 @@ function OptionListEditor({ title, description, category, options, saveCategory,
     if (newOnes.length === 1) {
       notify(`[${newOnes[0]}] 항목이 추가되었습니다.`, "ok");
     } else {
-      notify(`${newOnes.length}개 항목이 추가되었습니다.${skipped > 0 ? ` (중복 ${skipped}개 제외)` : ""}`, "ok");
+      notify(
+        `${newOnes.length}개 항목이 추가되었습니다.${
+          skipped > 0 ? ` (중복 ${skipped}개 제외)` : ""
+        }`,
+        "ok"
+      );
     }
   };
 
@@ -12961,6 +12970,7 @@ function OptionListEditor({ title, description, category, options, saveCategory,
 
   const handlePaste = (e) => {
     const text = e.clipboardData.getData("text");
+
     if (/[\n\r,\t]/.test(text)) {
       e.preventDefault();
       addMultiple(text);
@@ -12969,10 +12979,55 @@ function OptionListEditor({ title, description, category, options, saveCategory,
 
   const removeOption = async (val) => {
     if (!window.confirm(`[${val}] 항목을 목록에서 삭제하시겠습니까?`)) return;
+
     setSaving(true);
     await saveCategory(category, options.filter((o) => o !== val));
     setSaving(false);
+
     notify(`[${val}] 항목이 삭제되었습니다.`, "info");
+  };
+
+  // -------------------------------
+  // 목록 드래그 순서 변경
+  // -------------------------------
+  const handleDragStart = (index) => {
+    if (saving) return;
+    setDragIndex(index);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = async (dropIndex) => {
+    if (dragIndex === null || dragIndex === dropIndex || saving) {
+      setDragIndex(null);
+      return;
+    }
+
+    const next = [...options];
+    const [movedItem] = next.splice(dragIndex, 1);
+    next.splice(dropIndex, 0, movedItem);
+
+    setDragIndex(null);
+
+    setSaving(true);
+
+    try {
+      // 변경된 순서를 그대로 저장
+      await saveCategory(category, next);
+
+      notify(`[${movedItem}] 목록 순서가 변경되었습니다.`, "ok");
+    } catch (err) {
+      console.error("목록 순서 저장 오류:", err);
+      notify("목록 순서 저장에 실패했습니다.", "err");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
   };
 
   return (
@@ -12982,21 +13037,49 @@ function OptionListEditor({ title, description, category, options, saveCategory,
           type="button"
           onClick={() => setExpanded((s) => !s)}
           style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
-            background: "none", border: "none", padding: 0, cursor: "pointer", marginBottom: 12,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            width: "100%",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            marginBottom: 12,
           }}
         >
           <SectionLabel>{title} ({options.length}개)</SectionLabel>
-          <span style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", flexShrink: 0, marginLeft: 8 }}>
+
+          <span
+            style={{
+              fontSize: 11,
+              color: "#5E86A3",
+              fontFamily: "'IBM Plex Mono', monospace",
+              flexShrink: 0,
+              marginLeft: 8,
+            }}
+          >
             {expanded ? "▲ 접기" : "▼ 펼치기"}
           </span>
         </button>
       ) : (
         <SectionLabel>{title}</SectionLabel>
       )}
+
       {description && (
-        <div style={{ fontSize: 12, color: "#7F97AC", marginTop: -6, marginBottom: 14, fontFamily: "IBM Plex Mono" }}>{description}</div>
+        <div
+          style={{
+            fontSize: 12,
+            color: "#7F97AC",
+            marginTop: -6,
+            marginBottom: 14,
+            fontFamily: "IBM Plex Mono",
+          }}
+        >
+          {description}
+        </div>
       )}
+
       <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
         <input
           style={{ ...inputStyle, flex: 1 }}
@@ -13006,27 +13089,140 @@ function OptionListEditor({ title, description, category, options, saveCategory,
           onPaste={handlePaste}
           placeholder={placeholder}
         />
-        <Btn onClick={addOption} variant="subtle" disabled={saving}><Plus size={16} />추가</Btn>
+
+        <Btn
+          onClick={addOption}
+          variant="subtle"
+          disabled={saving}
+        >
+          <Plus size={16} />
+          추가
+        </Btn>
       </div>
-      <div style={{ fontSize: 11, color: "#5E86A3", marginBottom: 14, fontFamily: "IBM Plex Mono" }}>
+
+      <div
+        style={{
+          fontSize: 11,
+          color: "#5E86A3",
+          marginBottom: 10,
+          fontFamily: "IBM Plex Mono",
+        }}
+      >
         여러 개를 한 번에 추가하려면 줄바꿈 또는 쉼표(,)로 구분된 목록을 이 칸에 붙여넣으세요.
       </div>
+
+      {/* 순서 변경 안내 */}
+      {(!collapsible || expanded) && options.length > 1 && (
+        <div
+          style={{
+            fontSize: 11,
+            color: "#38BDF8",
+            background: "#38BDF80D",
+            border: "1px solid #38BDF822",
+            borderRadius: 7,
+            padding: "8px 10px",
+            marginBottom: 12,
+            fontFamily: "IBM Plex Mono",
+          }}
+        >
+          ↕ 목록을 마우스로 드래그해서 원하는 순서로 이동할 수 있습니다.
+        </div>
+      )}
+
       {(!collapsible || expanded) && (
         options.length === 0 ? (
-          <EmptyState icon={Package} text="등록된 항목이 없습니다." color="#5E86A3" />
+          <EmptyState
+            icon={Package}
+            text="등록된 항목이 없습니다."
+            color="#5E86A3"
+          />
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, maxHeight: collapsible ? 320 : "none", overflowY: collapsible ? "auto" : "visible", paddingRight: collapsible ? 4 : 0 }}>
-            {options.map((opt) => (
-              <div key={opt} style={{
-                display: "flex", alignItems: "center", gap: 6, padding: "7px 10px 7px 12px",
-                background: "#0B1C2C", border: "1px solid #274460", borderRadius: 20, fontSize: 13,
-                color: "#E7EEF5", fontFamily: "IBM Plex Mono",
-              }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              maxHeight: collapsible ? 320 : "none",
+              overflowY: collapsible ? "auto" : "visible",
+              paddingRight: collapsible ? 4 : 0,
+            }}
+          >
+            {options.map((opt, index) => (
+              <div
+                key={opt}
+
+                draggable={!saving}
+
+                onDragStart={() => handleDragStart(index)}
+                onDragOver={handleDragOver}
+                onDrop={() => handleDrop(index)}
+                onDragEnd={handleDragEnd}
+
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "7px 10px 7px 9px",
+
+                  background:
+                    dragIndex === index
+                      ? "#17344A"
+                      : "#0B1C2C",
+
+                  border:
+                    dragIndex === index
+                      ? "1px solid #38BDF8"
+                      : "1px solid #274460",
+
+                  borderRadius: 20,
+                  fontSize: 13,
+                  color: "#E7EEF5",
+                  fontFamily: "IBM Plex Mono",
+
+                  cursor: saving ? "default" : "grab",
+
+                  opacity:
+                    dragIndex !== null && dragIndex !== index
+                      ? 0.85
+                      : 1,
+
+                  boxShadow:
+                    dragIndex === index
+                      ? "0 0 10px #38BDF822"
+                      : "none",
+
+                  transition: "all .12s",
+                  userSelect: "none",
+                }}
+              >
+                {/* 드래그 핸들 */}
+                <span
+                  style={{
+                    color: "#5E86A3",
+                    fontSize: 14,
+                    cursor: saving ? "default" : "grab",
+                    lineHeight: 1,
+                  }}
+                  title="드래그해서 순서 변경"
+                >
+                  ⋮⋮
+                </span>
+
                 <span>{opt}</span>
+
                 <button
+                  type="button"
                   onClick={() => removeOption(opt)}
                   disabled={saving}
-                  style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#EF5350",
+                    cursor: saving ? "not-allowed" : "pointer",
+                    padding: 0,
+                    display: "flex",
+                    alignItems: "center",
+                  }}
                 >
                   <X size={13} />
                 </button>

@@ -11646,8 +11646,11 @@ function ShipIssueAdminView({
   const [adminMap, setAdminMap] = useState({});
   const [noteDrafts, setNoteDrafts] = useState({});
   const [recvDrafts, setRecvDrafts] = useState({});
+  // 미등록 자재 별도 관리창 기본: 접힘
+  const [unregisteredOpen, setUnregisteredOpen] = useState(false);
   const planFileRef = useRef(null);
   const [issueTarget, setIssueTarget] = useState(null);
+  
 
   // 폴링으로 함수 주소가 계속 바뀌어도 반복 조회되지 않도록 ref 사용
   const loadRef = useRef(loadCumulativeOutTxs);
@@ -12080,7 +12083,15 @@ function ShipIssueAdminView({
       <button
         key={id}
         type="button"
-        onClick={() => setKindFilter(id)}
+        onClick={() => {
+  setKindFilter(id);
+
+  if (id === "미등록") {
+    setUnregisteredOpen(true);
+  } else {
+    setUnregisteredOpen(false);
+  }
+}}
         style={{
           height: 32, padding: "0 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
           fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
@@ -12631,12 +12642,48 @@ function ShipIssueAdminView({
         </div>
       )}
       
-      {/* 미등록 자재: 전체 목록과 분리해서 별도 관리 */}
-      {!loading && unregisteredRows.length > 0 && (
-        <Card neon="#F472B6" style={{ padding: 14, marginTop: 14 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: "#F472B6", marginBottom: 4 }}>
-            미등록 자재 별도 관리 ({unregisteredRows.length}종)
-          </div>
+      {/* 미등록 자재: 기본 접힘 / 상단 미등록 바로가기 클릭 시 펼침 */}
+{!loading && unregisteredRows.length > 0 && (
+  <Card
+    neon="#F472B6"
+    style={{
+      padding: 14,
+      marginTop: 14,
+    }}
+  >
+    {/* 미등록 자재 제목 */}
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 14,
+          fontWeight: 800,
+          color: "#F472B6",
+        }}
+      >
+        미등록 자재 별도 관리 ({unregisteredRows.length}종)
+      </div>
+
+      <span
+        style={{
+          fontSize: 11,
+          color: "#5E86A3",
+          fontFamily: "'IBM Plex Mono', monospace",
+        }}
+      >
+        {unregisteredOpen ? "▲ 펼쳐짐" : "▼ 바로가기에서 펼침"}
+      </span>
+    </div>
+
+    {/* 실제 미등록 자재 내용 */}
+    {unregisteredOpen && (
+      <>      
           <div style={{ fontSize: 11.5, color: "#7F97AC", marginBottom: 12, lineHeight: 1.5 }}>
             자재마스터에 없는 코드입니다. 입고수량을 직접 적어두면 불출 기록과 비교해 남은 수량을 계산합니다.
             (선택한 호선/프로젝트별로 따로 저장됩니다)
@@ -12710,8 +12757,9 @@ function ShipIssueAdminView({
               );
             })}
           </div>
-        </Card>
-      )}
+        </>)}
+   </Card>
+    )}
     </div>
   );
 }

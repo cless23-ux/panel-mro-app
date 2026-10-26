@@ -2964,6 +2964,9 @@ function AppInner() {
     notify={notify}
     shipOptions={outFormSettings?.ships || []}
     projectList={outFormSettings?.projects || []}
+    workerOptions={outFormSettings?.workers || []}
+    reloadItems={reloadItems}
+    reloadTxs={reloadTxs}
     onOpenOut={(m) => {
       const item = items.find(
         (i) => String(i.code).trim() === String(m.code).trim()
@@ -11474,13 +11477,163 @@ function ShipSearchSelect({ value, onChange, options, width = 200 }) {
     </div>
   );
 }
+/* ---------------- 호선 불출관리: 작은 불출 팝업 ---------------- */
+function ShipIssueQuickOutModal({
+  target, items, ship, defaultProject, projectOptions, workerOptions,
+  notify, reloadItems, reloadTxs, onClose, onDone,
+}) {
+  const master = (items || []).find(
+    (i) => String(i.code).trim().toUpperCase() === String(target.code).trim().toUpperCase()
+  );
+  const { history, addToHistory } = useOutLocalHistory();
+  const [project, setProject] = useState(defaultProject || "");
+  const [qty, setQty] = useState("");
+  const [worker, setWorker] = useState(history.worker[0] || "");
+  const [submitting, setSubmitting] = useState(false);
 
+  const projectList = (projectOptions || []).filter((p) => p !== "전체");
+  const remain = target.order === null ? null : target.order - target.plan - target.extra;
+
+  if (!master) return null;
+
+  const submit = async (outKind) => {
+    if (submitting) return;
+    const qtyNum = Number(qty);
+    if (!qtyNum || qtyNum <= 0) { notify("불출 수량을 입력해주세요.", "err"); return; }
+    if (qtyNum > Number(master.stock)) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
+    if (!String(project).trim()) { notify("프로젝트를 선택해주세요.", "err"); return; }
+    if (!String(worker).trim()) { notify("불출자를 선택해주세요.", "err"); return; }
+
+    const msg =
+      `다음 내용으로 출고하시겠습니까?\n\n` +
+      `구분: ${outKind}\n자재: ${master.name}\n수량: ${qtyNum}${master.unit}\n` +
+      `호선: ${ship}\n프로젝트: ${project}\n불출자: ${worker}`;
+    if (!window.confirm(msg)) return;
+
+    setSubmitting(true);
+    try {
+      const tx = {
+        id: uid("OUT"),
+        type: "out",
+        itemCode: master.code,
+        itemName: master.name,
+        unit: master.unit,
+        qty: qtyNum,
+        shipNo: ship,
+        project: project,
+        worker: worker,
+        reason: `${OUT_KIND_MARKER}${outKind}`,
+        at: nowStr(),
+        deleted: false,
+      };
+      await applyStockTransactionsAtomic([{ code: master.code, delta: -qtyNum, tx }]);
+      try {
+        await reloadItems?.();
+        await reloadTxs?.();
+      } catch (e) {
+        console.error("출고 후 새로고침 실패:", e);
+      }
+      rememberMyOutTxId(tx.id);
+      addToHistory("worker", worker);
+      addToHistory("project", project);
+      addToHistory("ship", ship);
+      notify(`${master.name} ${qtyNum}${master.unit} ${outKind} 출고 완료 · 잔여 ${Number(master.stock) - qtyNum}${master.unit}`, "ok");
+      onDone?.();
+    } catch (e) {
+      console.error(e);
+      notify(`출고 실패: ${e?.message || e}`, "err");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const ready = !submitting && Number(qty) > 0 && !!String(project).trim() && !!String(worker).trim();
+
+  return (
+    <div
+      onClick={onClose}
+      className="app-modal-overlay"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(6,14,22,0.72)",
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400, padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 400, background: "#0F2233",
+          border: "1px solid #F5A62355", borderRadius: 14, padding: 20,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#F5A623", fontWeight: 700, fontSize: 15 }}>
+            <ArrowUpFromLine size={18} /> 불출 · {ship}
+          </div>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4 }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8", wordBreak: "break-word" }}>{master.name}</div>
+          <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-all" }}>
+            {master.code}{master.spec ? ` · ${master.spec}` : ""}
+          </div>
+          <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 12, fontFamily: "IBM Plex Mono", flexWrap: "wrap" }}>
+            <span style={{ color: "#9FB4C7" }}>현재고 <b style={{ color: Number(master.stock) > 0 ? "#35D08C" : "#EF5350" }}>{master.stock} {master.unit}</b></span>
+            {remain !== null && (
+              <span style={{ color: "#9FB4C7" }}>
+                정발주 지급가능 <b style={{ color: remain < 0 ? "#EF5350" : "#A78BFA" }}>{remain} {master.unit}</b>
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+          <Field label="프로젝트">
+            <StrictAutocompleteInput value={project} onChange={setProject} options={projectList} placeholder="프로젝트 검색 후 선택" />
+          </Field>
+          <Field label={`불출수량 (${master.unit})`}>
+            <input
+              style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }}
+              type="number" min="1" max={master.stock} value={qty} autoFocus
+              onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+            />
+          </Field>
+          <Field label="불출자">
+            <StrictAutocompleteInput value={worker} onChange={setWorker} options={workerOptions || []} placeholder="불출자 검색 후 선택" />
+          </Field>
+        </div>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn
+            onClick={() => submit("정발주")}
+            disabled={!ready}
+            style={{ flex: 1, background: ready ? "#F5A623" : "#1F3B54", color: ready ? "#0A1622" : "#5E86A3", fontWeight: "bold" }}
+          >
+            {submitting ? "처리 중..." : "정발주 출고"}
+          </Btn>
+          <Btn
+            onClick={() => submit("추가건")}
+            disabled={!ready}
+            style={{ flex: 1, background: ready ? "#38BDF8" : "#1F3B54", border: `1px solid ${ready ? "#38BDF8" : "#1F3B54"}`, color: ready ? "#0A1622" : "#5E86A3", fontWeight: "bold" }}
+          >
+            {submitting ? "처리 중..." : "추가건 출고"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
 function ShipIssueAdminView({
   loadCumulativeOutTxs,
   items = [],
   notify,
   shipOptions = [],
   projectList = [],
+  workerOptions = [],
+  reloadItems,
+  reloadTxs,
   onOpenOut,
 }) {
   const [rows, setRows] = useState([]);
@@ -11494,6 +11647,7 @@ function ShipIssueAdminView({
   const [noteDrafts, setNoteDrafts] = useState({});
   const [recvDrafts, setRecvDrafts] = useState({});
   const planFileRef = useRef(null);
+  const [issueTarget, setIssueTarget] = useState(null);
 
   // 폴링으로 함수 주소가 계속 바뀌어도 반복 조회되지 않도록 ref 사용
   const loadRef = useRef(loadCumulativeOutTxs);
@@ -11976,6 +12130,22 @@ function ShipIssueAdminView({
         style={{ display: "none" }}
         onChange={importPlanFile}
       />
+      
+      {issueTarget && (
+        <ShipIssueQuickOutModal
+          target={issueTarget}
+          items={items}
+          ship={ship}
+          defaultProject={project === "전체" ? "" : project}
+          projectOptions={projectOptions}
+          workerOptions={workerOptions}
+          notify={notify}
+          reloadItems={reloadItems}
+          reloadTxs={reloadTxs}
+          onClose={() => setIssueTarget(null)}
+          onDone={() => { setIssueTarget(null); loadAll(); }}
+        />
+      )}
 
       <Card style={{ padding: 16, marginBottom: 14 }}>
         <div className="si-controls" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
@@ -12111,6 +12281,7 @@ function ShipIssueAdminView({
                   <th style={{ textAlign: "right" }}>합계</th>
                   <th style={{ textAlign: "right" }} title="발주수량 − 추가건 − 이미 불출한 정발주 (선택한 호선/프로젝트 기준)">정발주 지급가능</th>
                   <th>마지막 불출</th>
+                  <th style={{ width: 70, textAlign: "center" }}>불출</th>
                 </tr>
               </thead>
               <tbody>
@@ -12171,11 +12342,29 @@ function ShipIssueAdminView({
                           )}
                         </td>
                         <td style={{ fontFamily: "IBM Plex Mono", fontSize: 12, color: "#9FB4C7" }}>{m.lastAt || "-"}</td>
+                        <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            disabled={isUnregistered(m.code)}
+                            title={isUnregistered(m.code) ? "자재마스터에 없는 자재는 불출할 수 없습니다" : "불출 창 열기"}
+                            onClick={() => setIssueTarget(m)}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 10px",
+                              borderRadius: 7, fontSize: 11.5, fontWeight: 700,
+                              fontFamily: "'IBM Plex Mono', monospace",
+                              border: "1px solid #F5A62388", background: "#F5A62318", color: "#F5A623",
+                              cursor: isUnregistered(m.code) ? "not-allowed" : "pointer",
+                              opacity: isUnregistered(m.code) ? 0.4 : 1,
+                            }}
+                          >
+                            <ArrowUpFromLine size={13} />불출
+                          </button>
+                        </td>
                       </tr>
 
                       {isOpen && (
                         <tr>
-                          <td colSpan={8} style={{ background: "#0B1C2C", padding: 12 }}>
+                          <td colSpan={9} style={{ background: "#0B1C2C", padding: 12 }}>
                             {m.txs.length === 0 ? (
                               <div style={{ fontSize: 12, color: "#5E86A3" }}>아직 불출 기록이 없습니다.</div>
                             ) : (
@@ -12326,7 +12515,8 @@ function ShipIssueAdminView({
   aria-label="불출정보 입력"
   onClick={(e) => {
     e.stopPropagation();
-    if (onOpenOut) onOpenOut(m);
+    if (!isUnregistered(m.code)) setIssueTarget(m);
+    else notify("자재마스터에 없는 자재는 불출할 수 없습니다.", "err");
   }}
   style={{
     flexShrink: 0,

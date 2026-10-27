@@ -887,13 +887,13 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
       className="app-modal-overlay"
       style={{
         position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)",
-        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20,
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 12,
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: "100%", maxWidth: 900, maxHeight: "85vh", display: "flex", flexDirection: "column",
+          width: "96vw", maxWidth: 1500, maxHeight: "92vh", display: "flex", flexDirection: "column",
           background: "#0F2233", border: "1px solid #274460", borderRadius: 14, padding: 22,
         }}
       >
@@ -984,7 +984,7 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
                 </button>
               </div>
 
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "auto" }}>
               <thead>
                 <tr style={{ position: "sticky", top: 0, background: "#0B1C2C" }}>
                   <th style={{ ...thStyle, width: 36 }}></th>
@@ -1018,7 +1018,7 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
                         )}
                       />
                     </td>
-                    <td style={{ ...tdStyle, color: "#7F97AC", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{t.at}</td>
+                    <td style={{ ...tdStyle, color: "#7F97AC", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{String(t.at || "").replace("T", " ").slice(0, 16)}</td>
                     <td style={{ ...tdStyle, color: "#38BDF8", fontWeight: 600 }}>{t.itemName}</td>
                     <td style={{ ...tdStyle, color: "#7F97AC", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{t.itemCode}</td>
                     <td style={{ ...tdStyle, textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700, color: isOut ? "#F5A623" : "#35D08C" }}>

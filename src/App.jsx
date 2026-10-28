@@ -5,7 +5,7 @@ import {
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
   AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save, Lock, Anchor,
-  Ship, Clock
+  Ship, Clock, Repeat
 } from "lucide-react";
 import { supabase } from './supabaseClient';
 
@@ -1830,6 +1830,7 @@ const NAV = [
   { id: "stock", label: "재고조회", icon: Boxes },
   { id: "master", label: "자재마스터", icon: Package, pcOnly: true },
   { id: "consumable", label: "소모자재관리", icon: Zap },
+  { id: "borrow", label: "자재차용", icon: Repeat },
   { id: "shipMaterial", label: "호선자재", icon: Ship },
   { id: "settings", label: "불출설정", icon: SettingsIcon, pcOnly: true },
   { id: "trash", label: "휴지통", icon: Trash2, pcOnly: true },
@@ -1848,6 +1849,7 @@ const TAB_NEON = {
   stock: "#A78BFA",
   master: "#F472B6",
   consumable: "#FBBF24",
+  borrow: "#FB7185",
   settings: "#2DD4BF",
   trash: "#EF5350",
   stale: "#A78BFA",
@@ -2953,6 +2955,7 @@ function AppInner() {
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
                         {tab === "master" && <MasterView items={items} txs={txs} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
+                        {tab === "borrow" && <BorrowView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} reloadTxs={reloadTxs} />}
@@ -2989,7 +2992,7 @@ function AppInner() {
 
       {/* 모바일 하단 탭 */}
           <nav className="mobile-bottom-nav">
-        {["stock", "in", "out", "consumable", "shipIssue"].map((id) => {
+        {["stock", "in", "out", "borrow", "shipIssue"].map((id) => {
           const n = NAV.find((item) => item.id === id);
           if (!n) return null;
           const active = tab === n.id;
@@ -3774,8 +3777,8 @@ const filteredTotalText = useMemo(() => {
             <>
               <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 4 }}>
                 {recent.map((t) => {
-                  const color = t.type === "in" ? "#35D08C" : t.type === "return" ? "#22D3EE" : "#F5A623";
-                  const label = t.type === "in" ? "입고" : t.type === "return" ? "반납" : "출고";
+                  const color = t.type === "in" ? "#35D08C" : t.type === "return" || t.type === "borrow_return" ? "#22D3EE" : t.type === "borrow" ? "#FB7185" : "#F5A623";
+                  const label = t.type === "in" ? "입고" : t.type === "return" ? "반납" : t.type === "borrow" ? "차용" : t.type === "borrow_return" ? "차용반납" : "출고";
                   const meta = [t.shipNo, t.project, t.worker].filter(Boolean).join(" · ");
                   return (
                     <div
@@ -13382,6 +13385,534 @@ function OutFormSettingsView({ settings, saveCategory, notify, hiddenNavIds, tog
           placeholder="예: 울산에이원"
         />
       </div>
+    </div>
+  );
+}
+/* ---------------- 자재 차용 ---------------- */
+function readBorrowMeta(t) {
+  const m = String(t?.reason || "").match(/MRO_BORROW_META:([^\s|]+)/);
+  if (!m) return {};
+  try { return JSON.parse(decodeURIComponent(m[1])); } catch { return {}; }
+}
+
+function BorrowView({ items, saveItems, txs, saveTxs, notify, outFormSettings, reloadItems, reloadTxs }) {
+  const shipOptions = outFormSettings?.ships || [];
+  const workerOptions = outFormSettings?.workers || [];
+
+  // 차용 등록 입력값
+  const [itemSearch, setItemSearch] = useState("");
+  const [picked, setPicked] = useState(null);
+  const [qty, setQty] = useState("");
+  const [borrower, setBorrower] = useState("");
+  const [ship, setShip] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  // 현황 목록
+  const [statusFilter, setStatusFilter] = useState("open"); // open | done | all
+  const [listSearch, setListSearch] = useState("");
+
+  // QR 카메라
+  const [cameraOn, setCameraOn] = useState(false);
+  const itemsRef = useRef([]);
+  itemsRef.current = items || [];
+
+  // 반납 팝업
+  const [returnTarget, setReturnTarget] = useState(null);
+  const [returnQty, setReturnQty] = useState("");
+  const [returnBusy, setReturnBusy] = useState(false);
+  // 카메라가 켜지면 QR을 읽어서 자재를 자동 선택
+  useEffect(() => {
+    if (!cameraOn) return undefined;
+
+    let scanner = null;
+    let cancelled = false;
+    let handled = false;
+    let lastErrAt = 0;
+
+    const normalize = (v) => String(v || "").replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+    const alnum = (v) => normalize(v).replace(/[^a-z0-9]/g, "");
+
+    const start = async () => {
+      try {
+        if (!window.Html5Qrcode) {
+          const script = document.createElement("script");
+          script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+          script.async = true;
+          document.body.appendChild(script);
+          await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; });
+        }
+        if (cancelled) return;
+
+        scanner = new window.Html5Qrcode("borrow-qr-reader");
+        await scanner.start(
+          { facingMode: "environment" },
+          {
+            fps: 15,
+            qrbox: (w, h) => {
+              const size = Math.max(220, Math.min(340, Math.floor(Math.min(w, h) * 0.75)));
+              return { width: size, height: size };
+            },
+          },
+          (decodedText) => {
+            if (handled) return;
+            const list = itemsRef.current;
+            const scanned = normalize(decodedText);
+            const hit =
+              list.find((i) => normalize(i.code) === scanned) ||
+              list.find((i) => alnum(i.code) && alnum(i.code) === alnum(decodedText)) ||
+              list.find((i) => String(i.item_no || "").trim().toLowerCase() === scanned);
+
+            if (hit) {
+              handled = true;
+              setPicked(hit);
+              setItemSearch("");
+              notify(`자재 선택됨: ${hit.name}`, "ok");
+              setCameraOn(false); // 카메라 정리는 아래 cleanup에서 처리
+            } else if (Date.now() - lastErrAt > 2000) {
+              lastErrAt = Date.now();
+              notify(`등록되지 않은 자재 코드입니다: ${String(decodedText).trim()}`, "err");
+            }
+          },
+          () => {}
+        );
+
+        if (cancelled) {
+          try { await scanner.stop(); scanner.clear(); } catch {}
+        }
+      } catch (err) {
+        console.error("차용 카메라 오류:", err);
+        notify("카메라를 켤 수 없습니다. 권한을 확인해주세요.", "err");
+        setCameraOn(false);
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      const s = scanner;
+      if (s) {
+        Promise.resolve()
+          .then(() => s.stop())
+          .catch(() => {})
+          .then(() => { try { s.clear(); } catch {} });
+      }
+    };
+  }, [cameraOn]);
+  const searchResults = useMemo(() => {
+    const q = itemSearch.trim().toLowerCase();
+    if (!q || picked) return [];
+    return (items || [])
+      .filter((i) => [i.name, i.code, i.spec, i.item_no].some((v) => String(v || "").toLowerCase().includes(q)))
+      .slice(0, 20);
+  }, [items, itemSearch, picked]);
+
+  // 차용건별 반납 누적 수량
+  const returnedMap = useMemo(() => {
+    const map = {};
+    (txs || []).forEach((t) => {
+      if (t.type !== "borrow_return" || t.deleted === true) return;
+      const src = readBorrowMeta(t).sourceBorrowTxId;
+      if (src) map[src] = (map[src] || 0) + (Number(t.qty) || 0);
+    });
+    return map;
+  }, [txs]);
+
+  const borrowList = useMemo(() => {
+    return (txs || [])
+      .filter((t) => t.type === "borrow" && t.deleted !== true)
+      .map((t) => {
+        const meta = readBorrowMeta(t);
+        const returned = returnedMap[t.id] || 0;
+        return { ...t, meta, returned, remain: Math.max(0, (Number(t.qty) || 0) - returned) };
+      })
+      .sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+  }, [txs, returnedMap]);
+
+  const openCount = useMemo(() => borrowList.filter((b) => b.remain > 0).length, [borrowList]);
+
+  const filteredList = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    return borrowList.filter((b) => {
+      if (statusFilter === "open" && b.remain <= 0) return false;
+      if (statusFilter === "done" && b.remain > 0) return false;
+      if (!q) return true;
+      return [b.itemName, b.itemCode, b.worker, b.shipNo].some((v) => String(v || "").toLowerCase().includes(q));
+    });
+  }, [borrowList, statusFilter, listSearch]);
+
+  const todayStr = nowStr().slice(0, 10);
+
+  const resetForm = () => {
+    setItemSearch(""); setPicked(null); setQty(""); setBorrower(""); setShip(""); setDueDate(""); setNote("");
+  };
+
+  /* ---------- 차용 등록 ---------- */
+  const submit = async () => {
+    if (submitting) return;
+    const qtyNum = Number(qty);
+    if (!picked) { notify("차용할 자재를 선택해주세요.", "err"); return; }
+    if (!qtyNum || qtyNum <= 0) { notify("차용 수량을 입력해주세요.", "err"); return; }
+    if (qtyNum > Number(picked.stock)) { notify("현재고보다 많은 수량은 차용할 수 없습니다.", "err"); return; }
+    if (!borrower.trim()) { notify("차용자를 입력해주세요.", "err"); return; }
+
+    const msg =
+      `다음 내용으로 차용 등록하시겠습니까?\n\n` +
+      `자재: ${picked.name}\n수량: ${qtyNum}${picked.unit}\n차용자: ${borrower.trim()}\n` +
+      `호선: ${ship.trim() || "-"}\n반납예정일: ${dueDate || "-"}\n\n재고에서 ${qtyNum}${picked.unit}가 차감됩니다.`;
+    if (!window.confirm(msg)) return;
+
+    setSubmitting(true);
+    try {
+      const meta = { note: note.trim(), dueDate: dueDate || "" };
+      const tx = {
+        id: uid("BOR"),
+        type: "borrow",
+        itemCode: picked.code,
+        itemName: picked.name,
+        unit: picked.unit,
+        qty: qtyNum,
+        shipNo: ship.trim(),
+        project: "",
+        worker: borrower.trim(),
+        reason: `MRO_BORROW_META:${encodeURIComponent(JSON.stringify(meta))}`,
+        at: nowStr(),
+        deleted: false,
+      };
+
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: picked.code, delta: -qtyNum, tx }]);
+        try { await reloadItems?.(); await reloadTxs?.(); } catch (e) { console.error(e); }
+      } else {
+        const nextItems = items.map((i) =>
+          String(i.code).trim() === String(picked.code).trim() ? { ...i, stock: (Number(i.stock) || 0) - qtyNum } : i
+        );
+        await saveItems(nextItems);
+        await saveTxs([...(txs || []), tx]);
+      }
+      notify(`${picked.name} ${qtyNum}${picked.unit} 차용 등록 완료`, "ok");
+      resetForm();
+    } catch (e) {
+      console.error(e);
+      notify(`차용 등록 실패: ${e?.message || e}`, "err");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /* ---------- 반납 ---------- */
+  const openReturn = (b) => {
+    setReturnTarget(b);
+    setReturnQty(String(b.remain));
+  };
+
+  const submitReturn = async () => {
+    const b = returnTarget;
+    if (!b || returnBusy) return;
+    const q = Number(returnQty);
+    if (!q || q <= 0 || q > b.remain) {
+      notify(`반납 수량은 1 이상 ${b.remain}${b.unit} 이하로 입력해주세요.`, "err");
+      return;
+    }
+    if (!window.confirm(`${b.itemName} ${q}${b.unit}를 반납 처리할까요?\n재고가 ${q}${b.unit} 증가합니다.`)) return;
+
+    setReturnBusy(true);
+    try {
+      const tx = {
+        id: uid("BRET"),
+        type: "borrow_return",
+        itemCode: b.itemCode,
+        itemName: b.itemName,
+        unit: b.unit,
+        qty: q,
+        shipNo: b.shipNo || "",
+        project: "",
+        worker: b.worker || "",
+        reason: `MRO_BORROW_META:${encodeURIComponent(JSON.stringify({ sourceBorrowTxId: b.id }))}`,
+        at: nowStr(),
+        deleted: false,
+      };
+
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: b.itemCode, delta: q, tx }]);
+        try { await reloadItems?.(); await reloadTxs?.(); } catch (e) { console.error(e); }
+      } else {
+        const nextItems = items.map((i) =>
+          String(i.code).trim() === String(b.itemCode).trim() ? { ...i, stock: (Number(i.stock) || 0) + q } : i
+        );
+        await saveItems(nextItems);
+        await saveTxs([...(txs || []), tx]);
+      }
+      notify(`${b.itemName} ${q}${b.unit} 반납 완료 · 재고 반영`, "ok");
+      setReturnTarget(null);
+    } catch (e) {
+      console.error(e);
+      notify(`반납 실패: ${e?.message || e}`, "err");
+    } finally {
+      setReturnBusy(false);
+    }
+  };
+
+  const chip = (id, label, color) => {
+    const on = statusFilter === id;
+    return (
+      <button
+        key={id}
+        type="button"
+        onClick={() => setStatusFilter(id)}
+        style={{
+          height: 32, padding: "0 14px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+          fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+          border: `1px solid ${on ? color : "#1F3B54"}`,
+          background: on ? `${color}1f` : "#0B1C2C",
+          color: on ? color : "#7F97AC",
+        }}
+      >
+        {label}
+      </button>
+    );
+  };
+
+  return (
+    <div>
+      <Header title="자재 차용" subtitle="재고에서 잠시 빌려가고, 반납하면 재고로 되돌립니다" />
+
+      {/* 1. 차용 등록 */}
+      <Card neon="#FB7185" style={{ padding: 18, marginBottom: 16 }}>
+        <SectionLabel>1. 차용 등록</SectionLabel>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, color: "var(--text-tertiary)", fontWeight: 600, marginBottom: 6 }}>
+              자재 검색 (품명 · 코드 · 규격)
+            </div>
+            {picked ? (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+                background: "#0B1C2C", border: "1px solid #FB718588", borderRadius: 8, padding: "10px 12px",
+              }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8", wordBreak: "break-word" }}>{picked.name}</div>
+                  <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-all" }}>
+                    {picked.code}{picked.spec ? ` · ${picked.spec}` : ""}
+                  </div>
+                  <div style={{ fontSize: 12, marginTop: 4, color: "#9FB4C7" }}>
+                    현재고 <b style={{ color: Number(picked.stock) > 0 ? "#35D08C" : "#EF5350" }}>{picked.stock} {picked.unit}</b>
+                  </div>
+                </div>
+                <Btn variant="ghost" onClick={() => { setPicked(null); setItemSearch(""); }} style={{ padding: "7px 12px", fontSize: 12, flexShrink: 0 }}>
+                  변경
+                </Btn>
+              </div>
+            ) : (
+              <div style={{ position: "relative" }}>
+                {!cameraOn ? (
+                  <Btn
+                    type="button"
+                    onClick={() => setCameraOn(true)}
+                    style={{ width: "100%", marginBottom: 10, background: "#FB7185", border: "1px solid #FB7185", color: "#0A1622" }}
+                  >
+                    <Camera size={18} /> QR 카메라로 자재 인식
+                  </Btn>
+                ) : (
+                  <div style={{ background: "#0B1C2C", border: "1px solid #274460", borderRadius: 10, padding: 10, textAlign: "center", marginBottom: 10 }}>
+                    <div id="borrow-qr-reader" style={{ width: "100%", maxWidth: 340, minHeight: 280, margin: "0 auto", background: "#000", borderRadius: 8, overflow: "hidden" }} />
+                    <div style={{ fontSize: 11.5, color: "#5E86A3", marginTop: 8 }}>
+                      자재 QR을 사각 박스 안에 맞춰주세요.
+                    </div>
+                    <Btn type="button" onClick={() => setCameraOn(false)} variant="ghost" style={{ width: "100%", marginTop: 10 }}>
+                      카메라 끄기
+                    </Btn>
+                  </div>
+                )}
+                <input
+                  style={inputStyle}
+                  value={itemSearch}
+                  onChange={(e) => setItemSearch(e.target.value)}
+                  placeholder="또는 자재명 · 코드를 직접 입력하세요"
+                  autoComplete="off"
+                />
+                {searchResults.length > 0 && (
+                  <div style={{
+                    marginTop: 6, background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
+                    maxHeight: 260, overflowY: "auto",
+                  }}>
+                    {searchResults.map((i) => (
+                      <div
+                        key={i.code}
+                        onClick={() => { setPicked(i); setItemSearch(""); }}
+                        style={{ padding: "10px 12px", cursor: "pointer", borderBottom: "1px solid #16293C" }}
+                      >
+                        <div style={{ fontWeight: 600, color: "#38BDF8", fontSize: 13 }}>{i.name}</div>
+                        <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>
+                          {i.code}{i.spec ? ` | ${i.spec}` : ""} · 재고 {i.stock}{i.unit}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="out-field-grid">
+            <Field label={`차용 수량${picked ? ` (${picked.unit})` : ""}`}>
+              <input
+                style={{ ...inputStyle, fontWeight: "bold", color: "#FB7185" }}
+                type="number" min="1" value={qty}
+                onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+              />
+            </Field>
+            <Field label="차용자">
+              <AutocompleteInput value={borrower} onChange={setBorrower} options={workerOptions} placeholder="이름 입력 또는 선택" />
+            </Field>
+          </div>
+
+          <div className="out-field-grid">
+            <Field label="호선 (선택)">
+              <AutocompleteInput value={ship} onChange={setShip} options={shipOptions} placeholder="예: H3527" />
+            </Field>
+            <Field label="반납 예정일 (선택)">
+              <input style={inputStyle} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            </Field>
+          </div>
+
+          <Field label="메모 (선택)">
+            <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 시험용으로 임시 사용" />
+          </Field>
+
+          <Btn
+            onClick={submit}
+            disabled={submitting || !picked || !(Number(qty) > 0) || !borrower.trim()}
+            style={{ width: "100%", background: "#FB7185", border: "1px solid #FB7185", color: "#0A1622", fontWeight: "bold", fontSize: 15 }}
+          >
+            <Repeat size={17} />{submitting ? "처리 중..." : "차용 확정"}
+          </Btn>
+        </div>
+      </Card>
+
+      {/* 2. 차용 현황 */}
+      <Card neon="#FB7185" style={{ padding: 16 }}>
+        <SectionLabel>2. 차용 현황</SectionLabel>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+          {chip("open", `차용중 (${openCount})`, "#FB7185")}
+          {chip("done", "반납완료", "#35D08C")}
+          {chip("all", "전체", "#38BDF8")}
+          <input
+            style={{ ...inputStyle, flex: 1, minWidth: 160, height: 34, padding: "4px 12px", fontSize: 13 }}
+            placeholder="자재명, 코드, 차용자, 호선 검색"
+            value={listSearch}
+            onChange={(e) => setListSearch(e.target.value)}
+          />
+        </div>
+
+        {filteredList.length === 0 ? (
+          <EmptyState icon={Repeat} text="해당하는 차용 내역이 없습니다." color="#5E86A3" />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {filteredList.map((b) => {
+              const done = b.remain <= 0;
+              const overdue = !done && b.meta.dueDate && b.meta.dueDate < todayStr;
+              return (
+                <div
+                  key={b.id}
+                  style={{
+                    background: "#0B1C2C", borderRadius: 10, padding: "10px 12px",
+                    border: `1px solid ${overdue ? "#EF535088" : "#1F3B54"}`, opacity: done ? 0.65 : 1,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8", wordBreak: "break-word" }}>{b.itemName}</div>
+                      <div style={{ fontSize: 10.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-all" }}>{b.itemCode}</div>
+                    </div>
+                    <span style={{
+                      alignSelf: "flex-start", flexShrink: 0, fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 10,
+                      fontFamily: "'IBM Plex Mono', monospace",
+                      color: done ? "#35D08C" : overdue ? "#EF5350" : "#FB7185",
+                      background: done ? "#35D08C1f" : overdue ? "#EF53501f" : "#FB71851f",
+                    }}>
+                      {done ? "반납완료" : overdue ? "기한초과" : "차용중"}
+                    </span>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
+                    {[
+                      { label: "차용", value: `${b.qty} ${b.unit}`, color: "#E7EEF5" },
+                      { label: "반납", value: `${b.returned} ${b.unit}`, color: "#35D08C" },
+                      { label: "미반납", value: `${b.remain} ${b.unit}`, color: b.remain > 0 ? "#FB7185" : "#5E86A3" },
+                    ].map((s) => (
+                      <div key={s.label} style={{ background: "#0F2233", border: "1px solid #1F3B54", borderRadius: 8, padding: "5px 8px", textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: "#5E86A3" }}>{s.label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: s.color, fontFamily: "IBM Plex Mono" }}>{s.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ fontSize: 11, color: "#9FB4C7", marginTop: 8, lineHeight: 1.6 }}>
+                    차용자 {b.worker || "-"} · 호선 {b.shipNo || "-"}<br />
+                    차용일 {String(b.at || "").slice(0, 16)}
+                    {b.meta.dueDate ? ` · 반납예정 ${b.meta.dueDate}` : ""}
+                    {b.meta.note ? <><br />메모: {b.meta.note}</> : null}
+                  </div>
+
+                  {!done && (
+                    <Btn
+                      onClick={() => openReturn(b)}
+                      style={{ width: "100%", marginTop: 10, padding: "9px 12px", fontSize: 13, background: "#35D08C", border: "1px solid #35D08C", color: "#0A1622" }}
+                    >
+                      <RotateCcw size={15} />반납 처리
+                    </Btn>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {/* 반납 팝업 */}
+      {returnTarget && (
+        <div
+          onClick={() => setReturnTarget(null)}
+          className="app-modal-overlay"
+          style={{
+            position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400, padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 380, background: "#0F2233", border: "1px solid #35D08C55", borderRadius: 14, padding: 20 }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, color: "#35D08C", fontWeight: 700, fontSize: 15 }}>
+              <RotateCcw size={18} /> 차용 반납
+            </div>
+            <div style={{ fontSize: 13.5, color: "#C9DAE8", marginBottom: 4 }}>{returnTarget.itemName}</div>
+            <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginBottom: 14 }}>
+              차용자 {returnTarget.worker || "-"} · 미반납 {returnTarget.remain}{returnTarget.unit}
+            </div>
+            <Field label={`반납 수량 (${returnTarget.unit})`}>
+              <input
+                style={{ ...inputStyle, fontWeight: "bold", color: "#35D08C" }}
+                type="number" min="1" max={returnTarget.remain} value={returnQty} autoFocus
+                onChange={(e) => setReturnQty(e.target.value)}
+              />
+            </Field>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setReturnTarget(null)}>취소</Btn>
+              <Btn
+                style={{ flex: 2, background: "#35D08C", border: "1px solid #35D08C", color: "#0A1622" }}
+                onClick={submitReturn}
+                disabled={returnBusy}
+              >
+                {returnBusy ? "처리 중..." : "반납 확정"}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

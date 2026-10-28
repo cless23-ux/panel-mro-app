@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
@@ -3360,9 +3360,12 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
       .forEach((t) => {
         const key = t.itemName || t.itemCode;
         if (!map[key]) {
-          map[key] = { name: key, code: t.itemCode, qty: 0, unit: t.unit || "EA" };
+          map[key] = { name: key, code: t.itemCode, qty: 0, plan: 0, extra: 0, unit: t.unit || "EA" };
         }
-        map[key].qty += Number(t.qty) || 0;
+        const q = Number(t.qty) || 0;
+        map[key].qty += q;
+        if (getIssueKind(t) === "정발주") map[key].plan += q;
+        else map[key].extra += q;
       });
 
     return Object.values(map).sort((a, b) => b.qty - a.qty);
@@ -3644,14 +3647,11 @@ const filteredTotalText = useMemo(() => {
                           cursor={{ fill: "#38BDF80D" }}
                           contentStyle={{ background: "#0F2233", border: "1px solid #315775", borderRadius: 8, fontSize: 11, boxShadow: "0 8px 24px rgba(0,0,0,.28)" }}
                           labelStyle={{ color: "#E7EEF5", fontWeight: 700 }}
-                          itemStyle={{ color: "#F5A623" }}
-                          formatter={(val, name, props) => [`${val} ${props.payload.unit}`, "소모량"]}
+                          formatter={(val, name, props) => [`${val} ${props.payload.unit}`, name]}
                         />
-                        <Bar dataKey="qty" radius={[0, 5, 5, 0]} barSize={16}>
-                          {filteredConsumption.map((_, idx) => (
-                            <Cell key={idx} fill={idx === 0 ? "#38BDF8" : idx === 1 ? "#F5A623" : "#5E86A3"} />
-                          ))}
-                        </Bar>
+                        <Legend verticalAlign="top" height={24} iconSize={9} wrapperStyle={{ fontSize: 11, color: "#9FB4C7" }} />
+                        <Bar dataKey="plan" name="정발주" stackId="use" fill="#F5A623" barSize={16} />
+                        <Bar dataKey="extra" name="추가건" stackId="use" fill="#38BDF8" radius={[0, 5, 5, 0]} barSize={16} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -3710,9 +3710,16 @@ const filteredTotalText = useMemo(() => {
                           {item.code}
                         </div>
                       </div>
-                      <span style={{ color: "#F5A623", fontWeight: 700, fontSize: 12.5, fontFamily: "IBM Plex Mono", whiteSpace: "nowrap" }}>
-                        {item.qty} {item.unit}
-                      </span>
+                      <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <div style={{ color: "#F5A623", fontWeight: 700, fontSize: 12.5, fontFamily: "IBM Plex Mono" }}>
+                          {item.qty} {item.unit}
+                        </div>
+                        <div style={{ fontSize: 10, fontFamily: "IBM Plex Mono", marginTop: 1 }}>
+                          <span style={{ color: "#F5A623" }}>정 {item.plan}</span>
+                          <span style={{ color: "#5E86A3" }}> · </span>
+                          <span style={{ color: "#38BDF8" }}>추 {item.extra}</span>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -3777,8 +3784,9 @@ const filteredTotalText = useMemo(() => {
             <>
               <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 4 }}>
                 {recent.map((t) => {
-                  const color = t.type === "in" ? "#35D08C" : t.type === "return" || t.type === "borrow_return" ? "#22D3EE" : t.type === "borrow" ? "#FB7185" : "#F5A623";
-                  const label = t.type === "in" ? "입고" : t.type === "return" ? "반납" : t.type === "borrow" ? "차용" : t.type === "borrow_return" ? "차용반납" : "출고";
+                  const outKind = t.type === "out" ? getIssueKind(t) : null;
+                  const color = t.type === "in" ? "#35D08C" : t.type === "return" || t.type === "borrow_return" ? "#22D3EE" : t.type === "borrow" ? "#FB7185" : outKind === "추가건" ? "#38BDF8" : "#F5A623";
+                  const label = t.type === "in" ? "입고" : t.type === "return" ? "반납" : t.type === "borrow" ? "차용" : t.type === "borrow_return" ? "차용반납" : outKind || "출고";
                   const meta = [t.shipNo, t.project, t.worker].filter(Boolean).join(" · ");
                   return (
                     <div

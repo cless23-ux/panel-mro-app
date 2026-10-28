@@ -1872,6 +1872,16 @@ function AppInner() {
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
   const { updateAvailable, dismissUpdate, applyUpdate } = useAppUpdateCheck();
 
+  // 한글이 선명한 Pretendard 폰트 불러오기
+  useEffect(() => {
+    if (document.querySelector('link[data-app-font="pretendard"]')) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css";
+    link.dataset.appFont = "pretendard";
+    document.head.appendChild(link);
+  }, []);
+
   // 누적출고 전용 조회:
   // 일반 txs는 deleted=false만 보여주므로, 누적출고 창에서만 전체 거래를 가져온다.
     const loadCumulativeOutTxs = useCallback(async () => {
@@ -2318,7 +2328,11 @@ function AppInner() {
           --border-sidebar: #E2E8F0;
           --table-hover: #EEF2F7;
         }
-        @import url('https://fonts.googleapis.com/css2?family=${FONT_LINK}&display=swap');
+        .app-container, .app-container * {
+          font-family: 'Pretendard', 'Noto Sans KR', 'Malgun Gothic', -apple-system, sans-serif !important;
+          letter-spacing: normal !important;
+          font-variant-numeric: tabular-nums;
+        }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         html, body, #root { width: 100%; max-width: none; margin: 0; padding: 0; overflow-x: hidden; }
         html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }

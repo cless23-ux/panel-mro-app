@@ -13561,7 +13561,7 @@ function BorrowView({ items, saveItems, txs, saveTxs, notify, outFormSettings, r
     const msg =
       `다음 내용으로 차용 등록하시겠습니까?\n\n` +
       `자재: ${picked.name}\n수량: ${qtyNum}${picked.unit}\n차용자: ${borrower.trim()}\n` +
-      `호선: ${ship.trim() || "-"}\n반납예정일: ${dueDate || "-"}\n\n재고에서 ${qtyNum}${picked.unit}가 차감됩니다.`;
+      `반납예정일: ${dueDate || "-"}\n\n재고에서 ${qtyNum}${picked.unit}가 차감됩니다.`;
     if (!window.confirm(msg)) return;
 
     setSubmitting(true);
@@ -13574,7 +13574,7 @@ function BorrowView({ items, saveItems, txs, saveTxs, notify, outFormSettings, r
         itemName: picked.name,
         unit: picked.unit,
         qty: qtyNum,
-        shipNo: ship.trim(),
+        shipNo: "",
         project: "",
         worker: borrower.trim(),
         reason: `MRO_BORROW_META:${encodeURIComponent(JSON.stringify(meta))}`,
@@ -13769,14 +13769,9 @@ function BorrowView({ items, saveItems, txs, saveTxs, notify, outFormSettings, r
             </Field>
           </div>
 
-          <div className="out-field-grid">
-            <Field label="호선 (선택)">
-              <AutocompleteInput value={ship} onChange={setShip} options={shipOptions} placeholder="예: H3527" />
-            </Field>
-            <Field label="반납 예정일 (선택)">
-              <input style={inputStyle} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-            </Field>
-          </div>
+          <Field label="반납 예정일 (선택)">
+            <input style={inputStyle} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          </Field>
 
           <Field label="메모 (선택)">
             <input style={inputStyle} value={note} onChange={(e) => setNote(e.target.value)} placeholder="예: 시험용으로 임시 사용" />
@@ -13801,7 +13796,7 @@ function BorrowView({ items, saveItems, txs, saveTxs, notify, outFormSettings, r
           {chip("all", "전체", "#38BDF8")}
           <input
             style={{ ...inputStyle, flex: 1, minWidth: 160, height: 34, padding: "4px 12px", fontSize: 13 }}
-            placeholder="자재명, 코드, 차용자, 호선 검색"
+            placeholder="자재명, 코드, 차용자 검색"
             value={listSearch}
             onChange={(e) => setListSearch(e.target.value)}
           />
@@ -13851,7 +13846,7 @@ function BorrowView({ items, saveItems, txs, saveTxs, notify, outFormSettings, r
                   </div>
 
                   <div style={{ fontSize: 11, color: "#9FB4C7", marginTop: 8, lineHeight: 1.6 }}>
-                    차용자 {b.worker || "-"} · 호선 {b.shipNo || "-"}<br />
+                    차용자 {b.worker || "-"}<br />
                     차용일 {String(b.at || "").slice(0, 16)}
                     {b.meta.dueDate ? ` · 반납예정 ${b.meta.dueDate}` : ""}
                     {b.meta.note ? <><br />메모: {b.meta.note}</> : null}

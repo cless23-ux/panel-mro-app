@@ -741,7 +741,7 @@ function Led({ status, size = 10 }) {
   );
 }
 
-const Card = React.forwardRef(function Card({ children, style, className = "", onClick, neon }, ref) {
+const Card = React.forwardRef(function Card({ children, style, className = "", onClick, neon, ...rest }, ref) {
   const neonStyle = neon
     ? {
         border: `1px solid ${neon}70`,
@@ -753,6 +753,7 @@ const Card = React.forwardRef(function Card({ children, style, className = "", o
       ref={ref}
       className={className}
       onClick={onClick}
+      {...rest}
       style={{
         background: "var(--bg-card-grad)",
         border: "1px solid var(--border-card)",
@@ -3277,6 +3278,68 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
   const [recentPage, setRecentPage] = useState(1);
   const RECENT_PAGE_SIZE = 10;
 
+  /* ---- 대시보드 창 배치 (끌어서 자리 바꾸기 · 이 기기에 저장) ---- */
+  const DASH_LAYOUT_KEY = "panel:dashLayout";
+  const DASH_DEFAULT_LAYOUT = ["chart", "detail", "alert", "recent"]; // 자리 0~3번에 들어가는 창
+  const DASH_SLOTS = [
+    { col: "1", row: "1 / 3" }, // 0번: 왼쪽 큰 자리
+    { col: "2", row: "1 / 3" }, // 1번: 가운데 큰 자리
+    { col: "3", row: "1" },     // 2번: 오른쪽 위
+    { col: "3", row: "2" },     // 3번: 오른쪽 아래
+  ];
+  const [dashLayout, setDashLayout] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(DASH_LAYOUT_KEY) || "null");
+      if (Array.isArray(saved) && saved.length === 4 && DASH_DEFAULT_LAYOUT.every((id) => saved.includes(id))) return saved;
+    } catch {}
+    return DASH_DEFAULT_LAYOUT;
+  });
+  const [layoutEdit, setLayoutEdit] = useState(false);
+  const [dragPanel, setDragPanel] = useState(null);
+  const [overPanel, setOverPanel] = useState(null);
+
+  const saveDashLayout = (next) => {
+    setDashLayout(next);
+    try { localStorage.setItem(DASH_LAYOUT_KEY, JSON.stringify(next)); } catch {}
+  };
+
+  const swapPanels = (a, b) => {
+    if (!a || !b || a === b) return;
+    const next = [...dashLayout];
+    const i = next.indexOf(a);
+    const j = next.indexOf(b);
+    [next[i], next[j]] = [next[j], next[i]];
+    saveDashLayout(next);
+  };
+
+  // 각 창의 위치 + 편집 모드 표시
+  const panelStyle = (id) => {
+    const slot = DASH_SLOTS[dashLayout.indexOf(id)] || DASH_SLOTS[0];
+    return {
+      "--slot-col": slot.col,
+      "--slot-row": slot.row,
+      ...(layoutEdit ? {
+        outline: overPanel === id && dragPanel && dragPanel !== id ? "2px solid #38BDF8" : "2px dashed #F5A62399",
+        outlineOffset: -2,
+        cursor: "grab",
+        opacity: dragPanel === id ? 0.5 : 1,
+      } : null),
+    };
+  };
+
+  // 편집 모드일 때만 드래그 가능
+  const panelDrag = (id) => (layoutEdit ? {
+    draggable: true,
+    onDragStart: (e) => {
+      setDragPanel(id);
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", id); } catch {}
+    },
+    onDragOver: (e) => { e.preventDefault(); if (overPanel !== id) setOverPanel(id); },
+    onDrop: (e) => { e.preventDefault(); swapPanels(dragPanel, id); setDragPanel(null); setOverPanel(null); },
+    onDragEnd: () => { setDragPanel(null); setOverPanel(null); },
+  } : {});
+
       useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -3442,10 +3505,7 @@ const filteredTotalText = useMemo(() => {
           grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
         }
         .dash-grid > * { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-        .dash-chart { grid-column: 1; grid-row: 1 / 3; }
-        .dash-detail { grid-column: 2; grid-row: 1 / 3; }
-        .dash-alert { grid-column: 3; grid-row: 1; }
-        .dash-recent { grid-column: 3; grid-row: 2; }
+        .dash-chart, .dash-detail, .dash-alert, .dash-recent { grid-column: var(--slot-col, 1); grid-row: var(--slot-row, 1); }
         @media (max-width: 1100px) {
           .dash-fit { height: auto; }
           .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3457,6 +3517,23 @@ const filteredTotalText = useMemo(() => {
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10, flexShrink: 0 }}>
         <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 20, fontWeight: 700, margin: 0 }}>대시보드</h1>
         <span style={{ color: "#7F97AC", fontSize: 12, fontFamily: "IBM Plex Mono" }}>실시간 재고 · 호선별 소모 현황</span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          {layoutEdit && (
+            <>
+              <span style={{ fontSize: 11.5, color: "#F5A623" }}>창을 끌어서 다른 창 위에 놓으면 자리가 바뀝니다</span>
+              <Btn variant="subtle" onClick={() => saveDashLayout(DASH_DEFAULT_LAYOUT)} style={{ padding: "5px 12px", fontSize: 12 }}>
+                기본 배치
+              </Btn>
+            </>
+          )}
+          <Btn
+            variant={layoutEdit ? "primary" : "subtle"}
+            onClick={() => setLayoutEdit((v) => !v)}
+            style={{ padding: "5px 12px", fontSize: 12 }}
+          >
+            {layoutEdit ? "✔ 배치 완료" : "🧩 배치 편집"}
+          </Btn>
+        </div>
       </div>
 
       <div className="dash-stats">
@@ -3468,7 +3545,7 @@ const filteredTotalText = useMemo(() => {
 
       <div className="dash-grid">
         {/* ① 호선별 소모 현황 (그래프) */}
-        <Card className="dash-chart" style={{ padding: 14 }}>
+        <Card className="dash-chart" style={{ padding: 14, ...panelStyle("chart") }} {...panelDrag("chart")}>
           <div
             style={{
               display: "flex", alignItems: "flex-start", justifyContent: "space-between",
@@ -3676,7 +3753,7 @@ const filteredTotalText = useMemo(() => {
         </Card>
 
         {/* ② 자재별 소모량 상세 */}
-        <Card className="dash-detail" style={{ padding: 14 }}>
+        <Card className="dash-detail" style={{ padding: 14, ...panelStyle("detail") }} {...panelDrag("detail")}>
           <div
             style={{
               fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.1em",
@@ -3743,7 +3820,7 @@ const filteredTotalText = useMemo(() => {
         </Card>
 
         {/* ③ 재고부족 경고 */}
-        <Card className="dash-alert" style={{ padding: 14 }}>
+        <Card className="dash-alert" style={{ padding: 14, ...panelStyle("alert") }} {...panelDrag("alert")}>
           <div
             style={{
               fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.1em",
@@ -3790,7 +3867,7 @@ const filteredTotalText = useMemo(() => {
         </Card>
 
         {/* ④ 최근 입출고 이력 */}
-        <Card className="dash-recent" style={{ padding: 14 }}>
+        <Card className="dash-recent" style={{ padding: 14, ...panelStyle("recent") }} {...panelDrag("recent")}>
           <SectionLabel>최근 입출고 이력</SectionLabel>
           {recent.length === 0 ? (
             <EmptyState icon={ScanLine} text="입출고 이력이 아직 없습니다." color="#5E86A3" />

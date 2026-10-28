@@ -757,7 +757,9 @@ const Card = React.forwardRef(function Card({ children, style, className = "", o
       style={{
         background: "var(--bg-card-grad)",
         border: "1px solid var(--border-card)",
-        borderRadius: 12,
+        borderRadius: "var(--card-radius, 12px)",
+        boxShadow: "var(--card-shadow, none)",
+        transition: "var(--card-transition, none)",
         ...neonStyle,
         ...style,
       }}
@@ -782,7 +784,7 @@ function SectionLabel({ children }) {
 
 function Btn({ children, onClick, variant = "primary", style, disabled, type = "button" }) {
   const variants = {
-    primary: { background: "#F5A623", color: "#0A1622", border: "1px solid #F5A623" },
+    primary: { background: "var(--btn-primary-bg, #F5A623)", color: "var(--btn-primary-text, #0A1622)", border: "1px solid var(--btn-primary-border, #F5A623)" },
     ghost: { background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" },
     danger: { background: "transparent", color: "#EF5350", border: "1px solid #4A2A2A" },
     subtle: { background: "var(--bg-subtle)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" },
@@ -2715,10 +2717,195 @@ function AppInner() {
             min-height: 46px !important;
           }
         }
-                  /* ===== PC 전용: 100% 배율에서 모든 메뉴/기능이 한 화면에 보이도록 컴팩트하게 ===== */
+                  /* =========================================================
+           LUXCO PC ENTERPRISE UI v3
+           - PC 전용 시각/레이아웃 개선
+           - 업무 로직, 데이터 처리, 이벤트는 변경하지 않음
+           ========================================================= */
+        @media (min-width: 769px) {
+          .app-container {
+            --bg-page: #07131F;
+            --bg-card-grad: linear-gradient(180deg, #10283A 0%, #0C1F30 100%);
+            --bg-card-flat: #0D2233;
+            --border-card: #24445D;
+            --bg-input: #091A29;
+            --border-input: #2B4F69;
+            --bg-subtle: #15344B;
+            --border-subtle: #2A4B64;
+            --text-primary: #F4F8FC;
+            --text-secondary: #D4E2EE;
+            --text-tertiary: #AFC2D1;
+            --text-muted: #8299AA;
+            --text-faint: #67839A;
+            --border-sidebar: #183247;
+            --table-hover: #122C40;
+            --card-radius: 16px;
+            --card-shadow: 0 10px 30px rgba(0,0,0,.20);
+            --card-transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+            --btn-primary-bg: #1677FF;
+            --btn-primary-text: #FFFFFF;
+            --btn-primary-border: #1677FF;
+          }
+
+          .app-container {
+            background:
+              radial-gradient(circle at 82% -10%, rgba(22,119,255,.14), transparent 28%),
+              radial-gradient(circle at 15% 100%, rgba(14,165,233,.08), transparent 24%),
+              var(--bg-page) !important;
+          }
+
+          .pc-sidebar {
+            width: 238px;
+            padding: 20px 14px 16px;
+            gap: 14px;
+            background: linear-gradient(180deg, #081827 0%, #07131F 72%, #06111B 100%);
+            border-right: 1px solid #1C3A50;
+            box-shadow: 10px 0 35px rgba(0,0,0,.18);
+          }
+
+          .pc-sidebar > div:first-child {
+            padding: 4px 8px 14px !important;
+            border-bottom: 1px solid #19364B;
+          }
+
+          .pc-sidebar .sidebar-nav {
+            padding: 4px 2px 8px;
+          }
+
+          .pc-sidebar .sidebar-nav button {
+            min-height: 42px;
+            padding: 9px 12px !important;
+            border-radius: 10px !important;
+            border-left: 3px solid transparent !important;
+            font-family: 'Pretendard', 'Noto Sans KR', sans-serif !important;
+            font-size: 13.5px !important;
+            font-weight: 650 !important;
+            letter-spacing: -.02em !important;
+            transition: background .16s ease, color .16s ease, transform .16s ease, border-color .16s ease;
+          }
+
+          .pc-sidebar .sidebar-nav button:hover:not(:disabled) {
+            background: rgba(22,119,255,.10) !important;
+            color: #EAF4FF !important;
+            transform: translateX(2px);
+          }
+
+          .pc-sidebar .sidebar-nav button[style*="F5A623"] {
+            background: linear-gradient(90deg, rgba(22,119,255,.20), rgba(22,119,255,.06)) !important;
+            color: #61A9FF !important;
+            border-color: #1677FF !important;
+            box-shadow: inset 0 0 18px rgba(22,119,255,.06);
+          }
+
+          .pc-sidebar .sidebar-stock-summary > div {
+            border-radius: 14px !important;
+            background: linear-gradient(180deg, #10283A, #0C1E2E) !important;
+            border: 1px solid #24445D !important;
+            box-shadow: 0 8px 24px rgba(0,0,0,.16);
+          }
+
+          .main-content {
+            padding: 22px 26px 28px;
+            background: transparent;
+          }
+
+          .tab-panel {
+            border: 1px solid rgba(65,117,150,.42);
+            border-radius: 18px;
+            padding: 18px 20px;
+            background: linear-gradient(180deg, rgba(12,31,47,.82), rgba(7,21,32,.72));
+            box-shadow: 0 18px 50px rgba(0,0,0,.16);
+          }
+
+          .tab-panel > .dash-fit {
+            padding: 2px;
+          }
+
+          .dash-fit > div:first-of-type h1 {
+            font-family: 'Pretendard', 'Noto Sans KR', sans-serif !important;
+            font-size: 25px !important;
+            font-weight: 800 !important;
+            letter-spacing: -.045em !important;
+          }
+
+          .dash-fit > div:first-of-type span {
+            font-family: 'Pretendard', 'Noto Sans KR', sans-serif !important;
+            letter-spacing: -.02em !important;
+          }
+
+          .dash-stats {
+            gap: 14px !important;
+            margin-bottom: 14px !important;
+          }
+
+          .dash-stats > div {
+            min-height: 92px;
+            padding: 15px 17px !important;
+            border-radius: 15px !important;
+          }
+
+          .dash-stats > div:hover {
+            transform: translateY(-2px);
+            border-color: #315B78 !important;
+            box-shadow: 0 14px 28px rgba(0,0,0,.20);
+          }
+
+          .dash-grid {
+            gap: 14px !important;
+          }
+
+          .dash-grid > div {
+            border-radius: 16px !important;
+            box-shadow: 0 10px 26px rgba(0,0,0,.14);
+          }
+
+          /* PC 공통 카드: 개별 기능 화면도 같은 제품군처럼 보이게 */
+          .main-content .tab-panel > div > div[style*="borderRadius"] {
+            border-radius: 14px;
+          }
+
+          table th {
+            background: #0A1D2D;
+            color: #8FA9BC;
+            font-weight: 750;
+            border-bottom: 1px solid #24445D;
+          }
+
+          table td {
+            color: #D6E3ED;
+          }
+
+          tbody tr {
+            border-top-color: #19364B !important;
+          }
+
+          tbody tr:hover {
+            background: rgba(22,119,255,.07) !important;
+          }
+
+          input, select, textarea {
+            border-radius: 9px !important;
+          }
+
+          input:focus, select:focus, textarea:focus {
+            border-color: #1677FF !important;
+            box-shadow: 0 0 0 3px rgba(22,119,255,.10) !important;
+          }
+
+          button {
+            font-family: 'Pretendard', 'Noto Sans KR', sans-serif !important;
+          }
+
+          .toast-box {
+            border-radius: 12px !important;
+            box-shadow: 0 14px 36px rgba(0,0,0,.28) !important;
+          }
+        }
+
+        /* ===== PC 전용: 100% 배율에서 모든 메뉴/기능이 한 화면에 보이도록 컴팩트하게 ===== */
         @media (min-width: 769px) {
           /* 사이드바 */
-          .pc-sidebar { width: 210px; padding: 14px 12px; gap: 12px; }
+          .pc-sidebar { width: 238px; padding: 20px 14px 16px; gap: 14px; }
           .pc-sidebar > button { padding: 7px 10px !important; font-size: 11px !important; }
           .pc-sidebar .sidebar-nav { gap: 2px !important; }
           .pc-sidebar .sidebar-nav button {
@@ -2728,8 +2915,8 @@ function AppInner() {
           .pc-sidebar .sidebar-stock-summary > div { padding: 10px !important; }
 
           /* 본문 */
-          .main-content { padding: 16px 20px; }
-          .tab-panel { padding: 12px 14px; }
+          .main-content { padding: 22px 26px 28px; }
+          .tab-panel { padding: 18px 20px; }
           .main-content h1 { font-size: 22px !important; }
 
           /* 표 */

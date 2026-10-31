@@ -6537,12 +6537,56 @@ function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs
       <style>{`
         .stock-issue-photo {
           width: 100%; height: 190px; background: #07131F; border-radius: 10px;
-          border: 1px solid #1F3B54; overflow: hidden; cursor: zoom-in;
-          display: flex; align-items: center; justify-content: center; position: relative;
+          border: 1px solid #1F3B54; overflow: hidden;
+          display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         }
         .stock-issue-photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        .stock-issue-hint { font-size: 10.5px; color: #5E86A3; text-align: center; margin: -6px 0 10px; }
+
         @media (max-width: 768px) {
-          .stock-issue-photo { height: min(46vh, 420px); }
+          /* 팝업 전체를 화면 높이에 딱 맞춰서 스크롤 없이 보이게 */
+          .stock-issue-box {
+            display: flex !important;
+            flex-direction: column;
+            height: min(calc(100dvh - 24px), 740px);
+            max-height: none !important;
+            padding: 10px !important;
+          }
+          .stock-issue-head { margin-bottom: 8px !important; flex-shrink: 0; }
+
+          /* 사진: 남는 공간을 자동으로 채움 (작은 폰은 작게, 큰 폰은 크게) */
+          .stock-issue-photo {
+            flex: 1 1 0;
+            height: auto;
+            min-height: 90px;
+            margin-bottom: 8px !important;
+          }
+          .stock-issue-hint { display: none; }
+
+          /* 자재 정보: 품명 2줄, 규격 1줄까지만 */
+          .stock-issue-info { padding: 7px 10px !important; margin-bottom: 8px !important; flex-shrink: 0; }
+          .stock-issue-name {
+            font-size: 14px !important; line-height: 1.3 !important;
+            display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+            overflow: hidden; word-break: break-word;
+          }
+          .stock-issue-code, .stock-issue-spec {
+            margin-top: 2px !important; font-size: 10.5px !important;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+
+          /* 입력창: 작고 촘촘하게 */
+          .stock-issue-fields { gap: 6px !important; margin-bottom: 8px !important; flex-shrink: 0; }
+          .stock-issue-fields .out-field-grid { gap: 6px; }
+          .stock-issue-fields label { gap: 3px !important; }
+          .stock-issue-fields label > span { font-size: 11.5px !important; }
+          .stock-issue-fields input {
+            padding: 7px 10px !important; height: 38px; font-size: 16px !important;
+          }
+
+          /* 버튼 */
+          .stock-issue-actions { flex-shrink: 0; }
+          .stock-issue-actions button { padding: 10px 6px !important; font-size: 13.5px !important; }
         }
       `}</style>
 
@@ -6554,24 +6598,28 @@ function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs
         }}
       >
         <div
+          className="stock-issue-box"
           onClick={(e) => e.stopPropagation()}
           style={{
             width: "100%", maxWidth: 460, maxHeight: "94dvh", overflowY: "auto",
             background: "#0F2233", border: "1px solid #F5A62355", borderRadius: 14, padding: 16,
           }}
         >
-          {/* 제목 */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          {/* 제목 줄: 왼쪽 제목 / 오른쪽 긴급요청 + 닫기 */}
+          <div className="stock-issue-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#F5A623", fontWeight: 700, fontSize: 15 }}>
               <ArrowUpFromLine size={18} /> 불출 정보 입력
             </div>
-            <button type="button" onClick={onClose} aria-label="닫기"
-              style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4, display: "flex" }}>
-              <X size={20} />
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
+              <button type="button" onClick={onClose} aria-label="닫기"
+                style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4, display: "flex" }}>
+                <X size={20} />
+              </button>
+            </div>
           </div>
 
-          {/* 큰 사진 (누르면 전체화면 확대) */}
+          {/* 사진 (누르면 전체화면 확대) */}
           <div
             className="stock-issue-photo"
             onClick={() => item.image_url && setPhotoZoom(true)}
@@ -6581,24 +6629,20 @@ function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs
               <img src={item.image_url} alt={item.name} />
             ) : (
               <div style={{ textAlign: "center", color: "#5E86A3" }}>
-                <ImageIcon size={34} style={{ marginBottom: 6, opacity: 0.8 }} />
+                <ImageIcon size={30} style={{ marginBottom: 4, opacity: 0.8 }} />
                 <div style={{ fontSize: 12 }}>등록된 사진이 없습니다</div>
               </div>
             )}
           </div>
-          {item.image_url && (
-            <div style={{ fontSize: 10.5, color: "#5E86A3", textAlign: "center", marginTop: -6, marginBottom: 10 }}>
-              사진을 누르면 크게 볼 수 있어요
-            </div>
-          )}
+          {item.image_url && <div className="stock-issue-hint">사진을 누르면 크게 볼 수 있어요</div>}
 
           {/* 자재 정보 + 현재고 */}
-          <div style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
+          <div className="stock-issue-info" style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", lineHeight: 1.35, wordBreak: "break-word" }}>{item.name}</div>
-                <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 3, wordBreak: "break-all" }}>코드: {item.code}</div>
-                <div style={{ fontSize: 11.5, color: "#9FB4C7", marginTop: 3, wordBreak: "break-word" }}>규격/사양: {item.spec || "-"}</div>
+                <div className="stock-issue-name" style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", lineHeight: 1.35, wordBreak: "break-word" }}>{item.name}</div>
+                <div className="stock-issue-code" style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 3, wordBreak: "break-all" }}>코드: {item.code}</div>
+                <div className="stock-issue-spec" style={{ fontSize: 11.5, color: "#9FB4C7", marginTop: 3, wordBreak: "break-word" }}>규격/사양: {item.spec || "-"}</div>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0, fontFamily: "IBM Plex Mono" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
@@ -6610,19 +6654,16 @@ function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs
                 <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>현재고</div>
               </div>
             </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-              <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
-            </div>
           </div>
 
           {/* 입력 */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+          <div className="stock-issue-fields" style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
             <div className="out-field-grid">
               <Field label="1. 호선">
                 {isLocalMode ? (
                   <AutocompleteInput value={ship} onChange={setShip} options={history.ship} placeholder="호선 입력" />
                 ) : (
-                  <StrictAutocompleteInput value={ship} onChange={setShip} options={shipOptions} placeholder="호선 검색 후 선택" />
+                  <StrictAutocompleteInput value={ship} onChange={setShip} options={shipOptions} placeholder="호선 선택" />
                 )}
               </Field>
               <Field label="2. 프로젝트">
@@ -6652,7 +6693,7 @@ function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="stock-issue-actions" style={{ display: "flex", gap: 8 }}>
             <Btn
               onClick={() => submit("정발주")}
               disabled={!ready}

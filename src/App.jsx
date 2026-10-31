@@ -4245,6 +4245,13 @@ const filteredTotalText = useMemo(() => {
       });
     return out;
   }, [chartOutTxs, periodStart]);
+  // 호선·프로젝트 버튼 검색
+  const [comboSearch, setComboSearch] = useState("");
+  const visibleCombos = useMemo(() => {
+    const q = comboSearch.trim().toLowerCase();
+    if (!q) return comboList;
+    return comboList.filter((c) => `${c.ship} ${c.project}`.toLowerCase().includes(q));
+  }, [comboList, comboSearch]);
 
   // 기간을 바꿔서 지금 선택한 조합이 목록에 없으면, 같은 호선(없으면 맨 앞 버튼)으로 자동 이동
   useEffect(() => {
@@ -4393,7 +4400,36 @@ const filteredTotalText = useMemo(() => {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+              <div style={{ position: "relative" }}>
+                <Search
+                  size={13} color="#5E86A3"
+                  style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+                />
+                <input
+                  value={materialSearch}
+                  onChange={(e) => setMaterialSearch(e.target.value)}
+                  placeholder="자재 검색"
+                  aria-label="자재 검색"
+                  style={{
+                    background: "#0B1C2C", border: "1px solid #315775", color: "#E7EEF5",
+                    padding: "6px 26px 6px 27px", borderRadius: 7, fontSize: 12, outline: "none", width: 150,
+                  }}
+                />
+                {materialSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setMaterialSearch("")}
+                    aria-label="검색 지우기"
+                    style={{
+                      position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
+                      background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", color: "#7F97AC",
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
               {CHART_MODES.map((m) => {
                 const on = chartMode === m.id;
                 return (
@@ -4431,6 +4467,44 @@ const filteredTotalText = useMemo(() => {
                 </span>
               </span>
               {comboList.length > 0 && (
+                <div style={{ position: "relative" }}>
+                  <Search
+                    size={12} color="#5E86A3"
+                    style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
+                  />
+                  <input
+                    value={comboSearch}
+                    onChange={(e) => setComboSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && visibleCombos.length >= 1) {
+                        e.preventDefault();
+                        setSelectedShip(visibleCombos[0].ship);
+                        setSelectedProject(visibleCombos[0].project);
+                      }
+                    }}
+                    placeholder="호선 · 프로젝트 검색"
+                    aria-label="호선 프로젝트 검색"
+                    style={{
+                      background: "#0F2233", border: "1px solid #315775", color: "#E7EEF5",
+                      padding: "4px 24px 4px 25px", borderRadius: 7, fontSize: 11.5, outline: "none", width: 160,
+                    }}
+                  />
+                  {comboSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setComboSearch("")}
+                      aria-label="검색 지우기"
+                      style={{
+                        position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)",
+                        background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", color: "#7F97AC",
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              )}
+              {comboList.length > 0 && (
                 <span style={{ fontSize: 11, color: "#7DB4FF", fontWeight: 700 }}>
                   선택: {selectedShip} · {selectedProject === ALL_PROJECTS ? "프로젝트 없음" : selectedProject}
                 </span>
@@ -4443,7 +4517,10 @@ const filteredTotalText = useMemo(() => {
               </div>
             ) : (
               <div style={{ maxHeight: 132, overflowY: "auto", display: "flex", flexWrap: "wrap", gap: 6, paddingRight: 2 }}>
-                {comboList.map((c) => {
+                {visibleCombos.length === 0 && (
+                  <span style={{ fontSize: 11.5, color: "#5E86A3", padding: "4px 0" }}>일치하는 호선 · 프로젝트가 없습니다.</span>
+                )}
+                {visibleCombos.map((c) => {
                   const on = c.ship === selectedShip && c.project === selectedProject;
                   const isAll = c.project === ALL_PROJECTS;
                   return (

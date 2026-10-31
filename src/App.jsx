@@ -3547,6 +3547,93 @@ const PERIOD_META = {
   week:  { label: "주 (이번 주)" },
   month: { label: "월 (이번 달)" },
 };
+/* ---------------- 대시보드: 직접 입력해서 고르는 호선 선택칸 ---------------- */
+function DashShipCombo({ value, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  const [typing, setTyping] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    setDraft(value || "");
+    setTyping(false);
+  }, [value]);
+
+  useEffect(() => {
+    const onOutside = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+        setTyping(false);
+        setDraft(value || ""); // 고르지 않고 벗어나면 원래 호선으로 되돌림
+      }
+    };
+    document.addEventListener("mousedown", onOutside);
+    return () => document.removeEventListener("mousedown", onOutside);
+  }, [value]);
+
+  const filtered = useMemo(() => {
+    const q = typing ? draft.toLowerCase().trim() : "";
+    return (options || []).filter((o) => !q || String(o).toLowerCase().includes(q));
+  }, [options, draft, typing]);
+
+  const pick = (o) => {
+    onChange(o);
+    setDraft(o);
+    setTyping(false);
+    setOpen(false);
+  };
+
+  const onEnter = () => {
+    const q = draft.trim().toLowerCase();
+    const exact = (options || []).find((o) => String(o).toLowerCase() === q);
+    if (exact) pick(exact);
+    else if (filtered.length >= 1) pick(filtered[0]);
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", width: 124 }}>
+      <input
+        value={draft}
+        placeholder="호선 입력"
+        aria-label="호선 입력 또는 선택"
+        autoComplete="off"
+        onFocus={(e) => { setOpen(true); e.target.select(); }}
+        onChange={(e) => { setDraft(e.target.value); setTyping(true); setOpen(true); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); onEnter(); }
+          if (e.key === "Escape") { setOpen(false); setTyping(false); setDraft(value || ""); e.currentTarget.blur(); }
+        }}
+        style={{
+          width: "100%", background: "#0B1C2C", border: "1px solid #315775", color: "#38BDF8",
+          padding: "6px 22px 6px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700, outline: "none",
+        }}
+      />
+      <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "#7F97AC", fontSize: 9 }}>▼</span>
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, minWidth: "100%", zIndex: 100,
+          background: "#0F2233", border: "1px solid #274460", borderRadius: 8,
+          marginTop: 4, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", maxHeight: 240, overflowY: "auto",
+        }}>
+          {filtered.length > 0 ? filtered.map((o) => (
+            <div
+              key={o}
+              onMouseDown={(e) => { e.preventDefault(); pick(o); }}
+              style={{
+                padding: "8px 12px", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: "#E7EEF5",
+                borderBottom: "1px solid #16293C", background: o === value ? "#1E3A5F" : "transparent",
+              }}
+            >
+              {o}
+            </div>
+          )) : (
+            <div style={{ padding: "8px 12px", fontSize: 12, color: "#5E86A3", whiteSpace: "nowrap" }}>일치하는 호선이 없습니다.</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onSelectAlertItem }) {
   const [historyModal, setHistoryModal] = useState(null); // null | "in" | "out"
   const [shortageModal, setShortageModal] = useState(false);
@@ -3860,9 +3947,6 @@ const filteredTotalText = useMemo(() => {
   /* ---- 그래프 보기 방식 ---- */
   const CHART_MODES = [
     { id: "material", label: "📊 자재별 막대" },
-    { id: "ships", label: "🚢 호선별 비교" },
-    { id: "split", label: "🧩 호선별 나눠보기" },
-    { id: "trend", label: "📈 소모 추이" },
     { id: "project", label: "🥧 프로젝트 비중" },
   ];
   const CHART_MODE_KEY = "panel:dashChartMode";
@@ -4238,20 +4322,7 @@ const filteredTotalText = useMemo(() => {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              <select
-                value={selectedShip}
-                onChange={(e) => setSelectedShip(e.target.value)}
-                aria-label="호선 선택"
-                style={{
-                  background: "#0B1C2C", border: "1px solid #315775", color: "#38BDF8",
-                  padding: "6px 26px 6px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700,
-                  outline: "none", cursor: "pointer", minWidth: 92,
-                }}
-              >
-                {availableShips.map((ship) => (
-                  <option key={ship} value={ship}>{ship}</option>
-                ))}
-              </select>
+              <DashShipCombo value={selectedShip} onChange={setSelectedShip} options={availableShips} />
 
               <select
                 value={selectedProject}
@@ -6859,7 +6930,7 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, o
   );
 }
 /* ---------------- 재고조회: 불출정보 입력 팝업 ---------------- */
-function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs, urgentRequests, addUrgentRequest, onClose }) {
+function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems, reloadTxs, urgentRequests, addUrgentRequest, onClose }) {
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
   const workerOptions = outFormSettings?.workers || [];
@@ -6876,6 +6947,39 @@ function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs
   const [worker, setWorker] = useState(isLocalMode ? (history.worker[0] || "") : "");
   const [submitting, setSubmitting] = useState(false);
   const [photoZoom, setPhotoZoom] = useState(false);
+  
+  // 사진 바로 등록 (촬영 → 압축 → 업로드 → 자재 사진으로 저장)
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [localImageUrl, setLocalImageUrl] = useState("");
+  const photoCameraRef = useRef(null);
+  // 방금 등록한 사진이 있으면 그 사진을 바로 보여줌 (아래 코드는 모두 item 을 그대로 사용)
+  const item = localImageUrl ? { ...itemProp, image_url: localImageUrl } : itemProp;
+
+  const handlePhotoSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      setUploadingPhoto(true);
+      notify("사진을 올리는 중...", "info");
+      const url = await compressAndUploadImage(file, itemProp.code);
+      if (supabase) {
+        const { error } = await supabase
+          .from("items")
+          .update({ image_url: url })
+          .eq("code", itemProp.code);
+        if (error) throw error;
+      }
+      setLocalImageUrl(url);
+      try { await reloadItems?.(); } catch (reloadErr) { console.error(reloadErr); }
+      notify("제품 사진이 등록되었습니다.", "ok");
+    } catch (err) {
+      console.error(err);
+      notify(`사진 등록 실패: ${err?.message || err}`, "err");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
   
   // 최신 값을 기억해두는 용도 (이벤트 안에서 항상 최신 상태를 쓰기 위함)
   const photoZoomRef = useRef(false);
@@ -7043,12 +7147,35 @@ function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs
             background: "#0F2233", border: "1px solid #F5A62355", borderRadius: 14, padding: 16,
           }}
         >
-          {/* 제목 줄: 왼쪽 제목 / 오른쪽 긴급요청 + 닫기 */}
+          {/* 제목 줄: 왼쪽 제목 / 오른쪽 사진촬영 + 긴급요청 + 닫기 */}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={photoCameraRef}
+            style={{ display: "none" }}
+            onChange={handlePhotoSelected}
+          />
           <div className="stock-issue-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#F5A623", fontWeight: 700, fontSize: 15 }}>
               <ArrowUpFromLine size={18} /> 불출 정보 입력
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => photoCameraRef.current?.click()}
+                disabled={uploadingPhoto}
+                title="제품 사진 촬영해서 등록"
+                style={{
+                  display: "flex", alignItems: "center", gap: 4, flexShrink: 0,
+                  padding: "5px 9px", borderRadius: 7,
+                  border: "1px solid #38BDF866", background: "#38BDF818",
+                  color: "#7DD3FC", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap",
+                  cursor: uploadingPhoto ? "wait" : "pointer", opacity: uploadingPhoto ? 0.6 : 1,
+                }}
+              >
+                <Camera size={12} />{uploadingPhoto ? "등록 중..." : "사진"}
+              </button>
               <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
               <button type="button" onClick={onClose} aria-label="닫기"
                 style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4, display: "flex" }}>

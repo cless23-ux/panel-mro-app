@@ -4184,6 +4184,70 @@ const filteredTotalText = useMemo(() => {
 
     return null;
   };
+    /* ---- 호선·프로젝트 합친 버튼 목록 ---- */
+  const comboList = useMemo(() => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const todayStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    const ships = {};
+    txs.forEach((t) => {
+      if (t.type !== "out" || t.deleted === true) return;
+      if (String(t.reason || "").includes("MRO_REVERSED_OUT:")) return;
+      const ship = String(t.shipNo || "").trim();
+      if (!ship || ship === "미입력" || ship === "소모자재") return;
+
+      const at = String(t.at || "").replace("T", " ");
+      if (periodStart) {
+        const dt = new Date(at.replace(" ", "T"));
+        if (Number.isNaN(dt.getTime()) || dt < periodStart) return;
+      }
+
+      const proj = String(t.project || "").trim();
+      const validProj = proj && proj !== "미입력";
+      const isToday = at.startsWith(todayStr);
+
+      if (!ships[ship]) ships[ship] = { ship, lastAt: "", count: 0, today: false, projects: {}, hasOther: false };
+      const s = ships[ship];
+      s.count += 1;
+      if (at > s.lastAt) s.lastAt = at;
+      if (isToday) s.today = true;
+
+      if (validProj) {
+        if (!s.projects[proj]) s.projects[proj] = { project: proj, lastAt: "", count: 0, today: false };
+        const p = s.projects[proj];
+        p.count += 1;
+        if (at > p.lastAt) p.lastAt = at;
+        if (isToday) p.today = true;
+      } else {
+        s.hasOther = true;
+      }
+    });
+
+    const out = [];
+    Object.values(ships)
+      .sort((a, b) => b.lastAt.localeCompare(a.lastAt))
+      .forEach((s) => {
+        const projs = Object.values(s.projects).sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+        // 프로젝트가 2개 이상이거나, 프로젝트 구분이 없는 기록이 있으면 '호선 전체' 버튼도 만듭니다
+        if (projs.length >= 2 || projs.length === 0 || s.hasOther) {
+          out.push({ key: `${s.ship}::${ALL_PROJECTS}`, ship: s.ship, project: ALL_PROJECTS, count: s.count, today: s.today });
+        }
+        projs.forEach((p) => {
+          out.push({ key: `${s.ship}::${p.project}`, ship: s.ship, project: p.project, count: p.count, today: p.today });
+        });
+      });
+    return out;
+  }, [txs, periodStart]);
+
+  // 기간을 바꿔서 지금 선택한 조합이 목록에 없으면, 같은 호선(없으면 맨 앞 버튼)으로 자동 이동
+  useEffect(() => {
+    if (comboList.length === 0) return;
+    if (comboList.some((c) => c.ship === selectedShip && c.project === selectedProject)) return;
+    const pick = comboList.find((c) => c.ship === selectedShip) || comboList[0];
+    setSelectedShip(pick.ship);
+    setSelectedProject(pick.project);
+  }, [comboList, selectedShip, selectedProject]);
   const recentAll = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
@@ -4285,15 +4349,17 @@ const filteredTotalText = useMemo(() => {
         <Card className="dash-chart" style={{ padding: 14, ...panelStyle("chart") }} {...panelDrag("chart")}>
           {renderChrome("chart")}
           
+
+          {/* 제목 · 기간 · 그래프 방식 */}
           <div
             style={{
               display: "flex", alignItems: "flex-start", justifyContent: "space-between",
-              gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #1F3B54", flexWrap: "wrap", flexShrink: 0,
+              gap: 10, marginBottom: 10, flexWrap: "wrap", flexShrink: 0,
             }}
           >
             <div style={{ minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#E7EEF5", fontSize: 14, fontWeight: 700 }}>
-                <span style={{ width: 3, height: 16, borderRadius: 3, background: "#38BDF8", display: "inline-block", boxShadow: "0 0 10px #38BDF855" }} />
+                <span style={{ width: 3, height: 16, borderRadius: 3, background: "#3B82F6", display: "inline-block" }} />
                 호선별 부자재 소모 현황
                 <span style={{ color: "#5E86A3", fontSize: 10.5, fontWeight: 500 }}>{PERIOD_META[period].label} 기준</span>
               </div>
@@ -4308,10 +4374,10 @@ const filteredTotalText = useMemo(() => {
                       onClick={() => setPeriod(id)}
                       style={{
                         padding: "4px 10px", borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: "pointer",
-                        fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
-                        border: `1px solid ${on ? "#38BDF8" : "#1F3B54"}`,
-                        background: on ? "#38BDF822" : "#0B1C2C",
-                        color: on ? "#38BDF8" : "#7F97AC",
+                        whiteSpace: "nowrap",
+                        border: `1px solid ${on ? "#3B82F6" : "#1F3B54"}`,
+                        background: on ? "#3B82F622" : "#0B1C2C",
+                        color: on ? "#7DB4FF" : "#7F97AC",
                       }}
                     >
                       {meta.label}
@@ -4321,128 +4387,85 @@ const filteredTotalText = useMemo(() => {
               </div>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              <DashShipCombo value={selectedShip} onChange={setSelectedShip} options={availableShips} />
-
-              <select
-                value={selectedProject}
-                onChange={(e) => setSelectedProject(e.target.value)}
-                aria-label="프로젝트 선택"
-                style={{
-                  background: "#0B1C2C", border: "1px solid #315775", color: "#F5A623",
-                  padding: "6px 26px 6px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700,
-                  outline: "none", cursor: "pointer", minWidth: 76,
-                }}
-              >
-                {availableProjects.map((proj) => (
-                  <option key={proj} value={proj}>{proj}</option>
-                ))}
-              </select>
-
-              <div style={{ position: "relative" }}>
-                <Search
-                  size={13} color="#5E86A3"
-                  style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-                />
-                <input
-                  value={materialSearch}
-                  onChange={(e) => setMaterialSearch(e.target.value)}
-                  placeholder="자재 검색"
-                  aria-label="자재 검색"
-                  style={{
-                    background: "#0B1C2C", border: "1px solid #315775", color: "#E7EEF5",
-                    padding: "6px 26px 6px 27px", borderRadius: 7, fontSize: 12, outline: "none", width: 120,
-                  }}
-                />
-                {materialSearch && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {CHART_MODES.map((m) => {
+                const on = chartMode === m.id;
+                return (
                   <button
+                    key={m.id}
                     type="button"
-                    onClick={() => setMaterialSearch("")}
-                    aria-label="검색 지우기"
+                    onClick={() => changeChartMode(m.id)}
                     style={{
-                      position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
-                      background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", color: "#7F97AC",
+                      padding: "5px 11px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+                      border: `1px solid ${on ? "#3B82F6" : "#1F3B54"}`,
+                      background: on ? "#3B82F61f" : "#0B1C2C",
+                      color: on ? "#7DB4FF" : "#7F97AC",
                     }}
                   >
-                    <X size={13} />
+                    {m.label}
                   </button>
-                )}
-              </div>
+                );
+              })}
             </div>
           </div>
-                    {/* 그래프 보기 방식 */}
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10, flexShrink: 0 }}>
-            {CHART_MODES.map((m) => {
-              const on = chartMode === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => changeChartMode(m.id)}
-                  style={{
-                    padding: "5px 11px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
-                    border: `1px solid ${on ? "#3B82F6" : "#1F3B54"}`,
-                    background: on ? "#3B82F61f" : "#0B1C2C",
-                    color: on ? "#7DB4FF" : "#7F97AC",
-                  }}
-                >
-                  {m.label}
-                </button>
-              );
-            })}
-          </div>
 
-          {/* 오늘 불출된 호선 */}
+          {/* 호선 · 프로젝트 버튼 */}
           <div
             style={{
-              display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
-              marginBottom: 10, padding: "6px 10px", flexShrink: 0,
+              flexShrink: 0, marginBottom: 10, padding: "8px 10px",
               background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 9,
             }}
           >
-            <span
-              style={{
-                display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
-                fontSize: 11, fontWeight: 700, color: "#F5A623",
-                fontFamily: "'IBM Plex Mono', monospace",
-              }}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#F5A623", boxShadow: "0 0 6px #F5A623" }} />
-              오늘 불출 호선 ({todayShips.length})
-            </span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 7 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#7F97AC" }}>
+                호선 · 프로젝트 ({comboList.length})
+                <span style={{ marginLeft: 8, color: "#5E86A3", fontWeight: 500 }}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#F5A623", marginRight: 4, verticalAlign: "middle" }} />
+                  오늘 불출
+                </span>
+              </span>
+              {comboList.length > 0 && (
+                <span style={{ fontSize: 11, color: "#7DB4FF", fontWeight: 700 }}>
+                  선택: {selectedShip} · {selectedProject === ALL_PROJECTS ? "전체" : selectedProject}
+                </span>
+              )}
+            </div>
 
-            {todayShips.length === 0 ? (
-              <span style={{ fontSize: 11, color: "#5E86A3" }}>오늘 불출된 호선이 없습니다.</span>
+            {comboList.length === 0 ? (
+              <div style={{ fontSize: 11.5, color: "#5E86A3", padding: "4px 0" }}>
+                {PERIOD_META[period].label} 기간에 불출된 호선이 없습니다.
+              </div>
             ) : (
-              todayShips.map((s) => {
-                const active = selectedShip === s.ship;
-                return (
-                  <button
-                    key={s.ship}
-                    type="button"
-                    onClick={() => {
-                      setSelectedShip(s.ship);
-                      setSelectedProject(ALL_PROJECTS);
-                      setPeriod("day");
-                    }}
-                    title={`오늘 ${s.count}건 · ${s.itemKinds}종 · 마지막 불출 ${s.lastAt}`}
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: 5,
-                      padding: "3px 9px", borderRadius: 999, cursor: "pointer",
-                      fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
-                      fontFamily: "'IBM Plex Mono', monospace",
-                      border: `1px solid ${active ? "#F5A623" : "#315775"}`,
-                      background: active ? "#F5A6231f" : "transparent",
-                      color: active ? "#F5A623" : "#38BDF8",
-                    }}
-                  >
-                    {s.ship}
-                    <span style={{ fontSize: 10, fontWeight: 600, color: active ? "#F5A623" : "#7F97AC" }}>
-                      {s.count}건
-                    </span>
-                  </button>
-                );
-              })
+              <div style={{ maxHeight: 132, overflowY: "auto", display: "flex", flexWrap: "wrap", gap: 6, paddingRight: 2 }}>
+                {comboList.map((c) => {
+                  const on = c.ship === selectedShip && c.project === selectedProject;
+                  const isAll = c.project === ALL_PROJECTS;
+                  return (
+                    <button
+                      key={c.key}
+                      type="button"
+                      onClick={() => { setSelectedShip(c.ship); setSelectedProject(c.project); }}
+                      title={`${c.ship} · ${isAll ? "호선 전체" : c.project} · ${c.count}건`}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                        padding: "5px 10px", borderRadius: 8, fontSize: 11.5, fontWeight: 700,
+                        cursor: "pointer", whiteSpace: "nowrap",
+                        border: `1px ${isAll && !on ? "dashed" : "solid"} ${on ? "#3B82F6" : "#274460"}`,
+                        background: on ? "#3B82F633" : "#0F2233",
+                        color: on ? "#DBEAFE" : "#9FB4C7",
+                      }}
+                    >
+                      {c.today && (
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#F5A623", flexShrink: 0 }} />
+                      )}
+                      <span style={{ color: on ? "#FFFFFF" : "#38BDF8" }}>{c.ship}</span>
+                      <span style={{ opacity: 0.5 }}>·</span>
+                      <span style={{ color: on ? "#DBEAFE" : isAll ? "#F5A623" : "#C9DAE8" }}>{isAll ? "전체" : c.project}</span>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: on ? "#93C5FD" : "#5E86A3" }}>{c.count}건</span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
 

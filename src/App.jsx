@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
+  AreaChart, Area, PieChart, Pie,
 } from "recharts";
 import {
   Package, ArrowDownToLine, ArrowUpFromLine, LayoutGrid, Boxes, ScanLine,
@@ -3554,25 +3555,57 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
   const [recentPage, setRecentPage] = useState(1);
   const RECENT_PAGE_SIZE = 10;
 
-  /* ---- 대시보드 창 배치 (끌어서 자리 바꾸기 · 이 기기에 저장) ---- */
-  const DASH_LAYOUT_KEY = "panel:dashLayout";
-  const DASH_DEFAULT_LAYOUT = ["chart", "detail", "alert", "recent"]; // 자리 0~3번에 들어가는 창
-  const DASH_SLOTS = [
-    { col: "1", row: "1 / 3" }, // 0번: 왼쪽 큰 자리
-    { col: "2", row: "1 / 3" }, // 1번: 가운데 큰 자리
-    { col: "3", row: "1" },     // 2번: 오른쪽 위
-    { col: "3", row: "2" },     // 3번: 오른쪽 아래
+  /* ---- 대시보드 창 배치 (순서 · 크기 · 숨김 / 이 기기에 저장) ---- */
+  const DASH_LAYOUT_KEY = "panel:dashLayout2";
+  const DASH_COLS = 12;      // 가로 12칸 격자
+  const DASH_ROW_H = 40;     // 세로 1칸 높이(px)
+  const DASH_GAP = 10;       // 칸 사이 간격(px)
+  const DASH_PANELS = [
+    { id: "chart", label: "호선별 소모 그래프" },
+    { id: "detail", label: "자재별 소모량 상세" },
+    { id: "alert", label: "재고부족 경고" },
+    { id: "recent", label: "최근 입출고 이력" },
   ];
-  const [dashLayout, setDashLayout] = useState(() => {
+  const DASH_DEFAULT_LAYOUT = {
+    order: ["chart", "detail", "alert", "recent"],
+    hidden: [],
+    size: {
+      chart: { w: 5, h: 14 },
+      detail: { w: 4, h: 14 },
+      alert: { w: 3, h: 7 },
+      recent: { w: 3, h: 7 },
+    },
+  };
+
+  const normalizeLayout = (raw) => {
+    const base = DASH_DEFAULT_LAYOUT;
     try {
-      const saved = JSON.parse(localStorage.getItem(DASH_LAYOUT_KEY) || "null");
-      if (Array.isArray(saved) && saved.length === 4 && DASH_DEFAULT_LAYOUT.every((id) => saved.includes(id))) return saved;
-    } catch {}
-    return DASH_DEFAULT_LAYOUT;
+      const ids = DASH_PANELS.map((p) => p.id);
+      const order = Array.isArray(raw?.order) ? raw.order.filter((id) => ids.includes(id)) : [];
+      ids.forEach((id) => { if (!order.includes(id)) order.push(id); });
+      const hidden = Array.isArray(raw?.hidden) ? raw.hidden.filter((id) => ids.includes(id)) : [];
+      const size = {};
+      ids.forEach((id) => {
+        const s = raw?.size?.[id] || base.size[id];
+        size[id] = {
+          w: Math.min(DASH_COLS, Math.max(2, Math.round(Number(s.w)) || base.size[id].w)),
+          h: Math.min(30, Math.max(3, Math.round(Number(s.h)) || base.size[id].h)),
+        };
+      });
+      return { order, hidden, size };
+    } catch {
+      return base;
+    }
+  };
+
+  const [dashLayout, setDashLayout] = useState(() => {
+    try { return normalizeLayout(JSON.parse(localStorage.getItem(DASH_LAYOUT_KEY) || "null")); }
+    catch { return DASH_DEFAULT_LAYOUT; }
   });
   const [layoutEdit, setLayoutEdit] = useState(false);
   const [dragPanel, setDragPanel] = useState(null);
   const [overPanel, setOverPanel] = useState(null);
+  const gridRef = useRef(null);
 
   const saveDashLayout = (next) => {
     setDashLayout(next);
@@ -3581,42 +3614,125 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
 
   const swapPanels = (a, b) => {
     if (!a || !b || a === b) return;
-    const next = [...dashLayout];
-    const i = next.indexOf(a);
-    const j = next.indexOf(b);
-    [next[i], next[j]] = [next[j], next[i]];
-    saveDashLayout(next);
+    const order = [...dashLayout.order];
+    const i = order.indexOf(a);
+    const j = order.indexOf(b);
+    [order[i], order[j]] = [order[j], order[i]];
+    saveDashLayout({ ...dashLayout, order });
   };
 
-  // 각 창의 위치 + 편집 모드 표시
+  const toggleHidePanel = (id) => {
+    const hidden = dashLayout.hidden.includes(id)
+      ? dashLayout.hidden.filter((x) => x !== id)
+      : [...dashLayout.hidden, id];
+    saveDashLayout({ ...dashLayout, hidden });
+  };
+
+  // 오른쪽 아래 모서리를 끌어서 크기 조절 (격자 칸에 맞춰 딱딱 변함)
+  const startResize = (e, id) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const grid = gridRef.current;
+    if (!grid) return;
+    const rect = grid.getBoundingClientRect();
+    const colPitch = (rect.width + DASH_GAP) / DASH_COLS;
+    const rowPitch = DASH_ROW_H + DASH_GAP;
+    const start = dashLayout.size[id];
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let latest = dashLayout;
+
+    const onMove = (ev) => {
+      const w = Math.min(DASH_COLS, Math.max(2, Math.round(start.w + (ev.clientX - sx) / colPitch)));
+      const h = Math.min(30, Math.max(3, Math.round(start.h + (ev.clientY - sy) / rowPitch)));
+      latest = { ...dashLayout, size: { ...dashLayout.size, [id]: { w, h } } };
+      setDashLayout(latest);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      saveDashLayout(latest);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  // 각 창의 위치(순서)·크기·숨김 스타일
   const panelStyle = (id) => {
-    const slot = DASH_SLOTS[dashLayout.indexOf(id)] || DASH_SLOTS[0];
+    const s = dashLayout.size[id];
+    const hidden = dashLayout.hidden.includes(id);
     return {
-      "--slot-col": slot.col,
-      "--slot-row": slot.row,
+      gridColumn: `span ${s.w}`,
+      gridRow: `span ${s.h}`,
+      order: dashLayout.order.indexOf(id),
+      position: "relative",
+      ...(hidden ? { display: "none" } : null),
       ...(layoutEdit ? {
-        outline: overPanel === id && dragPanel && dragPanel !== id ? "2px solid #38BDF8" : "2px dashed #F5A62399",
+        outline: overPanel === id && dragPanel && dragPanel !== id ? "2px solid #38BDF8" : "2px dashed #3B82F688",
         outlineOffset: -2,
-        cursor: "grab",
         opacity: dragPanel === id ? 0.5 : 1,
       } : null),
     };
   };
 
-  // 편집 모드일 때만 드래그 가능
+  // 편집 모드일 때 다른 창 위에 놓으면 자리 교체
   const panelDrag = (id) => (layoutEdit ? {
-    draggable: true,
-    onDragStart: (e) => {
-      setDragPanel(id);
-      e.dataTransfer.effectAllowed = "move";
-      try { e.dataTransfer.setData("text/plain", id); } catch {}
-    },
-    onDragOver: (e) => { e.preventDefault(); if (overPanel !== id) setOverPanel(id); },
+    onDragOver: (e) => { if (dragPanel) { e.preventDefault(); if (overPanel !== id) setOverPanel(id); } },
     onDrop: (e) => { e.preventDefault(); swapPanels(dragPanel, id); setDragPanel(null); setOverPanel(null); },
-    onDragEnd: () => { setDragPanel(null); setOverPanel(null); },
   } : {});
 
-      useEffect(() => {
+  // 편집 모드일 때 각 창에 붙는 제목줄(이동·숨기기)과 크기조절 손잡이
+  const renderChrome = (id) => {
+    if (!layoutEdit) return null;
+    const meta = DASH_PANELS.find((p) => p.id === id);
+    const s = dashLayout.size[id];
+    return (
+      <>
+        <div
+          draggable
+          onDragStart={(e) => {
+            setDragPanel(id);
+            e.dataTransfer.effectAllowed = "move";
+            try {
+              e.dataTransfer.setData("text/plain", id);
+              e.dataTransfer.setDragImage(e.currentTarget.parentElement, 20, 20);
+            } catch {}
+          }}
+          onDragEnd={() => { setDragPanel(null); setOverPanel(null); }}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+            margin: "-4px -4px 8px", padding: "5px 8px", borderRadius: 8,
+            background: "#3B82F61f", border: "1px solid #3B82F655",
+            cursor: "grab", flexShrink: 0, userSelect: "none",
+          }}
+        >
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: "#7DB4FF" }}>⠿ {meta?.label} · 끌어서 이동</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 10.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>{s.w}×{s.h}</span>
+            <button
+              type="button"
+              onClick={() => toggleHidePanel(id)}
+              style={{ padding: "2px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: "pointer", border: "1px solid #EF535088", background: "#EF53501a", color: "#FF8A80" }}
+            >
+              숨기기
+            </button>
+          </span>
+        </div>
+        <div
+          onPointerDown={(e) => startResize(e, id)}
+          title="끌어서 크기 조절"
+          style={{
+            position: "absolute", right: 2, bottom: 2, width: 22, height: 22, zIndex: 10,
+            cursor: "nwse-resize", touchAction: "none", color: "#7DB4FF", fontSize: 16, lineHeight: 1,
+            display: "flex", alignItems: "flex-end", justifyContent: "flex-end",
+          }}
+        >
+          ◢
+        </div>
+      </>
+    );
+  };
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       const rows = await loadCumulativeOutTxs();
@@ -3741,6 +3857,249 @@ const filteredTotalText = useMemo(() => {
   const total = filteredConsumption.reduce((s, m) => s + m.qty, 0);
   return `${total.toLocaleString()} ${units[0]}`;
 }, [filteredConsumption]);
+  /* ---- 그래프 보기 방식 ---- */
+  const CHART_MODES = [
+    { id: "material", label: "📊 자재별 막대" },
+    { id: "ships", label: "🚢 호선별 비교" },
+    { id: "split", label: "🧩 호선별 나눠보기" },
+    { id: "trend", label: "📈 소모 추이" },
+    { id: "project", label: "🥧 프로젝트 비중" },
+  ];
+  const CHART_MODE_KEY = "panel:dashChartMode";
+  const PIE_COLORS = ["#38BDF8", "#F5A623", "#35D08C", "#A78BFA", "#F472B6", "#FBBF24", "#22D3EE", "#EF5350"];
+  const [chartMode, setChartMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem(CHART_MODE_KEY);
+      return CHART_MODES.some((m) => m.id === saved) ? saved : "material";
+    } catch { return "material"; }
+  });
+  const changeChartMode = (id) => {
+    setChartMode(id);
+    try { localStorage.setItem(CHART_MODE_KEY, id); } catch {}
+  };
+
+  // 기간 · 프로젝트 조건에 맞는 출고 기록 (모든 호선, 원복건 제외)
+  const periodOuts = useMemo(() => {
+    return txs.filter((t) => {
+      if (t.type !== "out" || t.deleted === true) return false;
+      if (String(t.reason || "").includes("MRO_REVERSED_OUT:")) return false;
+      const ship = String(t.shipNo || "").trim();
+      if (!ship || ship === "미입력" || ship === "소모자재") return false;
+      if (selectedProject !== ALL_PROJECTS && t.project !== selectedProject) return false;
+      if (periodStart) {
+        const d = new Date(String(t.at || "").replace(" ", "T"));
+        if (Number.isNaN(d.getTime()) || d < periodStart) return false;
+      }
+      return true;
+    });
+  }, [txs, selectedProject, periodStart]);
+
+  // 🚢 호선별 비교
+  const shipCompareData = useMemo(() => {
+    const map = {};
+    periodOuts.forEach((t) => {
+      const ship = String(t.shipNo).trim();
+      if (!map[ship]) map[ship] = { ship, plan: 0, extra: 0 };
+      const q = Number(t.qty) || 0;
+      if (getIssueKind(t) === "정발주") map[ship].plan += q;
+      else map[ship].extra += q;
+    });
+    return Object.values(map).sort((a, b) => (b.plan + b.extra) - (a.plan + a.extra));
+  }, [periodOuts]);
+
+  // 🧩 호선별 나눠보기 (호선마다 소모 TOP 5)
+  const splitData = useMemo(() => {
+    const ships = {};
+    periodOuts.forEach((t) => {
+      const ship = String(t.shipNo).trim();
+      if (!ships[ship]) ships[ship] = { ship, total: 0, mats: {} };
+      const q = Number(t.qty) || 0;
+      ships[ship].total += q;
+      const key = t.itemName || t.itemCode;
+      ships[ship].mats[key] = (ships[ship].mats[key] || 0) + q;
+    });
+    return Object.values(ships)
+      .map((s) => ({
+        ship: s.ship,
+        total: s.total,
+        top: Object.entries(s.mats).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 5),
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 12);
+  }, [periodOuts]);
+
+  // 📈 소모 추이 (선택한 호선)
+  const trendData = useMemo(() => {
+    const map = {};
+    periodOuts
+      .filter((t) => String(t.shipNo).trim() === selectedShip)
+      .forEach((t) => {
+        const raw = String(t.at || "").replace("T", " ");
+        const key = period === "day" ? `${raw.slice(11, 13)}시` : raw.slice(0, 10);
+        if (!map[key]) map[key] = { label: key, plan: 0, extra: 0 };
+        const q = Number(t.qty) || 0;
+        if (getIssueKind(t) === "정발주") map[key].plan += q;
+        else map[key].extra += q;
+      });
+    return Object.values(map).sort((a, b) => a.label.localeCompare(b.label)).slice(-45);
+  }, [periodOuts, selectedShip, period]);
+
+  // 🥧 프로젝트 비중 (선택한 호선)
+  const projectShareData = useMemo(() => {
+    const map = {};
+    txs.forEach((t) => {
+      if (t.type !== "out" || t.deleted === true) return;
+      if (String(t.reason || "").includes("MRO_REVERSED_OUT:")) return;
+      if (String(t.shipNo || "").trim() !== selectedShip) return;
+      if (periodStart) {
+        const d = new Date(String(t.at || "").replace(" ", "T"));
+        if (Number.isNaN(d.getTime()) || d < periodStart) return;
+      }
+      const key = String(t.project || "").trim() || "미입력";
+      map[key] = (map[key] || 0) + (Number(t.qty) || 0);
+    });
+    return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [txs, selectedShip, periodStart]);
+
+  // 자재별 막대 외의 그래프를 그리는 함수
+  const renderExtraChart = () => {
+    const box = {
+      flex: 1, minHeight: 0, position: "relative",
+      background: "linear-gradient(180deg, #0C2133 0%, #0A1A29 100%)",
+      border: "1px solid #18354D", borderRadius: 9,
+    };
+    const empty = (text) => <EmptyState icon={ScanLine} text={text} color="#5E86A3" />;
+    const tip = { background: "#0F2233", border: "1px solid #315775", borderRadius: 8, fontSize: 11 };
+    const axis = { fill: "#718CA2", fontSize: 10 };
+    const legendStyle = { fontSize: 11, color: "#9FB4C7" };
+
+    if (chartMode === "ships") {
+      if (shipCompareData.length === 0) return empty(`${PERIOD_META[period].label} 출고 이력이 없습니다.`);
+      return (
+        <div style={box}>
+          <div style={{ position: "absolute", inset: 0, padding: "8px 6px 4px 0" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={shipCompareData.slice(0, 15)}
+                margin={{ top: 8, right: 16, left: 0, bottom: 4 }}
+                onClick={(s) => {
+                  if (s?.activeLabel) { setSelectedShip(s.activeLabel); setSelectedProject(ALL_PROJECTS); }
+                }}
+              >
+                <CartesianGrid stroke="#17293B" vertical={false} />
+                <XAxis dataKey="ship" tick={axis} axisLine={{ stroke: "#1F3B54" }} tickLine={false} interval={0} />
+                <YAxis tick={axis} axisLine={false} tickLine={false} />
+                <Tooltip cursor={{ fill: "#38BDF80D" }} contentStyle={tip} labelStyle={{ color: "#E7EEF5", fontWeight: 700 }} />
+                <Legend verticalAlign="top" height={24} iconSize={9} wrapperStyle={legendStyle} />
+                <Bar dataKey="plan" name="정발주" stackId="s" fill="#F5A623" barSize={26} />
+                <Bar dataKey="extra" name="추가건" stackId="s" fill="#38BDF8" radius={[5, 5, 0, 0]} barSize={26} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      );
+    }
+
+    if (chartMode === "split") {
+      if (splitData.length === 0) return empty(`${PERIOD_META[period].label} 출고 이력이 없습니다.`);
+      return (
+        <div style={box}>
+          <div style={{
+            position: "absolute", inset: 0, overflowY: "auto", padding: 10, alignContent: "start",
+            display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 10,
+          }}>
+            {splitData.map((s) => {
+              const max = Math.max(...s.top.map((m) => m.qty), 1);
+              return (
+                <div
+                  key={s.ship}
+                  onClick={() => { setSelectedShip(s.ship); setSelectedProject(ALL_PROJECTS); }}
+                  title="누르면 이 호선이 선택됩니다"
+                  style={{
+                    background: "#0B1C2C", borderRadius: 9, padding: "9px 11px", cursor: "pointer",
+                    border: `1px solid ${s.ship === selectedShip ? "#38BDF8" : "#1F3B54"}`,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 7 }}>
+                    <span style={{ fontWeight: 800, fontSize: 13, color: "#38BDF8" }}>{s.ship}</span>
+                    <span style={{ fontSize: 11, color: "#F5A623", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>
+                      총 {s.total.toLocaleString()}
+                    </span>
+                  </div>
+                  {s.top.map((m) => (
+                    <div key={m.name} style={{ marginBottom: 5 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 6, fontSize: 10.5, color: "#9FB4C7" }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                        <span style={{ fontFamily: "IBM Plex Mono", flexShrink: 0 }}>{m.qty}</span>
+                      </div>
+                      <div style={{ height: 5, borderRadius: 3, background: "#12293D", marginTop: 2 }}>
+                        <div style={{ width: `${(m.qty / max) * 100}%`, height: "100%", borderRadius: 3, background: "#38BDF8" }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (chartMode === "trend") {
+      if (trendData.length === 0) return empty(`[${selectedShip}] ${PERIOD_META[period].label} 출고 이력이 없습니다.`);
+      return (
+        <div style={box}>
+          <div style={{ position: "absolute", inset: 0, padding: "8px 10px 4px 0" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+                <CartesianGrid stroke="#17293B" vertical={false} />
+                <XAxis
+                  dataKey="label" tick={axis} axisLine={{ stroke: "#1F3B54" }} tickLine={false}
+                  tickFormatter={(v) => (period === "day" ? v : String(v).slice(5))}
+                />
+                <YAxis tick={axis} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={tip} labelStyle={{ color: "#E7EEF5", fontWeight: 700 }} />
+                <Legend verticalAlign="top" height={24} iconSize={9} wrapperStyle={legendStyle} />
+                <Area type="monotone" dataKey="plan" name="정발주" stackId="u" stroke="#F5A623" fill="#F5A62335" strokeWidth={2} />
+                <Area type="monotone" dataKey="extra" name="추가건" stackId="u" stroke="#38BDF8" fill="#38BDF835" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      );
+    }
+
+    if (chartMode === "project") {
+      if (projectShareData.length === 0) return empty(`[${selectedShip}] ${PERIOD_META[period].label} 출고 이력이 없습니다.`);
+      return (
+        <div style={box}>
+          <div style={{ position: "absolute", inset: 0 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={projectShareData} dataKey="value" nameKey="name"
+                  innerRadius="46%" outerRadius="74%" paddingAngle={2} stroke="none"
+                  labelLine={false}
+                  label={(p) => (
+                    <text x={p.x} y={p.y} fill="#E7EEF5" fontSize={11} fontWeight={700}
+                      textAnchor={p.x > p.cx ? "start" : "end"} dominantBaseline="central">
+                      {`${Math.round(p.percent * 100)}%`}
+                    </text>
+                  )}
+                >
+                  {projectShareData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={tip} />
+                <Legend verticalAlign="bottom" iconSize={9} wrapperStyle={legendStyle} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
   const recentAll = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
@@ -3771,32 +4130,50 @@ const filteredTotalText = useMemo(() => {
     return (
     <div className="dash-fit">
       <style>{`
-        .dash-fit { display: flex; flex-direction: column; height: calc(100vh - 84px); min-height: 560px; }
+        .dash-fit { display: flex; flex-direction: column; min-height: 560px; }
         .dash-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; flex-shrink: 0; }
         .dash-stats > div { padding: 8px 14px !important; }
         .dash-stats .stat-clickable > div:nth-child(2) { display: none; }
         .dash-grid {
-          flex: 1; min-height: 0; display: grid; gap: 10px;
-          grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 1fr);
-          grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+          display: grid; gap: 10px;
+          grid-template-columns: repeat(12, minmax(0, 1fr));
+          grid-auto-rows: 40px;
+          grid-auto-flow: row dense;
         }
         .dash-grid > * { min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-        .dash-chart, .dash-detail, .dash-alert, .dash-recent { grid-column: var(--slot-col, 1); grid-row: var(--slot-row, 1); }
         @media (max-width: 1100px) {
-          .dash-fit { height: auto; }
           .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-          .dash-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
-          .dash-chart, .dash-detail, .dash-alert, .dash-recent { grid-column: auto; grid-row: auto; min-height: 380px; }
+          .dash-grid { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; }
+          .dash-grid > * { grid-column: auto !important; grid-row: auto !important; order: 0 !important; min-height: 380px; }
         }
       `}</style>
 
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 10, flexShrink: 0 }}>
         <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 20, fontWeight: 700, margin: 0 }}>대시보드</h1>
         <span style={{ color: "#7F97AC", fontSize: 12, fontFamily: "IBM Plex Mono" }}>실시간 재고 · 호선별 소모 현황</span>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {layoutEdit && (
             <>
-              <span style={{ fontSize: 11.5, color: "#F5A623" }}>창을 끌어서 다른 창 위에 놓으면 자리가 바뀝니다</span>
+              <span style={{ fontSize: 11.5, color: "#7DB4FF" }}>제목줄을 끌면 이동 · 오른쪽 아래 ◢를 끌면 크기 조절</span>
+              {DASH_PANELS.map((p) => {
+                const hidden = dashLayout.hidden.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => toggleHidePanel(p.id)}
+                    title={hidden ? "다시 표시" : "숨기기"}
+                    style={{
+                      padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+                      border: `1px solid ${hidden ? "#274460" : "#35D08C88"}`,
+                      background: hidden ? "#0B1C2C" : "#35D08C1a",
+                      color: hidden ? "#5E86A3" : "#35D08C",
+                    }}
+                  >
+                    {hidden ? "＋ " : "✓ "}{p.label}
+                  </button>
+                );
+              })}
               <Btn variant="subtle" onClick={() => saveDashLayout(DASH_DEFAULT_LAYOUT)} style={{ padding: "5px 12px", fontSize: 12 }}>
                 기본 배치
               </Btn>
@@ -3819,9 +4196,11 @@ const filteredTotalText = useMemo(() => {
         <StatCard label="안전재고 미달" value={items.filter((i) => statusOf(i) === "danger").length} unit="종" icon={AlertTriangle} color="#EF5350" onClick={() => setShortageModal(true)} />
       </div>
 
-      <div className="dash-grid">
+      <div className="dash-grid" ref={gridRef}>
         {/* ① 호선별 소모 현황 (그래프) */}
         <Card className="dash-chart" style={{ padding: 14, ...panelStyle("chart") }} {...panelDrag("chart")}>
+          {renderChrome("chart")}
+          
           <div
             style={{
               display: "flex", alignItems: "flex-start", justifyContent: "space-between",
@@ -3920,6 +4299,27 @@ const filteredTotalText = useMemo(() => {
               </div>
             </div>
           </div>
+                    {/* 그래프 보기 방식 */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10, flexShrink: 0 }}>
+            {CHART_MODES.map((m) => {
+              const on = chartMode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => changeChartMode(m.id)}
+                  style={{
+                    padding: "5px 11px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+                    border: `1px solid ${on ? "#3B82F6" : "#1F3B54"}`,
+                    background: on ? "#3B82F61f" : "#0B1C2C",
+                    color: on ? "#7DB4FF" : "#7F97AC",
+                  }}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
 
           {/* 오늘 불출된 호선 */}
           <div
@@ -3975,7 +4375,9 @@ const filteredTotalText = useMemo(() => {
             )}
           </div>
 
-          {shipMaterialConsumption.length === 0 ? (
+          {chartMode !== "material" ? (
+            renderExtraChart()
+          ) : shipMaterialConsumption.length === 0 ? (
             <EmptyState
               icon={ScanLine}
               text={
@@ -4030,6 +4432,7 @@ const filteredTotalText = useMemo(() => {
 
         {/* ② 자재별 소모량 상세 */}
         <Card className="dash-detail" style={{ padding: 14, ...panelStyle("detail") }} {...panelDrag("detail")}>
+          {renderChrome("detail")}
           <div
             style={{
               fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.1em",
@@ -4097,6 +4500,7 @@ const filteredTotalText = useMemo(() => {
 
         {/* ③ 재고부족 경고 */}
         <Card className="dash-alert" style={{ padding: 14, ...panelStyle("alert") }} {...panelDrag("alert")}>
+          {renderChrome("alert")}
           <div
             style={{
               fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.1em",
@@ -4144,6 +4548,7 @@ const filteredTotalText = useMemo(() => {
 
         {/* ④ 최근 입출고 이력 */}
         <Card className="dash-recent" style={{ padding: 14, ...panelStyle("recent") }} {...panelDrag("recent")}>
+          {renderChrome("recent")}
           <SectionLabel>최근 입출고 이력</SectionLabel>
           {recent.length === 0 ? (
             <EmptyState icon={ScanLine} text="입출고 이력이 아직 없습니다." color="#5E86A3" />
@@ -6867,7 +7272,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
 
   return (
     <div>
-      <Header title="재고 현황 조회" subtitle="전체 자재 실시간 재고 및 안전재고 파악 (자재 클릭 시 출고창 이동)" />
+      <Header title="재고 현황 조회" subtitle="전체 자재 실시간 재고 및 안전재고 파악 (자재 클릭 시 불출정보 입력창)" />
 
       <Card style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

@@ -3830,11 +3830,22 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
     })();
     return () => { cancelled = true; };
   }, [txs.length, historyModal]);
+  // 그래프용 출고 기록: 7일 지나 휴지통으로 간 기록까지 포함한 전체 출고 기록 (원복건 제외)
+  const chartOutTxs = useMemo(() => {
+    const base = cumulativeLoaded && cumulativeOutTxs.length > 0
+      ? cumulativeOutTxs
+      : txs.filter((t) => t.type === "out");
+    return base.filter((t) => !String(t.reason || "").includes("MRO_REVERSED_OUT:"));
+  }, [cumulativeLoaded, cumulativeOutTxs, txs]);
+
   const availableShips = useMemo(() => {
-    const outTxs = txs.filter((t) => t.type === "out" && t.shipNo && t.shipNo !== "미입력");
-    const uniqueShips = Array.from(new Set(outTxs.map((t) => t.shipNo)));
+    const outTxs = chartOutTxs.filter((t) => {
+      const ship = String(t.shipNo || "").trim();
+      return ship && ship !== "미입력" && ship !== "소모자재";
+    });
+    const uniqueShips = Array.from(new Set(outTxs.map((t) => String(t.shipNo).trim())));
     return uniqueShips.length > 0 ? uniqueShips : ["등록된 호선 없음"];
-  }, [txs]);
+  }, [chartOutTxs]);
 
   const [selectedShip, setSelectedShip] = useState(availableShips[0] || "");
 
@@ -3847,12 +3858,12 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
   const ALL_PROJECTS = "전체";
 
   const availableProjects = useMemo(() => {
-    const outTxs = txs.filter(
-      (t) => t.type === "out" && t.shipNo === selectedShip && t.project && t.project !== "미입력"
+    const outTxs = chartOutTxs.filter(
+      (t) => String(t.shipNo || "").trim() === selectedShip && t.project && t.project !== "미입력"
     );
-    const uniqueProjects = Array.from(new Set(outTxs.map((t) => t.project)));
+    const uniqueProjects = Array.from(new Set(outTxs.map((t) => String(t.project).trim())));
     return [ALL_PROJECTS, ...uniqueProjects];
-  }, [txs, selectedShip]);
+  }, [chartOutTxs, selectedShip]);
 
   const [selectedProject, setSelectedProject] = useState(ALL_PROJECTS);
 
@@ -3903,10 +3914,10 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
     if (!selectedShip || selectedShip === "등록된 호선 없음") return [];
 
     const map = {};
-    txs
+    chartOutTxs
       .filter((t) => {
-        if (t.type !== "out" || t.shipNo !== selectedShip) return false;
-        if (selectedProject !== ALL_PROJECTS && t.project !== selectedProject) return false;
+        if (String(t.shipNo || "").trim() !== selectedShip) return false;
+        if (selectedProject !== ALL_PROJECTS && String(t.project || "").trim() !== selectedProject) return false;
         if (periodStart) {
           const d = new Date(String(t.at || "").replace(" ", "T"));
           if (Number.isNaN(d.getTime()) || d < periodStart) return false;
@@ -3925,7 +3936,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
       });
 
     return Object.values(map).sort((a, b) => b.qty - a.qty);
-  }, [txs, selectedShip, selectedProject, periodStart]);
+  }, [chartOutTxs, selectedShip, selectedProject, periodStart]);
 const [materialSearch, setMaterialSearch] = useState("");
 
 const filteredConsumption = useMemo(() => {
@@ -4031,9 +4042,7 @@ const filteredTotalText = useMemo(() => {
   // 🥧 프로젝트 비중 (선택한 호선)
   const projectShareData = useMemo(() => {
     const map = {};
-    txs.forEach((t) => {
-      if (t.type !== "out" || t.deleted === true) return;
-      if (String(t.reason || "").includes("MRO_REVERSED_OUT:")) return;
+    chartOutTxs.forEach((t) => {
       if (String(t.shipNo || "").trim() !== selectedShip) return;
       if (periodStart) {
         const d = new Date(String(t.at || "").replace(" ", "T"));
@@ -4043,7 +4052,7 @@ const filteredTotalText = useMemo(() => {
       map[key] = (map[key] || 0) + (Number(t.qty) || 0);
     });
     return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [txs, selectedShip, periodStart]);
+  }, [chartOutTxs, selectedShip, periodStart]);
 
   // 자재별 막대 외의 그래프를 그리는 함수
   const renderExtraChart = () => {
@@ -4184,16 +4193,14 @@ const filteredTotalText = useMemo(() => {
 
     return null;
   };
-    /* ---- 호선·프로젝트 합친 버튼 목록 ---- */
+  /* ---- 호선·프로젝트 합친 버튼 목록 ---- */
   const comboList = useMemo(() => {
     const d = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const todayStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
     const ships = {};
-    txs.forEach((t) => {
-      if (t.type !== "out" || t.deleted === true) return;
-      if (String(t.reason || "").includes("MRO_REVERSED_OUT:")) return;
+    chartOutTxs.forEach((t) => {
       const ship = String(t.shipNo || "").trim();
       if (!ship || ship === "미입력" || ship === "소모자재") return;
 
@@ -4207,7 +4214,7 @@ const filteredTotalText = useMemo(() => {
       const validProj = proj && proj !== "미입력";
       const isToday = at.startsWith(todayStr);
 
-      if (!ships[ship]) ships[ship] = { ship, lastAt: "", count: 0, today: false, projects: {}, hasOther: false };
+      if (!ships[ship]) ships[ship] = { ship, lastAt: "", count: 0, today: false, projects: {} };
       const s = ships[ship];
       s.count += 1;
       if (at > s.lastAt) s.lastAt = at;
@@ -4219,8 +4226,6 @@ const filteredTotalText = useMemo(() => {
         p.count += 1;
         if (at > p.lastAt) p.lastAt = at;
         if (isToday) p.today = true;
-      } else {
-        s.hasOther = true;
       }
     });
 
@@ -4229,16 +4234,17 @@ const filteredTotalText = useMemo(() => {
       .sort((a, b) => b.lastAt.localeCompare(a.lastAt))
       .forEach((s) => {
         const projs = Object.values(s.projects).sort((a, b) => b.lastAt.localeCompare(a.lastAt));
-        // 프로젝트가 2개 이상이거나, 프로젝트 구분이 없는 기록이 있으면 '호선 전체' 버튼도 만듭니다
-        if (projs.length >= 2 || projs.length === 0 || s.hasOther) {
+        if (projs.length === 0) {
+          // 프로젝트 기록이 전혀 없는 호선만 예외로 버튼 하나를 만듭니다 (기록이 안 보이는 일이 없도록)
           out.push({ key: `${s.ship}::${ALL_PROJECTS}`, ship: s.ship, project: ALL_PROJECTS, count: s.count, today: s.today });
+          return;
         }
         projs.forEach((p) => {
           out.push({ key: `${s.ship}::${p.project}`, ship: s.ship, project: p.project, count: p.count, today: p.today });
         });
       });
     return out;
-  }, [txs, periodStart]);
+  }, [chartOutTxs, periodStart]);
 
   // 기간을 바꿔서 지금 선택한 조합이 목록에 없으면, 같은 호선(없으면 맨 앞 버튼)으로 자동 이동
   useEffect(() => {
@@ -4426,7 +4432,7 @@ const filteredTotalText = useMemo(() => {
               </span>
               {comboList.length > 0 && (
                 <span style={{ fontSize: 11, color: "#7DB4FF", fontWeight: 700 }}>
-                  선택: {selectedShip} · {selectedProject === ALL_PROJECTS ? "전체" : selectedProject}
+                  선택: {selectedShip} · {selectedProject === ALL_PROJECTS ? "프로젝트 없음" : selectedProject}
                 </span>
               )}
             </div>
@@ -4445,7 +4451,7 @@ const filteredTotalText = useMemo(() => {
                       key={c.key}
                       type="button"
                       onClick={() => { setSelectedShip(c.ship); setSelectedProject(c.project); }}
-                      title={`${c.ship} · ${isAll ? "호선 전체" : c.project} · ${c.count}건`}
+                      title={`${c.ship} · ${isAll ? "프로젝트 없음" : c.project} · ${c.count}건`}
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 6,
                         padding: "5px 10px", borderRadius: 8, fontSize: 11.5, fontWeight: 700,
@@ -4460,7 +4466,7 @@ const filteredTotalText = useMemo(() => {
                       )}
                       <span style={{ color: on ? "#FFFFFF" : "#38BDF8" }}>{c.ship}</span>
                       <span style={{ opacity: 0.5 }}>·</span>
-                      <span style={{ color: on ? "#DBEAFE" : isAll ? "#F5A623" : "#C9DAE8" }}>{isAll ? "전체" : c.project}</span>
+                      <span style={{ color: on ? "#DBEAFE" : isAll ? "#F5A623" : "#C9DAE8" }}>{isAll ? "프로젝트 없음" : c.project}</span>
                       <span style={{ fontSize: 10, fontWeight: 600, color: on ? "#93C5FD" : "#5E86A3" }}>{c.count}건</span>
                     </button>
                   );

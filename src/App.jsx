@@ -2110,6 +2110,8 @@ function AppInner() {
     window.history.pushState({ page: "app" }, "", window.location.href);
 
     const handlePopState = (e) => {
+      // 팝업이 열려 있으면 팝업이 먼저 처리하므로 여기서는 아무것도 하지 않음
+      if (window.__mroBackLayers > 0) return;
       if (backPressedRef.current) {
         clearTimeout(backTimerRef.current);
         window.history.back();
@@ -6469,6 +6471,37 @@ function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs
   const [worker, setWorker] = useState(isLocalMode ? (history.worker[0] || "") : "");
   const [submitting, setSubmitting] = useState(false);
   const [photoZoom, setPhotoZoom] = useState(false);
+  
+  // 최신 값을 기억해두는 용도 (이벤트 안에서 항상 최신 상태를 쓰기 위함)
+  const photoZoomRef = useRef(false);
+  photoZoomRef.current = photoZoom;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // 모바일 뒤로가기 / PC ESC 키로 팝업 닫기
+  useEffect(() => {
+    // 팝업이 열릴 때 기록 한 칸을 추가해서, 뒤로가기를 누르면 이 칸만 소모되게 함
+    window.history.pushState({ modal: "stockIssue" }, "", window.location.href);
+    window.__mroBackLayers = (window.__mroBackLayers || 0) + 1;
+
+    const handlePop = () => { onCloseRef.current(); };
+    const handleKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (photoZoomRef.current) setPhotoZoom(false); // 사진 확대 중이면 확대만 먼저 닫기
+      else onCloseRef.current();
+    };
+
+    window.addEventListener("popstate", handlePop);
+    window.addEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("popstate", handlePop);
+      window.removeEventListener("keydown", handleKey);
+      // 같은 뒤로가기 동작 안에서 앱 종료 안내가 뜨지 않도록 아주 잠깐 늦게 해제
+      setTimeout(() => {
+        window.__mroBackLayers = Math.max(0, (window.__mroBackLayers || 0) - 1);
+      }, 0);
+    };
+  }, []);
 
   const st = statusOf(item);
   const qtyNum = Number(qty);

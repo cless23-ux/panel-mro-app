@@ -743,10 +743,7 @@ function Led({ status, size = 10 }) {
 
 const Card = React.forwardRef(function Card({ children, style, className = "", onClick, neon, ...rest }, ref) {
   const neonStyle = neon
-    ? {
-        border: `1px solid ${neon}70`,
-        boxShadow: `0 0 0 1px ${neon}22, 0 0 20px -9px ${neon}80, inset 0 0 26px -22px ${neon}`,
-      }
+    ? { borderTop: `2px solid ${neon}AA` }
     : null;
   return (
     <div
@@ -772,11 +769,10 @@ const Card = React.forwardRef(function Card({ children, style, className = "", o
 function SectionLabel({ children }) {
   return (
     <div style={{
-      fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, letterSpacing: "0.14em",
-      color: "var(--text-faint)", textTransform: "uppercase", marginBottom: 12, display: "flex",
-      alignItems: "center", gap: 8,
+      fontSize: 13.5, fontWeight: 700, color: "var(--text-secondary)",
+      marginBottom: 12, display: "flex", alignItems: "center", gap: 8,
     }}>
-      <span style={{ width: 14, height: 2, background: "#F5A623", display: "inline-block" }} />
+      <span style={{ width: 3, height: 14, borderRadius: 2, background: "#3B82F6", display: "inline-block" }} />
       {children}
     </div>
   );
@@ -2922,6 +2918,97 @@ function AppInner() {
           /* 표 */
           th, td { padding: 6px 9px; font-size: 12.5px; }
         }
+          
+        /* =========================================================
+           ENTERPRISE UI v4 : 정돈된 대기업 스타일 (로직 변경 없음)
+           ========================================================= */
+        :root, .app-container {
+          --card-radius: 12px;
+          --card-shadow: 0 1px 2px rgba(0,0,0,.30), 0 4px 14px rgba(0,0,0,.12);
+          --btn-primary-bg: #2F6FEB;
+          --btn-primary-text: #FFFFFF;
+          --btn-primary-border: #2F6FEB;
+        }
+        .app-container { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+        /* 화면 전환: 옆으로 슬라이드 대신 부드러운 페이드 */
+        @keyframes tabFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+        .tab-panel {
+          border: none !important;
+          box-shadow: none !important;
+          background: transparent !important;
+          padding: 0 !important;
+          animation: tabFade .22s ease !important;
+        }
+
+        /* 버튼: 부드러운 반응 + 키보드 포커스 표시 */
+        .app-container button {
+          transition: background .15s ease, border-color .15s ease, box-shadow .15s ease, filter .15s ease, transform .1s ease;
+        }
+        .app-container button:hover:not(:disabled) { filter: brightness(1.10); }
+        .app-container button:focus-visible { outline: 2px solid #5B9BFF; outline-offset: 2px; }
+
+        /* 입력창: 파란 포커스 링 (기존 주황색 대체) */
+        input:focus, select:focus, textarea:focus {
+          border-color: #3B82F6 !important;
+          box-shadow: 0 0 0 3px rgba(59,130,246,.18) !important;
+          outline: none;
+        }
+
+        /* 표: 대문자·자간 제거, 헤더를 차분하게 */
+        thead tr { text-transform: none !important; }
+        table th {
+          text-transform: none !important;
+          letter-spacing: 0 !important;
+          font-size: 12px !important;
+          font-weight: 600 !important;
+          color: #8FA3BA !important;
+          background: #0D1828 !important;
+          border-bottom: 1px solid #1F3350 !important;
+        }
+        tbody tr { transition: background .12s ease; }
+
+        /* 대시보드 통계 카드: 네온 대신 은은한 그림자, 마우스 올리면 살짝 부상 */
+        .stat-clickable {
+          border: 1px solid var(--border-card) !important;
+          box-shadow: var(--card-shadow) !important;
+        }
+        .stat-clickable:hover {
+          border-color: var(--stat-neon) !important;
+          box-shadow: 0 8px 22px rgba(0,0,0,.32) !important;
+          transform: translateY(-2px);
+        }
+
+        /* 팝업(모달): 배경 블러 + 둥근 모서리 + 깊은 그림자 */
+        .app-modal-overlay { backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+        .app-modal-overlay > div {
+          border-radius: 16px !important;
+          box-shadow: 0 24px 60px rgba(0,0,0,.55) !important;
+        }
+
+        /* 알림(토스트) */
+        .toast-box { border-radius: 10px !important; font-size: 13px !important; }
+
+        /* 스크롤바: 얇고 은은하게 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-thumb { background: #2A4260; border-radius: 6px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3A5A80; }
+
+        /* 모바일: 상·하단 바를 반투명 유리 느낌으로 */
+        @media (max-width: 768px) {
+          .mobile-header {
+            background: rgba(15,34,51,.92);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: 0 1px 0 rgba(255,255,255,.04), 0 4px 16px rgba(0,0,0,.20);
+          }
+          .mobile-bottom-nav {
+            background: rgba(15,34,51,.94) !important;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 -4px 20px rgba(0,0,0,.28);
+          }
+        }
       `}</style>
 
       {/* PC 사이드바 */}
@@ -3155,7 +3242,7 @@ function AppInner() {
             {tab === "rawInbound" && <RawMaterialInboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} initialShip={rawManagePresetShip} onOpenReturn={(payload) => { const list = Array.isArray(payload?.items) ? payload.items : []; setRawManagePresetShip(payload?.ship || list[0]?.shipNo || ""); setRawManagePresetReturnItems(list); goToTab("return"); }} />}
             {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
-            {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
+            {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} outFormSettings={outFormSettings} reloadItems={reloadItems} reloadTxs={reloadTxs} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
                         {tab === "master" && <MasterView items={items} txs={txs} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
                         {tab === "borrow" && <BorrowView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
@@ -4189,9 +4276,9 @@ function EmptyState({ icon: Icon, text, color }) {
 
 function Header({ title, subtitle }) {
   return (
-    <div style={{ marginBottom: 20, textAlign: "left" }}>
-      <h1 style={{ fontFamily: "Oswald, sans-serif", fontSize: 26, fontWeight: 700, margin: 0 }}>{title}</h1>
-      <div style={{ color: "#7F97AC", fontSize: 13, marginTop: 2, fontFamily: "IBM Plex Mono" }}>{subtitle}</div>
+    <div style={{ marginBottom: 20, textAlign: "left", paddingBottom: 14, borderBottom: "1px solid var(--border-card)" }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em", color: "var(--text-primary)" }}>{title}</h1>
+      <div style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>{subtitle}</div>
     </div>
   );
 }
@@ -6364,15 +6451,256 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, o
     </div>
   );
 }
+/* ---------------- 재고조회: 불출정보 입력 팝업 ---------------- */
+function StockIssueModal({ item, outFormSettings, notify, reloadItems, reloadTxs, urgentRequests, addUrgentRequest, onClose }) {
+  const shipOptions = outFormSettings?.ships || [];
+  const projectOptions = outFormSettings?.projects || [];
+  const workerOptions = outFormSettings?.workers || [];
 
+  // 출고 화면에서 쓰던 입력 방식(저장목록 / 최근기록)을 그대로 따라갑니다
+  const isLocalMode = (() => {
+    try { return localStorage.getItem(OUT_INPUT_MODE_KEY) === "local"; } catch { return false; }
+  })();
+  const { history, addToHistory } = useOutLocalHistory();
+
+  const [ship, setShip] = useState(isLocalMode ? (history.ship[0] || "") : "");
+  const [project, setProject] = useState(isLocalMode ? (history.project[0] || "") : "");
+  const [qty, setQty] = useState("");
+  const [worker, setWorker] = useState(isLocalMode ? (history.worker[0] || "") : "");
+  const [submitting, setSubmitting] = useState(false);
+  const [photoZoom, setPhotoZoom] = useState(false);
+
+  const st = statusOf(item);
+  const qtyNum = Number(qty);
+  const ready =
+    !submitting &&
+    qtyNum > 0 &&
+    qtyNum <= Number(item.stock) &&
+    !!String(ship).trim() &&
+    !!String(project).trim() &&
+    !!String(worker).trim();
+
+  const submit = async (outKind) => {
+    if (submitting) return;
+    if (!qtyNum || qtyNum <= 0) { notify("불출 수량을 입력해주세요.", "err"); return; }
+    if (qtyNum > Number(item.stock)) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
+    if (!String(ship).trim() || !String(project).trim() || !String(worker).trim()) {
+      notify("호선, 프로젝트, 불출자를 모두 입력해주세요.", "err");
+      return;
+    }
+
+    const msg =
+      `다음 내용으로 출고하시겠습니까?\n\n` +
+      `구분: ${outKind}\n자재: ${item.name}\n수량: ${qtyNum}${item.unit}\n` +
+      `호선: ${ship}\n프로젝트: ${project}\n불출자: ${worker}`;
+    if (!window.confirm(msg)) return;
+
+    setSubmitting(true);
+    try {
+      const tx = {
+        id: uid("OUT"),
+        type: "out",
+        itemCode: item.code,
+        itemName: item.name,
+        unit: item.unit,
+        qty: qtyNum,
+        shipNo: ship,
+        project: project,
+        worker: worker,
+        reason: `${OUT_KIND_MARKER}${outKind}`,
+        at: nowStr(),
+        deleted: false,
+      };
+      await applyStockTransactionsAtomic([{ code: item.code, delta: -qtyNum, tx }]);
+      try {
+        await reloadItems?.();
+        await reloadTxs?.();
+      } catch (e) {
+        console.error("출고 후 새로고침 실패:", e);
+      }
+      rememberMyOutTxId(tx.id);
+      addToHistory("ship", ship);
+      addToHistory("project", project);
+      addToHistory("worker", worker);
+      notify(`${item.name} ${qtyNum}${item.unit} ${outKind} 출고 완료 · 잔여 ${Number(item.stock) - qtyNum}${item.unit}`, "ok");
+      onClose();
+    } catch (e) {
+      console.error(e);
+      notify(`출고 실패: ${e?.message || e}`, "err");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <>
+      <style>{`
+        .stock-issue-photo {
+          width: 100%; height: 190px; background: #07131F; border-radius: 10px;
+          border: 1px solid #1F3B54; overflow: hidden; cursor: zoom-in;
+          display: flex; align-items: center; justify-content: center; position: relative;
+        }
+        .stock-issue-photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        @media (max-width: 768px) {
+          .stock-issue-photo { height: min(46vh, 420px); }
+        }
+      `}</style>
+
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 150, padding: 12,
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            width: "100%", maxWidth: 460, maxHeight: "94dvh", overflowY: "auto",
+            background: "#0F2233", border: "1px solid #F5A62355", borderRadius: 14, padding: 16,
+          }}
+        >
+          {/* 제목 */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#F5A623", fontWeight: 700, fontSize: 15 }}>
+              <ArrowUpFromLine size={18} /> 불출 정보 입력
+            </div>
+            <button type="button" onClick={onClose} aria-label="닫기"
+              style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4, display: "flex" }}>
+              <X size={20} />
+            </button>
+          </div>
+
+          {/* 큰 사진 (누르면 전체화면 확대) */}
+          <div
+            className="stock-issue-photo"
+            onClick={() => item.image_url && setPhotoZoom(true)}
+            style={{ marginBottom: 12, cursor: item.image_url ? "zoom-in" : "default" }}
+          >
+            {item.image_url ? (
+              <img src={item.image_url} alt={item.name} />
+            ) : (
+              <div style={{ textAlign: "center", color: "#5E86A3" }}>
+                <ImageIcon size={34} style={{ marginBottom: 6, opacity: 0.8 }} />
+                <div style={{ fontSize: 12 }}>등록된 사진이 없습니다</div>
+              </div>
+            )}
+          </div>
+          {item.image_url && (
+            <div style={{ fontSize: 10.5, color: "#5E86A3", textAlign: "center", marginTop: -6, marginBottom: 10 }}>
+              사진을 누르면 크게 볼 수 있어요
+            </div>
+          )}
+
+          {/* 자재 정보 + 현재고 */}
+          <div style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: "#38BDF8", lineHeight: 1.35, wordBreak: "break-word" }}>{item.name}</div>
+                <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 3, wordBreak: "break-all" }}>코드: {item.code}</div>
+                <div style={{ fontSize: 11.5, color: "#9FB4C7", marginTop: 3, wordBreak: "break-word" }}>규격/사양: {item.spec || "-"}</div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0, fontFamily: "IBM Plex Mono" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                  <Led status={st} size={9} />
+                  <span style={{ fontSize: 17, fontWeight: 700, color: Number(item.stock) > 0 ? "#35D08C" : "#EF5350" }}>
+                    {item.stock} <span style={{ fontSize: 11 }}>{item.unit}</span>
+                  </span>
+                </div>
+                <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>현재고</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+              <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
+            </div>
+          </div>
+
+          {/* 입력 */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+            <div className="out-field-grid">
+              <Field label="1. 호선">
+                {isLocalMode ? (
+                  <AutocompleteInput value={ship} onChange={setShip} options={history.ship} placeholder="호선 입력" />
+                ) : (
+                  <StrictAutocompleteInput value={ship} onChange={setShip} options={shipOptions} placeholder="호선 검색 후 선택" />
+                )}
+              </Field>
+              <Field label="2. 프로젝트">
+                {isLocalMode ? (
+                  <AutocompleteInput value={project} onChange={setProject} options={history.project} placeholder="프로젝트 입력" />
+                ) : (
+                  <StrictAutocompleteInput value={project} onChange={setProject} options={projectOptions} placeholder="프로젝트 선택" />
+                )}
+              </Field>
+            </div>
+            <div className="out-field-grid">
+              <Field label={`3. 불출수량 (${item.unit})`}>
+                <input
+                  style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }}
+                  type="number" min="1" max={item.stock} value={qty}
+                  autoFocus={typeof window !== "undefined" && window.innerWidth > 768}
+                  onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+                />
+              </Field>
+              <Field label="4. 불출자">
+                {isLocalMode ? (
+                  <AutocompleteInput value={worker} onChange={setWorker} options={history.worker} placeholder="불출자 입력" />
+                ) : (
+                  <StrictAutocompleteInput value={worker} onChange={setWorker} options={workerOptions} placeholder="불출자 선택" />
+                )}
+              </Field>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn
+              onClick={() => submit("정발주")}
+              disabled={!ready}
+              style={{ flex: 1, background: ready ? "#F5A623" : "#1F3B54", color: ready ? "#0A1622" : "#5E86A3", fontWeight: "bold" }}
+            >
+              <ArrowUpFromLine size={16} />{submitting ? "처리 중..." : "정발주 출고"}
+            </Btn>
+            <Btn
+              onClick={() => submit("추가건")}
+              disabled={!ready}
+              style={{ flex: 1, background: ready ? "#38BDF8" : "#1F3B54", border: `1px solid ${ready ? "#38BDF8" : "#1F3B54"}`, color: ready ? "#0A1622" : "#5E86A3", fontWeight: "bold" }}
+            >
+              <ArrowUpFromLine size={16} />{submitting ? "처리 중..." : "추가건 출고"}
+            </Btn>
+          </div>
+        </div>
+      </div>
+
+      {/* 사진 전체화면 확대 */}
+      {photoZoom && (
+        <div
+          onClick={() => setPhotoZoom(false)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 2000, background: "rgba(0,0,0,0.9)",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 12, cursor: "zoom-out",
+          }}
+        >
+          <img src={item.image_url} alt={item.name}
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "96vw", maxHeight: "92vh", objectFit: "contain", borderRadius: 10 }} />
+          <button type="button" onClick={() => setPhotoZoom(false)} aria-label="확대 사진 닫기"
+            style={{ position: "fixed", top: 16, right: 16, width: 42, height: 42, borderRadius: 999, border: "1px solid #5E86A3", background: "#0F2233", color: "#E7EEF5", fontSize: 24, cursor: "pointer" }}>
+            ×
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
 /* ---------------- 재고 조회 ---------------- */
-function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, addUrgentRequest }) {
+function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, addUrgentRequest, outFormSettings, reloadItems, reloadTxs }) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [memoDrafts, setMemoDrafts] = useState({});
   const [editingMemos, setEditingMemos] = useState({});
   const [zoomedImage, setZoomedImage] = useState(null);
   const [stockRenderLimit, setStockRenderLimit] = useState(200);
+  const [issueItem, setIssueItem] = useState(null);
   const { isFavorite, toggleFavorite } = useFavoriteItems(notify);
 
   // 자재마스터에 실제 지정된 카테고리만 자동으로 필터 버튼으로 표시합니다.
@@ -6420,9 +6748,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
   }, [search, categoryFilter]);
 
   const handleCardClick = (item) => {
-    if (onSelectItem) {
-      onSelectItem(item);
-    }
+    setIssueItem(item);
   };
 
   const handleMemoEdit = (code) => {
@@ -6861,7 +7187,18 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
           }
         }
       `}</style>
-
+      {issueItem && (
+        <StockIssueModal
+          item={items.find((i) => String(i.code).trim() === String(issueItem.code).trim()) || issueItem}
+          outFormSettings={outFormSettings}
+          notify={notify}
+          reloadItems={reloadItems}
+          reloadTxs={reloadTxs}
+          urgentRequests={urgentRequests}
+          addUrgentRequest={addUrgentRequest}
+          onClose={() => setIssueItem(null)}
+        />
+      )}
       {filteredItems.length > visibleStockItems.length && (
         <div style={{ display: "flex", justifyContent: "center", padding: 10 }}>
           <Btn variant="subtle" onClick={() => setStockRenderLimit((prev) => prev + 200)}>

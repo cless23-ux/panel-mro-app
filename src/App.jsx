@@ -3245,7 +3245,7 @@ function AppInner() {
                         {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} onDeleteTransactions={deleteTransactionRecords} onSelectAlertItem={(item) => { setMasterSearchPreset(item.code); goToTab("master"); }} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} materialType="sub" />}
             {tab === "rawInbound" && <RawMaterialInboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} initialShip={rawManagePresetShip} onOpenReturn={(payload) => { const list = Array.isArray(payload?.items) ? payload.items : []; setRawManagePresetShip(payload?.ship || list[0]?.shipNo || ""); setRawManagePresetReturnItems(list); goToTab("return"); }} />}
-            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
+            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} reloadItems={reloadItems} reloadTxs={reloadTxs} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} outFormSettings={outFormSettings} reloadItems={reloadItems} reloadTxs={reloadTxs} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
                         {tab === "master" && <MasterView items={items} txs={txs} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
@@ -4812,7 +4812,7 @@ function Header({ title, subtitle }) {
 }
 
 /* ---------------- 출고/반납 (스캔) ---------------- */
-function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, presetItem, onConsumePreset, urgentRequests, addUrgentRequest }) {
+function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, presetItem, onConsumePreset, urgentRequests, addUrgentRequest, reloadItems, reloadTxs }) {
   const [txMode, setTxMode] = useState("out"); // "out" | "return"
   const [isMobileView, setIsMobileView] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false
@@ -4833,6 +4833,12 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   const [qty, setQty] = useState("");
   const [worker, setWorker] = useState("");
   const [outSubmitting, setOutSubmitting] = useState(false);
+  
+  // 소모자재 출고 전용 입력값 (불출자 + 수량만)
+  const [consQty, setConsQty] = useState("");
+  const [consWorker, setConsWorker] = useState("");
+  const [consSubmitting, setConsSubmitting] = useState(false);
+  useEffect(() => { setConsQty(""); }, [found]);
 
     const [outInputMode, setOutInputModeState] = useState(() => {
     try { return localStorage.getItem(OUT_INPUT_MODE_KEY) || "shared"; } catch { return "shared"; }
@@ -5367,6 +5373,73 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       notify("반납 취소 중 오류가 발생했습니다.", "err");
     }
   };
+    /* ---------- 소모자재 출고 (불출자 + 수량만) ---------- */
+  const isConsumableFound = !!found && getMaterialType(found.code) === "consumable";
+  const canSubmitCons =
+    !consSubmitting &&
+    Number(consQty) > 0 &&
+    Number(consQty) <= Number(found?.stock ?? 0) &&
+    !!consWorker.trim();
+
+  const submitConsumable = async () => {
+    if (consSubmitting || !found) return;
+    const qtyNum = Number(consQty);
+    if (!qtyNum || qtyNum <= 0) { notify("출고 수량을 입력해주세요.", "err"); return; }
+    if (qtyNum > Number(found.stock)) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
+    if (!consWorker.trim()) { notify("불출자를 입력해주세요.", "err"); return; }
+
+    const msg =
+      `다음 내용으로 소모자재를 출고하시겠습니까?\n\n` +
+      `자재: ${found.name}\n수량: ${qtyNum}${found.unit}\n불출자: ${consWorker.trim()}`;
+    if (!window.confirm(msg)) return;
+
+    setConsSubmitting(true);
+    try {
+      const tx = {
+        id: uid("OUT"),
+        type: "out",
+        itemCode: found.code,
+        itemName: found.name,
+        unit: found.unit,
+        qty: qtyNum,
+        shipNo: "소모자재",
+        project: "",
+        process: "소모자재 출고",
+        worker: consWorker.trim(),
+        at: nowStr(),
+        deleted: false,
+      };
+
+      if (supabase) {
+        await applyStockTransactionsAtomic([{ code: found.code, delta: -qtyNum, tx }]);
+        try {
+          await reloadItems?.();
+          await reloadTxs?.();
+        } catch (reloadErr) {
+          console.error("소모자재 출고 후 새로고침 실패:", reloadErr);
+        }
+      } else {
+        const nextItems = items.map((i) =>
+          String(i.code).trim() === String(found.code).trim() ? { ...i, stock: Number(i.stock) - qtyNum } : i
+        );
+        await saveItems(nextItems);
+        await saveTxs([...txs, tx]);
+      }
+
+      rememberMyOutTxId(tx.id);
+      const remain = Number(found.stock) - qtyNum;
+      notify(`${found.name} ${qtyNum}${found.unit} 출고 완료 · 잔여 ${remain}${found.unit}`, remain < Number(found.safety) ? "info" : "ok");
+
+      setConsQty("");
+      setFound(null);
+      setScan("");
+    } catch (e) {
+      console.error(e);
+      notify(`소모자재 출고 실패: ${e?.message || e}`, "err");
+    } finally {
+      setConsSubmitting(false);
+    }
+  };
 // 불출정보 1~4번(호선·프로젝트·불출수량·불출자) 모두 입력되었는지
 const isOutFormComplete =
   !!String(shipNo).trim() &&
@@ -5672,7 +5745,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                   </button>
                 </div>
 
-                {txMode === "out" && (
+                {txMode === "out" && !isConsumableFound && (
                   <div className="out-info-divider out-mode-toggle-row">
                     <div>
                       <div className="out-mode-toggle-title" style={{ color: outInputMode === "local" ? "#38BDF8" : "#F5A623" }}>
@@ -5705,7 +5778,45 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                 )}
               </div>
 
-              {txMode === "out" ? (
+              {txMode === "out" && isConsumableFound ? (
+                <>
+                  <div style={{ padding: "8px 10px", borderRadius: 8, background: "#FBBF2412", border: "1px solid #FBBF2455", color: "#FDE68A", fontSize: 12, lineHeight: 1.5 }}>
+                    ⚡ 소모자재입니다. 불출자와 수량만 입력하면 됩니다.
+                  </div>
+
+                  <div className="out-field-grid">
+                    <Field label="불출자">
+                      <AutocompleteInput
+                        value={consWorker}
+                        onChange={setConsWorker}
+                        options={workerOptions}
+                        placeholder="이름 입력 또는 선택"
+                      />
+                    </Field>
+                    <Field label={`출고 수량 (${found.unit})`}>
+                      <input
+                        style={{ ...inputStyle, fontWeight: "bold", color: "#FBBF24" }}
+                        type="number" min="1" max={found.stock} value={consQty}
+                        onChange={(e) => setConsQty(e.target.value)} placeholder="수량 입력"
+                      />
+                    </Field>
+                  </div>
+
+                  <Btn
+                    onClick={submitConsumable}
+                    disabled={!canSubmitCons}
+                    style={{
+                      marginTop: 4, width: "100%",
+                      background: canSubmitCons ? "#FBBF24" : "#1F3B54",
+                      border: `1px solid ${canSubmitCons ? "#FBBF24" : "#1F3B54"}`,
+                      color: canSubmitCons ? "#0A1622" : "#5E86A3",
+                      fontWeight: "bold", fontSize: 14,
+                    }}
+                  >
+                    <ArrowUpFromLine size={17} />{consSubmitting ? "처리 중..." : "소모자재 출고"}
+                  </Btn>
+                </>
+              ) : txMode === "out" ? (
                 <>
                   <div className="out-field-grid">
                     <Field label="1. 호선">
@@ -7995,97 +8106,7 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
   };
   
   /* ---------- QR 카메라로 소모자재 찾기 → 출고창 열기 ---------- */
-  const [cameraOn, setCameraOn] = useState(false);
-  const consumableRef = useRef([]);
-  consumableRef.current = consumableItems;
-  const allItemsRef = useRef([]);
-  allItemsRef.current = items || [];
 
-  useEffect(() => {
-    if (!cameraOn) return undefined;
-
-    let scanner = null;
-    let cancelled = false;
-    let handled = false;
-    let lastErrAt = 0;
-
-    const normalize = (v) => String(v || "").replace(/[\r\n\t]+/g, "").trim().toLowerCase();
-    const alnum = (v) => normalize(v).replace(/[^a-z0-9]/g, "");
-    const findIn = (list, decoded) => {
-      const scanned = normalize(decoded);
-      return (
-        list.find((i) => normalize(i.code) === scanned) ||
-        list.find((i) => alnum(i.code) && alnum(i.code) === alnum(decoded)) ||
-        list.find((i) => String(i.item_no || "").trim().toLowerCase() === scanned)
-      );
-    };
-
-    const start = async () => {
-      try {
-        if (!window.Html5Qrcode) {
-          const script = document.createElement("script");
-          script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
-          script.async = true;
-          document.body.appendChild(script);
-          await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; });
-        }
-        if (cancelled) return;
-
-        scanner = new window.Html5Qrcode("consumable-qr-reader");
-        await scanner.start(
-          { facingMode: "environment" },
-          {
-            fps: 15,
-            qrbox: (w, h) => {
-              const size = Math.max(220, Math.min(340, Math.floor(Math.min(w, h) * 0.75)));
-              return { width: size, height: size };
-            },
-          },
-          (decodedText) => {
-            if (handled) return;
-            const hit = findIn(consumableRef.current, decodedText);
-            if (hit) {
-              handled = true;
-              notify(`소모자재 선택됨: ${hit.name}`, "ok");
-              setCameraOn(false); // 카메라 정리는 아래 cleanup에서 처리
-              openOutbound(hit);
-            } else if (Date.now() - lastErrAt > 2000) {
-              lastErrAt = Date.now();
-              const other = findIn(allItemsRef.current, decodedText);
-              notify(
-                other
-                  ? `[${other.name}]은(는) 소모자재가 아닙니다.`
-                  : `등록되지 않은 코드입니다: ${String(decodedText).replace(/[\r\n]+/g, "").trim()}`,
-                "err"
-              );
-            }
-          },
-          () => {}
-        );
-
-        if (cancelled) {
-          try { await scanner.stop(); scanner.clear(); } catch {}
-        }
-      } catch (err) {
-        console.error("소모자재 카메라 오류:", err);
-        notify("카메라를 켤 수 없습니다. 권한을 확인해주세요.", "err");
-        setCameraOn(false);
-      }
-    };
-
-    start();
-
-    return () => {
-      cancelled = true;
-      const s = scanner;
-      if (s) {
-        Promise.resolve()
-          .then(() => s.stop())
-          .catch(() => {})
-          .then(() => { try { s.clear(); } catch {} });
-      }
-    };
-  }, [cameraOn]);
 
   const submitOutbound = async () => {
     if (outboundSubmitting || !outboundTarget) return;
@@ -8204,29 +8225,7 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
       <Header title="소모자재 관리" subtitle="소모자재 재고 현황 · 입고(관리자) · 출고 · 부족 시 발주요청" />
       
       {/* QR 카메라 */}
-      <Card style={{ padding: 14, marginBottom: 16 }}>
-        {!cameraOn ? (
-          <Btn
-            onClick={() => setCameraOn(true)}
-            style={{ width: "100%", background: "#FBBF24", border: "1px solid #FBBF24", color: "#0A1622" }}
-          >
-            <Camera size={18} /> QR 카메라로 소모자재 찾기
-          </Btn>
-        ) : (
-          <div style={{ textAlign: "center" }}>
-            <div
-              id="consumable-qr-reader"
-              style={{ width: "100%", maxWidth: 340, minHeight: 280, margin: "0 auto", background: "#000", borderRadius: 8, overflow: "hidden" }}
-            />
-            <div style={{ fontSize: 11.5, color: "#5E86A3", marginTop: 8 }}>
-              소모자재 QR을 사각 박스 안에 맞춰주세요. 인식되면 출고창이 열립니다.
-            </div>
-            <Btn variant="ghost" onClick={() => setCameraOn(false)} style={{ width: "100%", marginTop: 10 }}>
-              카메라 끄기
-            </Btn>
-          </div>
-        )}
-      </Card>
+      
 
       <Card style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

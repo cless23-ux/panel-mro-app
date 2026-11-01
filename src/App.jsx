@@ -3955,19 +3955,9 @@ const filteredTotalText = useMemo(() => {
   const total = filteredConsumption.reduce((s, m) => s + m.qty, 0);
   return `${total.toLocaleString()} ${units[0]}`;
 }, [filteredConsumption]);
-  /* ---- 그래프 보기 방식 ---- */
-  const CHART_MODES = [
-    { id: "material", label: "📊 자재별 막대" },
-    { id: "project", label: "🥧 프로젝트 비중" },
-  ];
-  const CHART_MODE_KEY = "panel:dashChartMode";
+  /* ---- 그래프: 자재별 막대 하나만 사용 ---- */
+  const chartMode = "material";
   const PIE_COLORS = ["#38BDF8", "#F5A623", "#35D08C", "#A78BFA", "#F472B6", "#FBBF24", "#22D3EE", "#EF5350"];
-  const [chartMode, setChartMode] = useState(() => {
-    try {
-      const saved = localStorage.getItem(CHART_MODE_KEY);
-      return CHART_MODES.some((m) => m.id === saved) ? saved : "material";
-    } catch { return "material"; }
-  });
   const changeChartMode = (id) => {
     setChartMode(id);
     try { localStorage.setItem(CHART_MODE_KEY, id); } catch {}
@@ -4400,55 +4390,7 @@ const filteredTotalText = useMemo(() => {
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
-              <div style={{ position: "relative" }}>
-                <Search
-                  size={13} color="#5E86A3"
-                  style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-                />
-                <input
-                  value={materialSearch}
-                  onChange={(e) => setMaterialSearch(e.target.value)}
-                  placeholder="자재 검색"
-                  aria-label="자재 검색"
-                  style={{
-                    background: "#0B1C2C", border: "1px solid #315775", color: "#E7EEF5",
-                    padding: "6px 26px 6px 27px", borderRadius: 7, fontSize: 12, outline: "none", width: 150,
-                  }}
-                />
-                {materialSearch && (
-                  <button
-                    type="button"
-                    onClick={() => setMaterialSearch("")}
-                    aria-label="검색 지우기"
-                    style={{
-                      position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
-                      background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", color: "#7F97AC",
-                    }}
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
-              {CHART_MODES.map((m) => {
-                const on = chartMode === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => changeChartMode(m.id)}
-                    style={{
-                      padding: "5px 11px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
-                      border: `1px solid ${on ? "#3B82F6" : "#1F3B54"}`,
-                      background: on ? "#3B82F61f" : "#0B1C2C",
-                      color: on ? "#7DB4FF" : "#7F97AC",
-                    }}
-                  >
-                    {m.label}
-                  </button>
-                );
-              })}
-            </div>
+
           </div>
 
           {/* 호선 · 프로젝트 버튼 */}

@@ -3250,7 +3250,7 @@ function AppInner() {
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} outFormSettings={outFormSettings} reloadItems={reloadItems} reloadTxs={reloadTxs} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
                         {tab === "master" && <MasterView items={items} txs={txs} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
                         {tab === "borrow" && <BorrowView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
-            {tab === "consumable" && <ConsumableView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
+            {tab === "consumable" && <ConsumableView outFormSettings={outFormSettings} items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} reloadItems={reloadItems} reloadTxs={reloadTxs} />}
             {tab === "settings" && <OutFormSettingsView settings={outFormSettings} saveCategory={saveOutFormSettingCategory} notify={notify} hiddenNavIds={hiddenNavIds} toggleHiddenNav={toggleHiddenNav} />}
             {tab === "trash" && <TrashView items={items} saveItems={saveItems} notify={notify} reloadTxs={reloadTxs} />}
             {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
@@ -4235,7 +4235,8 @@ const filteredTotalText = useMemo(() => {
           out.push({ key: `${s.ship}::${p.project}`, ship: s.ship, project: p.project, count: p.count, today: p.today });
         });
       });
-    return out;
+    // 오늘 불출이 있는 버튼을 앞으로 (그 안에서는 기존 순서 유지)
+    return [...out.filter((c) => c.today), ...out.filter((c) => !c.today)];
   }, [chartOutTxs, periodStart]);
   // 호선·프로젝트 버튼 검색
   const [comboSearch, setComboSearch] = useState("");
@@ -4253,6 +4254,15 @@ const filteredTotalText = useMemo(() => {
     setSelectedShip(pick.ship);
     setSelectedProject(pick.project);
   }, [comboList, selectedShip, selectedProject]);
+
+  // 대시보드를 처음 열 때 맨 앞 버튼(오늘 불출 호선)을 자동 선택
+  const initialPickDoneRef = useRef(false);
+  useEffect(() => {
+    if (initialPickDoneRef.current || comboList.length === 0) return;
+    initialPickDoneRef.current = true;
+    setSelectedShip(comboList[0].ship);
+    setSelectedProject(comboList[0].project);
+  }, [comboList]);
   const recentAll = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
@@ -5465,6 +5475,18 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
   return (
     <div>
       <Header title="출고 / 반납 (QR·바코드 스캔)" subtitle="스캔으로 빠르게 불출 또는 반납 처리" />
+            {txMode === "out" && found && getMaterialType(found.code) === "consumable" && (
+        <StockIssueModal
+          item={items.find((i) => String(i.code).trim() === String(found.code).trim()) || found}
+          outFormSettings={outFormSettings}
+          notify={notify}
+          reloadItems={reloadItems}
+          reloadTxs={reloadTxs}
+          urgentRequests={urgentRequests}
+          addUrgentRequest={addUrgentRequest}
+          onClose={() => { setFound(null); setScan(""); }}
+        />
+      )}
       <div className="outform-grid">
          <input type="file" accept="image/*" capture="environment" ref={foundCameraInputRef} style={{ display: "none" }} onChange={handleFoundImageSelected} />
         <input type="file" accept="image/*" ref={foundGalleryInputRef} style={{ display: "none" }} onChange={handleFoundImageSelected} />
@@ -5678,7 +5700,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
 
                 <Card ref={infoCardRef} neon={txMode === "out" ? "#F5A623" : "#22D3EE"} className="out-form-card out-section-card">
           <SectionLabel>{txMode === "out" ? "2. 불출 정보 입력" : "2. 반납 정보 입력"}</SectionLabel>
-          {!found ? (
+          {!found || (txMode === "out" && getMaterialType(found.code) === "consumable") ? (
             <EmptyState icon={ScanLine} text="먼저 자재를 스캔하거나 선택해주세요." color="#5E86A3" />
           ) : (
             <div className="out-info-stack">
@@ -7090,11 +7112,16 @@ function ReturnView({ items, saveItems, txs, saveTxs, notify, outFormSettings, o
     </div>
   );
 }
-/* ---------------- 재고조회: 불출정보 입력 팝업 ---------------- */
+
+/* ---------------- 재고조회: 불출정보 입력 팝업 (부자재 · 소모자재 공용) ---------------- */
 function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems, reloadTxs, urgentRequests, addUrgentRequest, onClose }) {
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
   const workerOptions = outFormSettings?.workers || [];
+
+  // 소모자재(코드 4-)는 불출자 + 수량만 입력
+  const isConsumable = getMaterialType(itemProp.code) === "consumable";
+  const accent = isConsumable ? "#FBBF24" : "#F5A623";
 
   // 출고 화면에서 쓰던 입력 방식(저장목록 / 최근기록)을 그대로 따라갑니다
   const isLocalMode = (() => {
@@ -7105,15 +7132,18 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
   const [ship, setShip] = useState(isLocalMode ? (history.ship[0] || "") : "");
   const [project, setProject] = useState(isLocalMode ? (history.project[0] || "") : "");
   const [qty, setQty] = useState("");
-  const [worker, setWorker] = useState(isLocalMode ? (history.worker[0] || "") : "");
+  const [worker, setWorker] = useState((isLocalMode || isConsumable) ? (history.worker[0] || "") : "");
   const [submitting, setSubmitting] = useState(false);
   const [photoZoom, setPhotoZoom] = useState(false);
-  
+
+  // 소모자재 불출자 후보: 최근 입력한 이름 + 등록된 불출자
+  const consWorkerOptions = Array.from(new Set([...history.worker, ...workerOptions]));
+
   // 사진 바로 등록 (촬영 → 압축 → 업로드 → 자재 사진으로 저장)
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [localImageUrl, setLocalImageUrl] = useState("");
   const photoCameraRef = useRef(null);
-  // 방금 등록한 사진이 있으면 그 사진을 바로 보여줌 (아래 코드는 모두 item 을 그대로 사용)
+  // 방금 등록한 사진이 있으면 그 사진을 바로 보여줌
   const item = localImageUrl ? { ...itemProp, image_url: localImageUrl } : itemProp;
 
   const handlePhotoSelected = async (e) => {
@@ -7141,7 +7171,7 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
       setUploadingPhoto(false);
     }
   };
-  
+
   // 최신 값을 기억해두는 용도 (이벤트 안에서 항상 최신 상태를 쓰기 위함)
   const photoZoomRef = useRef(false);
   photoZoomRef.current = photoZoom;
@@ -7150,7 +7180,6 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
 
   // 모바일 뒤로가기 / PC ESC 키로 팝업 닫기
   useEffect(() => {
-    // 팝업이 열릴 때 기록 한 칸을 추가해서, 뒤로가기를 누르면 이 칸만 소모되게 함
     window.history.pushState({ modal: "stockIssue" }, "", window.location.href);
     window.__mroBackLayers = (window.__mroBackLayers || 0) + 1;
 
@@ -7166,7 +7195,6 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
     return () => {
       window.removeEventListener("popstate", handlePop);
       window.removeEventListener("keydown", handleKey);
-      // 같은 뒤로가기 동작 안에서 앱 종료 안내가 뜨지 않도록 아주 잠깐 늦게 해제
       setTimeout(() => {
         window.__mroBackLayers = Math.max(0, (window.__mroBackLayers || 0) - 1);
       }, 0);
@@ -7175,45 +7203,64 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
 
   const st = statusOf(item);
   const qtyNum = Number(qty);
-  const ready =
-    !submitting &&
-    qtyNum > 0 &&
-    qtyNum <= Number(item.stock) &&
-    !!String(ship).trim() &&
-    !!String(project).trim() &&
-    !!String(worker).trim();
+  const ready = isConsumable
+    ? (!submitting && qtyNum > 0 && qtyNum <= Number(item.stock) && !!String(worker).trim())
+    : (!submitting &&
+        qtyNum > 0 &&
+        qtyNum <= Number(item.stock) &&
+        !!String(ship).trim() &&
+        !!String(project).trim() &&
+        !!String(worker).trim());
 
   const submit = async (outKind) => {
     if (submitting) return;
     if (!qtyNum || qtyNum <= 0) { notify("불출 수량을 입력해주세요.", "err"); return; }
     if (qtyNum > Number(item.stock)) { notify("현재고보다 많은 수량은 출고할 수 없습니다.", "err"); return; }
-    if (!String(ship).trim() || !String(project).trim() || !String(worker).trim()) {
+    if (isConsumable) {
+      if (!String(worker).trim()) { notify("불출자를 입력해주세요.", "err"); return; }
+    } else if (!String(ship).trim() || !String(project).trim() || !String(worker).trim()) {
       notify("호선, 프로젝트, 불출자를 모두 입력해주세요.", "err");
       return;
     }
 
-    const msg =
-      `다음 내용으로 출고하시겠습니까?\n\n` +
-      `구분: ${outKind}\n자재: ${item.name}\n수량: ${qtyNum}${item.unit}\n` +
-      `호선: ${ship}\n프로젝트: ${project}\n불출자: ${worker}`;
+    const msg = isConsumable
+      ? `다음 내용으로 소모자재를 출고하시겠습니까?\n\n자재: ${item.name}\n수량: ${qtyNum}${item.unit}\n불출자: ${String(worker).trim()}`
+      : `다음 내용으로 출고하시겠습니까?\n\n` +
+        `구분: ${outKind}\n자재: ${item.name}\n수량: ${qtyNum}${item.unit}\n` +
+        `호선: ${ship}\n프로젝트: ${project}\n불출자: ${worker}`;
     if (!window.confirm(msg)) return;
 
     setSubmitting(true);
     try {
-      const tx = {
-        id: uid("OUT"),
-        type: "out",
-        itemCode: item.code,
-        itemName: item.name,
-        unit: item.unit,
-        qty: qtyNum,
-        shipNo: ship,
-        project: project,
-        worker: worker,
-        reason: `${OUT_KIND_MARKER}${outKind}`,
-        at: nowStr(),
-        deleted: false,
-      };
+      const tx = isConsumable
+        ? {
+            id: uid("OUT"),
+            type: "out",
+            itemCode: item.code,
+            itemName: item.name,
+            unit: item.unit,
+            qty: qtyNum,
+            shipNo: "소모자재",
+            project: "",
+            process: "소모자재 출고",
+            worker: String(worker).trim(),
+            at: nowStr(),
+            deleted: false,
+          }
+        : {
+            id: uid("OUT"),
+            type: "out",
+            itemCode: item.code,
+            itemName: item.name,
+            unit: item.unit,
+            qty: qtyNum,
+            shipNo: ship,
+            project: project,
+            worker: worker,
+            reason: `${OUT_KIND_MARKER}${outKind}`,
+            at: nowStr(),
+            deleted: false,
+          };
       await applyStockTransactionsAtomic([{ code: item.code, delta: -qtyNum, tx }]);
       try {
         await reloadItems?.();
@@ -7222,10 +7269,18 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
         console.error("출고 후 새로고침 실패:", e);
       }
       rememberMyOutTxId(tx.id);
-      addToHistory("ship", ship);
-      addToHistory("project", project);
-      addToHistory("worker", worker);
-      notify(`${item.name} ${qtyNum}${item.unit} ${outKind} 출고 완료 · 잔여 ${Number(item.stock) - qtyNum}${item.unit}`, "ok");
+      if (isConsumable) {
+        addToHistory("worker", String(worker).trim());
+      } else {
+        addToHistory("ship", ship);
+        addToHistory("project", project);
+        addToHistory("worker", worker);
+      }
+      const remain = Number(item.stock) - qtyNum;
+      notify(
+        `${item.name} ${qtyNum}${item.unit} ${isConsumable ? "출고" : outKind + " 출고"} 완료 · 잔여 ${remain}${item.unit}`,
+        isConsumable && remain < Number(item.safety) ? "info" : "ok"
+      );
       onClose();
     } catch (e) {
       console.error(e);
@@ -7257,7 +7312,7 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
           }
           .stock-issue-head { margin-bottom: 8px !important; flex-shrink: 0; }
 
-          /* 사진: 남는 공간을 자동으로 채움 (작은 폰은 작게, 큰 폰은 크게) */
+          /* 사진: 남는 공간을 자동으로 채움 */
           .stock-issue-photo {
             flex: 1 1 0;
             height: auto;
@@ -7305,7 +7360,7 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
           onClick={(e) => e.stopPropagation()}
           style={{
             width: "100%", maxWidth: 460, maxHeight: "94dvh", overflowY: "auto",
-            background: "#0F2233", border: "1px solid #F5A62355", borderRadius: 14, padding: 16,
+            background: "#0F2233", border: `1px solid ${accent}55`, borderRadius: 14, padding: 16,
           }}
         >
           {/* 제목 줄: 왼쪽 제목 / 오른쪽 사진촬영 + 긴급요청 + 닫기 */}
@@ -7318,8 +7373,9 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
             onChange={handlePhotoSelected}
           />
           <div className="stock-issue-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#F5A623", fontWeight: 700, fontSize: 15 }}>
-              <ArrowUpFromLine size={18} /> 불출 정보 입력
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: accent, fontWeight: 700, fontSize: 15 }}>
+              {isConsumable ? <Zap size={18} /> : <ArrowUpFromLine size={18} />}
+              {isConsumable ? "소모자재 출고" : "불출 정보 입력"}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <button
@@ -7383,58 +7439,94 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
           </div>
 
           {/* 입력 */}
-          <div className="stock-issue-fields" style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-            <div className="out-field-grid">
-              <Field label="1. 호선">
-                {isLocalMode ? (
-                  <AutocompleteInput value={ship} onChange={setShip} options={history.ship} placeholder="호선 입력" />
-                ) : (
-                  <StrictAutocompleteInput value={ship} onChange={setShip} options={shipOptions} placeholder="호선 선택" />
-                )}
-              </Field>
-              <Field label="2. 프로젝트">
-                {isLocalMode ? (
-                  <AutocompleteInput value={project} onChange={setProject} options={history.project} placeholder="프로젝트 입력" />
-                ) : (
-                  <StrictAutocompleteInput value={project} onChange={setProject} options={projectOptions} placeholder="프로젝트 선택" />
-                )}
-              </Field>
+          {isConsumable ? (
+            <div className="stock-issue-fields" style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+              <div className="out-field-grid">
+                <Field label="1. 불출자">
+                  <AutocompleteInput value={worker} onChange={setWorker} options={consWorkerOptions} placeholder="이름 입력 또는 선택" />
+                </Field>
+                <Field label={`2. 출고 수량 (${item.unit})`}>
+                  <input
+                    style={{ ...inputStyle, fontWeight: "bold", color: "#FBBF24" }}
+                    type="number" min="1" max={item.stock} value={qty}
+                    autoFocus={typeof window !== "undefined" && window.innerWidth > 768}
+                    onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+                  />
+                </Field>
+              </div>
             </div>
-            <div className="out-field-grid">
-              <Field label={`3. 불출수량 (${item.unit})`}>
-                <input
-                  style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }}
-                  type="number" min="1" max={item.stock} value={qty}
-                  autoFocus={typeof window !== "undefined" && window.innerWidth > 768}
-                  onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
-                />
-              </Field>
-              <Field label="4. 불출자">
-                {isLocalMode ? (
-                  <AutocompleteInput value={worker} onChange={setWorker} options={history.worker} placeholder="불출자 입력" />
-                ) : (
-                  <StrictAutocompleteInput value={worker} onChange={setWorker} options={workerOptions} placeholder="불출자 선택" />
-                )}
-              </Field>
+          ) : (
+            <div className="stock-issue-fields" style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+              <div className="out-field-grid">
+                <Field label="1. 호선">
+                  {isLocalMode ? (
+                    <AutocompleteInput value={ship} onChange={setShip} options={history.ship} placeholder="호선 입력" />
+                  ) : (
+                    <StrictAutocompleteInput value={ship} onChange={setShip} options={shipOptions} placeholder="호선 선택" />
+                  )}
+                </Field>
+                <Field label="2. 프로젝트">
+                  {isLocalMode ? (
+                    <AutocompleteInput value={project} onChange={setProject} options={history.project} placeholder="프로젝트 입력" />
+                  ) : (
+                    <StrictAutocompleteInput value={project} onChange={setProject} options={projectOptions} placeholder="프로젝트 선택" />
+                  )}
+                </Field>
+              </div>
+              <div className="out-field-grid">
+                <Field label={`3. 불출수량 (${item.unit})`}>
+                  <input
+                    style={{ ...inputStyle, fontWeight: "bold", color: "#F5A623" }}
+                    type="number" min="1" max={item.stock} value={qty}
+                    autoFocus={typeof window !== "undefined" && window.innerWidth > 768}
+                    onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+                  />
+                </Field>
+                <Field label="4. 불출자">
+                  {isLocalMode ? (
+                    <AutocompleteInput value={worker} onChange={setWorker} options={history.worker} placeholder="불출자 입력" />
+                  ) : (
+                    <StrictAutocompleteInput value={worker} onChange={setWorker} options={workerOptions} placeholder="불출자 선택" />
+                  )}
+                </Field>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="stock-issue-actions" style={{ display: "flex", gap: 8 }}>
-            <Btn
-              onClick={() => submit("정발주")}
-              disabled={!ready}
-              style={{ flex: 1, background: ready ? "#F5A623" : "#1F3B54", color: ready ? "#0A1622" : "#5E86A3", fontWeight: "bold" }}
-            >
-              <ArrowUpFromLine size={16} />{submitting ? "처리 중..." : "정발주 출고"}
-            </Btn>
-            <Btn
-              onClick={() => submit("추가건")}
-              disabled={!ready}
-              style={{ flex: 1, background: ready ? "#38BDF8" : "#1F3B54", border: `1px solid ${ready ? "#38BDF8" : "#1F3B54"}`, color: ready ? "#0A1622" : "#5E86A3", fontWeight: "bold" }}
-            >
-              <ArrowUpFromLine size={16} />{submitting ? "처리 중..." : "추가건 출고"}
-            </Btn>
-          </div>
+          {isConsumable ? (
+            <div className="stock-issue-actions" style={{ display: "flex", gap: 8 }}>
+              <Btn
+                onClick={() => submit("출고")}
+                disabled={!ready}
+                style={{
+                  flex: 1,
+                  background: ready ? "#FBBF24" : "#1F3B54",
+                  border: `1px solid ${ready ? "#FBBF24" : "#1F3B54"}`,
+                  color: ready ? "#0A1622" : "#5E86A3",
+                  fontWeight: "bold",
+                }}
+              >
+                <ArrowUpFromLine size={16} />{submitting ? "처리 중..." : "소모자재 출고"}
+              </Btn>
+            </div>
+          ) : (
+            <div className="stock-issue-actions" style={{ display: "flex", gap: 8 }}>
+              <Btn
+                onClick={() => submit("정발주")}
+                disabled={!ready}
+                style={{ flex: 1, background: ready ? "#F5A623" : "#1F3B54", color: ready ? "#0A1622" : "#5E86A3", fontWeight: "bold" }}
+              >
+                <ArrowUpFromLine size={16} />{submitting ? "처리 중..." : "정발주 출고"}
+              </Btn>
+              <Btn
+                onClick={() => submit("추가건")}
+                disabled={!ready}
+                style={{ flex: 1, background: ready ? "#38BDF8" : "#1F3B54", border: `1px solid ${ready ? "#38BDF8" : "#1F3B54"}`, color: ready ? "#0A1622" : "#5E86A3", fontWeight: "bold" }}
+              >
+                <ArrowUpFromLine size={16} />{submitting ? "처리 중..." : "추가건 출고"}
+              </Btn>
+            </div>
+          )}
         </div>
       </div>
 
@@ -8007,7 +8099,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
 }
 
 /* ---------------- 소모자재 관리 ---------------- */
-function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests, addUrgentRequest, reloadItems, reloadTxs }) {
+function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests, addUrgentRequest, reloadItems, reloadTxs, outFormSettings }) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [zoomedImage, setZoomedImage] = useState(null);
@@ -8476,6 +8568,20 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
 
       {/* 출고 모달 (불출자, 수량만 입력) */}
       {outboundTarget && (
+        <StockIssueModal
+          item={items.find((i) => String(i.code).trim() === String(outboundTarget.code).trim()) || outboundTarget}
+          outFormSettings={outFormSettings}
+          notify={notify}
+          reloadItems={reloadItems}
+          reloadTxs={reloadTxs}
+          urgentRequests={urgentRequests}
+          addUrgentRequest={addUrgentRequest}
+          onClose={() => setOutboundTarget(null)}
+        />
+      )}
+
+      {/* (예전 출고 모달: 더 이상 사용하지 않음) */}
+      {false && outboundTarget && (
         <div className="app-modal-overlay" onClick={() => setOutboundTarget(null)} style={{ position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 380, background: "#0F2233", border: "1px solid #F5A62355", borderRadius: 14, padding: 20 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>

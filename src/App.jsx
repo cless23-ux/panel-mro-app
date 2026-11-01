@@ -3173,6 +3173,27 @@ function AppInner() {
           </button>
           )}
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button
+          onClick={() => goToTab("consumable")}
+          title="소모자재관리"
+          style={{
+            background: tab === "consumable" ? "#FBBF2433" : "#FBBF2414",
+            border: `1px solid ${tab === "consumable" ? "#FBBF24" : "#FBBF2466"}`,
+            color: tab === "consumable" ? "#FFFFFF" : "#FDE68A",
+            borderRadius: 9,
+            padding: "7px 10px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: 12,
+            fontWeight: 800,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <Zap size={15} />소모
+        </button>
         <button
           onClick={() => goToTab("chat")}
           title="개인 메모"
@@ -3222,6 +3243,7 @@ function AppInner() {
           </span>
           메모
         </button>
+        </div>
       </header>
 
       {/* 메인 영역 */}
@@ -7991,6 +8013,99 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
     setOutboundQty("");
     setOutboundWorker("");
   };
+  
+  /* ---------- QR 카메라로 소모자재 찾기 → 출고창 열기 ---------- */
+  const [cameraOn, setCameraOn] = useState(false);
+  const consumableRef = useRef([]);
+  consumableRef.current = consumableItems;
+  const allItemsRef = useRef([]);
+  allItemsRef.current = items || [];
+
+  useEffect(() => {
+    if (!cameraOn) return undefined;
+
+    let scanner = null;
+    let cancelled = false;
+    let handled = false;
+    let lastErrAt = 0;
+
+    const normalize = (v) => String(v || "").replace(/[\r\n\t]+/g, "").trim().toLowerCase();
+    const alnum = (v) => normalize(v).replace(/[^a-z0-9]/g, "");
+    const findIn = (list, decoded) => {
+      const scanned = normalize(decoded);
+      return (
+        list.find((i) => normalize(i.code) === scanned) ||
+        list.find((i) => alnum(i.code) && alnum(i.code) === alnum(decoded)) ||
+        list.find((i) => String(i.item_no || "").trim().toLowerCase() === scanned)
+      );
+    };
+
+    const start = async () => {
+      try {
+        if (!window.Html5Qrcode) {
+          const script = document.createElement("script");
+          script.src = "https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js";
+          script.async = true;
+          document.body.appendChild(script);
+          await new Promise((resolve, reject) => { script.onload = resolve; script.onerror = reject; });
+        }
+        if (cancelled) return;
+
+        scanner = new window.Html5Qrcode("consumable-qr-reader");
+        await scanner.start(
+          { facingMode: "environment" },
+          {
+            fps: 15,
+            qrbox: (w, h) => {
+              const size = Math.max(220, Math.min(340, Math.floor(Math.min(w, h) * 0.75)));
+              return { width: size, height: size };
+            },
+          },
+          (decodedText) => {
+            if (handled) return;
+            const hit = findIn(consumableRef.current, decodedText);
+            if (hit) {
+              handled = true;
+              notify(`소모자재 선택됨: ${hit.name}`, "ok");
+              setCameraOn(false); // 카메라 정리는 아래 cleanup에서 처리
+              openOutbound(hit);
+            } else if (Date.now() - lastErrAt > 2000) {
+              lastErrAt = Date.now();
+              const other = findIn(allItemsRef.current, decodedText);
+              notify(
+                other
+                  ? `[${other.name}]은(는) 소모자재가 아닙니다.`
+                  : `등록되지 않은 코드입니다: ${String(decodedText).replace(/[\r\n]+/g, "").trim()}`,
+                "err"
+              );
+            }
+          },
+          () => {}
+        );
+
+        if (cancelled) {
+          try { await scanner.stop(); scanner.clear(); } catch {}
+        }
+      } catch (err) {
+        console.error("소모자재 카메라 오류:", err);
+        notify("카메라를 켤 수 없습니다. 권한을 확인해주세요.", "err");
+        setCameraOn(false);
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      const s = scanner;
+      if (s) {
+        Promise.resolve()
+          .then(() => s.stop())
+          .catch(() => {})
+          .then(() => { try { s.clear(); } catch {} });
+      }
+    };
+  }, [cameraOn]);
 
   const submitOutbound = async () => {
     if (outboundSubmitting || !outboundTarget) return;
@@ -8107,6 +8222,31 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
   return (
     <div>
       <Header title="소모자재 관리" subtitle="소모자재 재고 현황 · 입고(관리자) · 출고 · 부족 시 발주요청" />
+      
+      {/* QR 카메라 */}
+      <Card style={{ padding: 14, marginBottom: 16 }}>
+        {!cameraOn ? (
+          <Btn
+            onClick={() => setCameraOn(true)}
+            style={{ width: "100%", background: "#FBBF24", border: "1px solid #FBBF24", color: "#0A1622" }}
+          >
+            <Camera size={18} /> QR 카메라로 소모자재 찾기
+          </Btn>
+        ) : (
+          <div style={{ textAlign: "center" }}>
+            <div
+              id="consumable-qr-reader"
+              style={{ width: "100%", maxWidth: 340, minHeight: 280, margin: "0 auto", background: "#000", borderRadius: 8, overflow: "hidden" }}
+            />
+            <div style={{ fontSize: 11.5, color: "#5E86A3", marginTop: 8 }}>
+              소모자재 QR을 사각 박스 안에 맞춰주세요. 인식되면 출고창이 열립니다.
+            </div>
+            <Btn variant="ghost" onClick={() => setCameraOn(false)} style={{ width: "100%", marginTop: 10 }}>
+              카메라 끄기
+            </Btn>
+          </div>
+        )}
+      </Card>
 
       <Card style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

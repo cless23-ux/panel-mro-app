@@ -9167,6 +9167,15 @@ const masterPageNumbers = useMemo(() => {
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     notify("자재 데이터가 엑셀(CSV)로 다운로드 되었습니다.", "ok");
   };
+    const [saveModalOpen, setSaveModalOpen] = useState(false);
+
+  // ESC 키로 저장 팝업 닫기
+  useEffect(() => {
+    if (!saveModalOpen) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setSaveModalOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [saveModalOpen]);
   /* ---------- 선택한 품목만 엑셀로 저장 ---------- */
   const exportSelectedExcel = () => {
     if (selectedQrCodes.length === 0) {
@@ -9616,10 +9625,7 @@ const masterPageNumbers = useMemo(() => {
             )}
           </button>
 
-          <Btn onClick={exportCSV} variant="subtle"><Download size={14} />엑셀 백업</Btn>
-          <Btn onClick={exportSelectedExcel} variant="subtle" disabled={selectedQrCodes.length === 0}>
-            <Download size={14} />선택 엑셀{selectedQrCodes.length ? ` (${selectedQrCodes.length})` : ""}
-          </Btn>
+          <Btn onClick={() => setSaveModalOpen(true)} variant="subtle"><Download size={14} />엑셀 저장</Btn>
           <Btn onClick={exportQRLabelsExcel} variant="subtle" disabled={qrExporting}>
             <QrCode size={14} />{qrExporting ? "생성 중..." : `QR 라벨${selectedQrCodes.length ? ` (${selectedQrCodes.length})` : ""}`}
           </Btn>
@@ -10764,6 +10770,83 @@ const masterPageNumbers = useMemo(() => {
           >
             ×
           </button>
+        </div>
+      )}
+            {/* 엑셀 저장 팝업 (전체 저장 / 선택 저장) */}
+      {saveModalOpen && (
+        <div
+          className="app-modal-overlay"
+          onClick={() => setSaveModalOpen(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 380, background: "#0F2233",
+              border: "1px solid #38BDF866", borderRadius: 14, padding: 20,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#7DD3FC", fontWeight: 700, fontSize: 15 }}>
+                <Download size={18} /> 엑셀 저장
+              </div>
+              <button
+                type="button"
+                onClick={() => setSaveModalOpen(false)}
+                aria-label="닫기"
+                style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4, display: "flex" }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => { setSaveModalOpen(false); exportCSV(); }}
+                style={{
+                  textAlign: "left", padding: "14px 16px", borderRadius: 10, cursor: "pointer",
+                  border: "1px solid #274460", background: "#0B1C2C", color: "#E7EEF5",
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#7DD3FC" }}>전체 저장</div>
+                <div style={{ fontSize: 11.5, color: "#7F97AC", marginTop: 4, lineHeight: 1.5 }}>
+                  자재 전체 {items.length.toLocaleString()}개를 저장합니다 (CSV 파일)
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setSaveModalOpen(false); exportSelectedExcel(); }}
+                disabled={selectedQrCodes.length === 0}
+                style={{
+                  textAlign: "left", padding: "14px 16px", borderRadius: 10,
+                  cursor: selectedQrCodes.length === 0 ? "not-allowed" : "pointer",
+                  border: `1px solid ${selectedQrCodes.length === 0 ? "#1F3B54" : "#35D08C88"}`,
+                  background: selectedQrCodes.length === 0 ? "#0B1C2C" : "#35D08C14",
+                  color: "#E7EEF5", opacity: selectedQrCodes.length === 0 ? 0.55 : 1,
+                }}
+              >
+                <div style={{ fontSize: 14, fontWeight: 700, color: selectedQrCodes.length === 0 ? "#7F97AC" : "#35D08C" }}>
+                  선택 저장{selectedQrCodes.length ? ` (${selectedQrCodes.length}개)` : ""}
+                </div>
+                <div style={{ fontSize: 11.5, color: "#7F97AC", marginTop: 4, lineHeight: 1.5 }}>
+                  {selectedQrCodes.length === 0
+                    ? "선택된 품목이 없습니다. 표에서 체크박스로 먼저 선택해 주세요."
+                    : "체크한 품목만 엑셀 파일(.xlsx)로 저장합니다"}
+                </div>
+              </button>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <Btn variant="ghost" onClick={() => setSaveModalOpen(false)} style={{ width: "100%", padding: "10px" }}>
+                닫기
+              </Btn>
+            </div>
+          </div>
         </div>
       )}
       {qrModalItem && window.innerWidth > 768 && (

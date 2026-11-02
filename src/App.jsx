@@ -8314,7 +8314,7 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
 
   return (
     <div>
-      <Header title="소모자재 관리" subtitle="소모자재 재고 현황 · 입고(관리자) · 출고 · 부족 시 발주요청" />
+      <Header title="소모자재 관리" subtitle="소모자재 재고 현황 · 입고 · 출고 · 부족 시 발주요청" />
       
       {/* QR 카메라 */}
       
@@ -8391,9 +8391,12 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
                 </div>
 
                 <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid #1F3B54", flexWrap: "wrap" }}>
-                  <div className="pc-only-block" style={{ flex: "1 1 100px" }}>
-                    <Btn onClick={() => openInbound(item)} variant="subtle" style={{ width: "100%", fontSize: 12.5 }}>
-                      <ArrowDownToLine size={14} /> 입고 (관리자)
+                  <div style={{ flex: "1 1 100px" }}>
+                    <Btn
+                      onClick={() => openInbound(item)}
+                      style={{ width: "100%", fontSize: 12.5, background: "#35D08C", border: "1px solid #35D08C", color: "#0A1622" }}
+                    >
+                      <ArrowDownToLine size={14} /> 입고
                     </Btn>
                   </div>
                   <Btn
@@ -9164,7 +9167,60 @@ const masterPageNumbers = useMemo(() => {
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
     notify("자재 데이터가 엑셀(CSV)로 다운로드 되었습니다.", "ok");
   };
+  /* ---------- 선택한 품목만 엑셀로 저장 ---------- */
+  const exportSelectedExcel = () => {
+    if (selectedQrCodes.length === 0) {
+      notify("엑셀로 저장할 품목을 먼저 선택해주세요.", "err");
+      return;
+    }
+    const selectedItems = items.filter((i) => selectedQrCodes.includes(i.code));
+    if (selectedItems.length === 0) {
+      notify("선택한 품목을 찾을 수 없습니다.", "err");
+      return;
+    }
 
+    const rows = selectedItems.map((i) => ({
+      "품목번호": csvSafe(i.item_no),
+      "코드": csvSafe(i.code),
+      "품명": csvSafe(i.name),
+      "규격": csvSafe(i.spec),
+      "카테고리": csvSafe(i.category),
+      "단위": csvSafe(i.unit),
+      "현재고": Number(i.stock) || 0,
+      "안전재고": Number(i.safety) || 0,
+      "거래처": csvSafe(i.manufacturer),
+      "비고": csvSafe(i.memo),
+      "이미지주소": csvSafe(i.image_url),
+      "실사용": i.in_use ? "Y" : "",
+    }));
+    const fileBase = `MRO_자재마스터_선택${selectedItems.length}개_${nowStr().split(" ")[0]}`;
+
+    if (window.XLSX) {
+      const ws = window.XLSX.utils.json_to_sheet(rows);
+      ws["!cols"] = [
+        { wch: 10 }, { wch: 26 }, { wch: 34 }, { wch: 36 }, { wch: 14 }, { wch: 8 },
+        { wch: 10 }, { wch: 10 }, { wch: 16 }, { wch: 26 }, { wch: 40 }, { wch: 8 },
+      ];
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, ws, "선택품목");
+      window.XLSX.writeFile(wb, `${fileBase}.xlsx`);
+      notify(`선택한 ${selectedItems.length}개 품목이 엑셀로 저장되었습니다.`, "ok");
+      return;
+    }
+
+    // 엑셀 기능을 아직 못 불러왔으면 CSV로 대신 저장
+    const header = Object.keys(rows[0]).join(",") + "\n";
+    const body = rows
+      .map((r) => Object.values(r).map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob(["\uFEFF" + header + body], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${fileBase}.csv`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    notify(`선택한 ${selectedItems.length}개 품목이 CSV로 저장되었습니다.`, "ok");
+  };
   const [qrExporting, setQrExporting] = useState(false);
   const exportQRLabelsExcel = async () => {
     if (items.length === 0) { notify("등록된 자재가 없습니다.", "err"); return; }
@@ -9561,6 +9617,9 @@ const masterPageNumbers = useMemo(() => {
           </button>
 
           <Btn onClick={exportCSV} variant="subtle"><Download size={14} />엑셀 백업</Btn>
+          <Btn onClick={exportSelectedExcel} variant="subtle" disabled={selectedQrCodes.length === 0}>
+            <Download size={14} />선택 엑셀{selectedQrCodes.length ? ` (${selectedQrCodes.length})` : ""}
+          </Btn>
           <Btn onClick={exportQRLabelsExcel} variant="subtle" disabled={qrExporting}>
             <QrCode size={14} />{qrExporting ? "생성 중..." : `QR 라벨${selectedQrCodes.length ? ` (${selectedQrCodes.length})` : ""}`}
           </Btn>

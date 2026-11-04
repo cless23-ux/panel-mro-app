@@ -1859,7 +1859,7 @@ const TAB_NEON = {
 
 function AppInner() {
   // 화면 테마: 기존 다크 모드는 그대로 유지하고, 사용자 선택 시 밝은 테마로 전환
-  const [lightMode, setLightMode] = useState(false);
+ const [lightMode, setLightMode] = useState(true);
   const toggleTheme = useCallback(() => {
     setLightMode((prev) => {
       const next = !prev;
@@ -3012,6 +3012,170 @@ function AppInner() {
             box-shadow: 0 -4px 20px rgba(0,0,0,.28);
           }
         }
+        /* ===== 화이트 + 네이비 + 블루 테마 ===== */
+        .app-container.light-mode {
+          --bg-page: #F4F7FC;
+          --bg-card-grad: #FFFFFF;
+          --bg-card-flat: #FFFFFF;
+          --border-card: #DCE5F1;
+          --bg-input: #F5F8FD;
+          --border-input: #C9D6E8;
+          --bg-subtle: #EAF1FB;
+          --border-subtle: #D3DEEE;
+          --text-primary: #0F2A4D;
+          --text-secondary: #1E3A5F;
+          --text-tertiary: #4B6585;
+          --text-muted: #5B7392;
+          --text-faint: #6F89A8;
+          --border-sidebar: #E2E9F4;
+          --table-hover: #F0F5FC;
+          --card-radius: 14px;
+          --card-shadow: 0 1px 2px rgba(15,42,77,.05), 0 8px 24px rgba(15,42,77,.06);
+          --btn-primary-bg: #2563EB;
+          --btn-primary-text: #FFFFFF;
+          --btn-primary-border: #2563EB;
+        }
+        .app-container.light-mode { background: #F4F7FC !important; color: #0F2A4D; }
+
+                /* 왼쪽 메뉴: 화이트 + 연한 블루 */
+        .app-container.light-mode .pc-sidebar {
+          background: linear-gradient(180deg, #FFFFFF 0%, #EEF4FD 100%) !important;
+          border-right: 1px solid #DCE5F1 !important;
+          box-shadow: 4px 0 24px rgba(15,42,77,.06) !important;
+        }
+        .app-container.light-mode .pc-sidebar > div:first-child { border-bottom: 1px solid #DCE5F1 !important; }
+
+        /* 메뉴 버튼 */
+        .app-container.light-mode .pc-sidebar .sidebar-nav button { color: #3F5877 !important; }
+        .app-container.light-mode .pc-sidebar .sidebar-nav button:hover:not(:disabled) {
+          background: #EAF1FB !important; color: #1D4ED8 !important;
+        }
+        .app-container.light-mode .pc-sidebar .sidebar-nav button[style*="color: rgb(245, 166, 35)"] {
+          background: linear-gradient(90deg, #DBEAFE, #F3F8FF) !important;
+          color: #1D4ED8 !important;
+          border-color: #BFDBFE !important;
+          border-left: 3px solid #2563EB !important;
+          box-shadow: none !important;
+        }
+
+        /* 위쪽 새로고침 / 앱설치 버튼 (긴급요청 빨간 버튼은 그대로) */
+        .app-container.light-mode .pc-sidebar > button:not([style*="linear-gradient"]) {
+          background: #FFFFFF !important;
+          border: 1px solid #D6E1F0 !important;
+          box-shadow: 0 1px 2px rgba(15,42,77,.05);
+        }
+        .app-container.light-mode .pc-sidebar > button.pwa-install-share { color: #2563EB !important; }
+
+        /* 재고 요약 카드 */
+        .app-container.light-mode .pc-sidebar .sidebar-stock-summary > div {
+          background: #FFFFFF !important;
+          border: 1px solid #D6E1F0 !important;
+          box-shadow: 0 4px 14px rgba(15,42,77,.06) !important;
+        }
+        .app-container.light-mode .pc-sidebar .sidebar-stock-summary [style*="color: rgb(159, 180, 199)"] { color: #4B6585 !important; }
+
+        /* 모바일 상단/하단 바 */
+        .app-container.light-mode .mobile-header {
+          background: var(--hero-img) right bottom / auto 100% no-repeat,
+                      linear-gradient(120deg, #1E40AF 0%, #2563EB 60%, #3B9BF5 100%) !important;
+          border-bottom: none !important;
+          box-shadow: 0 4px 16px rgba(37,99,235,.25) !important;
+        }
+        .app-container.light-mode .mobile-bottom-nav {
+          background: #FFFFFF !important;
+          border-top: 1px solid #DCE5F1 !important;
+          box-shadow: 0 -4px 20px rgba(15,42,77,.08) !important;
+        }
+
+        /* 표 */
+        .app-container.light-mode table th { background: #EEF3FB !important; color: #4B6585 !important; border-bottom: 1px solid #D6E1F0 !important; }
+        .app-container.light-mode table td { color: #1E3A5F; }
+        .app-container.light-mode tbody tr { border-top-color: #E6ECF5 !important; }
+        .app-container.light-mode tbody tr:hover { background: #F0F5FC !important; }
+        .app-container.light-mode *::-webkit-scrollbar-thumb { background: #C3D2E8; }
+
+        /* 본문 배경: 어두운 네이비 → 흰색 */
+        .app-container.light-mode .main-content :is(
+          [style*="background: rgb(15, 34, 51)"]
+        ) { background: #FFFFFF !important; }
+        .app-container.light-mode .main-content :is(
+          [style*="background: rgb(18, 42, 63)"],
+          [style*="background: rgb(22, 50, 74)"],
+          [style*="background: rgb(21, 44, 66)"]
+        ) { background: #EAF1FB !important; }
+        .app-container.light-mode .main-content :is(
+          [style*="background: rgb(11, 28, 44)"],
+          [style*="background: rgb(9, 24, 39)"],
+          [style*="background: rgb(13, 24, 40)"],
+          [style*="background: rgb(10, 29, 45)"],
+          [style*="background: rgb(7, 19, 31)"],
+          [style*="background: rgb(9, 26, 41)"],
+          [style*="background: rgb(15, 32, 48)"],
+          [style*="rgb(12, 33, 51)"]
+        ) { background: #F3F7FC !important; }
+        .app-container.light-mode .main-content [style*="background: rgb(30, 58, 95)"] { background: #DBEAFE !important; }
+
+        /* 테두리 */
+        .app-container.light-mode .main-content :is(
+          [style*="solid rgb(39, 68, 96)"], [style*="solid rgb(31, 59, 84)"],
+          [style*="solid rgb(22, 41, 60)"], [style*="solid rgb(38, 68, 95)"],
+          [style*="solid rgb(49, 87, 117)"], [style*="solid rgb(26, 49, 70)"],
+          [style*="solid rgb(20, 40, 58)"], [style*="solid rgb(24, 53, 77)"],
+          [style*="dashed rgb(39, 68, 96)"]
+        ) { border-color: #D6E1F0 !important; }
+
+        /* 글자색: 연한 회색/하늘색 → 네이비/블루 */
+        .app-container.light-mode .main-content [style*="color: rgb(231, 238, 245)"] { color: #0F2A4D !important; }
+        .app-container.light-mode .main-content [style*="color: rgb(201, 218, 232)"] { color: #1E3A5F !important; }
+        .app-container.light-mode .main-content :is([style*="color: rgb(159, 180, 199)"], [style*="color: rgb(183, 200, 214)"], [style*="color: rgb(219, 232, 243)"]) { color: #4B6585 !important; }
+        .app-container.light-mode .main-content [style*="color: rgb(127, 151, 172)"] { color: #5B7392 !important; }
+        .app-container.light-mode .main-content [style*="color: rgb(94, 134, 163)"] { color: #6F89A8 !important; }
+        .app-container.light-mode .main-content [style*="color: rgb(56, 189, 248)"] { color: #1D4ED8 !important; }
+        .app-container.light-mode .main-content [style*="color: rgb(125, 211, 252)"] { color: #2563EB !important; }
+
+        /* 그래프 글자 */
+        .app-container.light-mode .main-content text[fill="#B7C8D6"] { fill: #334E73; }
+        .app-container.light-mode .main-content text[fill="#718CA2"] { fill: #5B7392; }
+
+        /* 클래스로 색이 지정된 곳 */
+        .app-container.light-mode .out-info-card,
+        .app-container.light-mode .stock-pc-note,
+        .app-container.light-mode .stock-pc-note-closed,
+        .app-container.light-mode .stock-mobile-note,
+        .app-container.light-mode .stock-mobile-note-closed,
+        .app-container.light-mode .raw-manage-item-card { background: #F3F7FC !important; border-color: #D6E1F0 !important; }
+        .app-container.light-mode .stock-pc-note,
+        .app-container.light-mode .stock-pc-note-text,
+        .app-container.light-mode .stock-mobile-note,
+        .app-container.light-mode .stock-mobile-note-text { color: #0F2A4D !important; }
+        .app-container.light-mode .out-found-name,
+        .app-container.light-mode .stock-mobile-name { color: #1D4ED8 !important; }
+        .app-container.light-mode .out-found-code,
+        .app-container.light-mode .out-found-spec,
+        .app-container.light-mode .stock-mobile-spec,
+        .app-container.light-mode .raw-manage-card-code { color: #5B7392 !important; }
+        .app-container.light-mode .raw-manage-card-meta b,
+        .app-container.light-mode .raw-manage-card-title { color: #0F2A4D !important; }
+        .app-container.light-mode .out-info-divider,
+        .app-container.light-mode .out-found-stock { border-color: #DCE5F1 !important; }
+        .app-container.light-mode .stock-issue-photo { background: #F3F7FC !important; border-color: #D6E1F0 !important; }
+        
+        /* 파도 + 선박 이미지 (헤더 공용) */
+        .app-container.light-mode {
+          --hero-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 520 100'%3E%3Cg fill='white'%3E%3Cpath fill-opacity='.10' d='M0 72 Q32 60 65 72 T130 72 T195 72 T260 72 T325 72 T390 72 T455 72 T520 72 V100 H0Z'/%3E%3Cpath fill-opacity='.14' d='M0 84 Q32 74 65 84 T130 84 T195 84 T260 84 T325 84 T390 84 T455 84 T520 84 V100 H0Z'/%3E%3Cpath fill-opacity='.22' d='M330 66 H440 L424 82 H348 Z'/%3E%3Crect fill-opacity='.22' x='360' y='50' width='44' height='16'/%3E%3Crect fill-opacity='.22' x='372' y='38' width='20' height='12'/%3E%3Crect fill-opacity='.22' x='396' y='28' width='5' height='22'/%3E%3C/g%3E%3C/svg%3E");
+        }
+
+        /* 각 화면 제목 영역: 파란 배경 + 이미지 */
+        .app-container.light-mode .page-header {
+          background: var(--hero-img) right bottom / auto 100% no-repeat,
+                      linear-gradient(120deg, #1E40AF 0%, #2563EB 60%, #3B9BF5 100%) !important;
+          border: none !important;
+          border-radius: 16px;
+          padding: 20px 26px !important;
+          box-shadow: 0 8px 24px rgba(37,99,235,.22);
+        }
+        .app-container.light-mode .page-header h1 { color: #FFFFFF !important; }
+        .app-container.light-mode .page-header > div { color: rgba(255,255,255,.82) !important; }
       `}</style>
 
       {/* PC 사이드바 */}
@@ -4814,7 +4978,7 @@ function EmptyState({ icon: Icon, text, color }) {
 
 function Header({ title, subtitle }) {
   return (
-    <div style={{ marginBottom: 20, textAlign: "left", paddingBottom: 14, borderBottom: "1px solid var(--border-card)" }}>
+   <div className="page-header" style={{ marginBottom: 20, textAlign: "left", paddingBottom: 14, borderBottom: "1px solid var(--border-card)" }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em", color: "var(--text-primary)" }}>{title}</h1>
       <div style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 4 }}>{subtitle}</div>
     </div>

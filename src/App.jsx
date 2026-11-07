@@ -13644,6 +13644,8 @@ function ShipIssueAdminView({
   const [adminMap, setAdminMap] = useState({});
   const [noteDrafts, setNoteDrafts] = useState({});
   const [recvDrafts, setRecvDrafts] = useState({});
+  const [cntDrafts, setCntDrafts] = useState({});
+  const [cntOpen, setCntOpen] = useState({});
   // 미등록 자재 별도 관리창 기본: 접힘
   const [unregisteredOpen, setUnregisteredOpen] = useState(false);
   const planFileRef = useRef(null);
@@ -13985,6 +13987,40 @@ function ShipIssueAdminView({
 
   // 입고수량 수기 저장 (호선 + 프로젝트별로 따로 저장)
   const recvKeyOf = (code) => `recv:${ship}${project === "전체" ? "" : `::${project}`}:${code}`;
+    /* ---- 미등록 자재 수량 카운트 (추가할 때마다 1줄씩 저장) ---- */
+  const cntPrefixOf = (code) => `cnt:${ship}${project === "전체" ? "" : `::${project}`}:${code}:`;
+
+  const cntEntriesOf = (code) => {
+    const prefix = cntPrefixOf(code);
+    const list = [];
+    Object.keys(adminMap).forEach((k) => {
+      if (!k.startsWith(prefix)) return;
+      try {
+        const v = JSON.parse(adminMap[k]);
+        list.push({ key: k, qty: Number(v.qty) || 0, at: String(v.at || "") });
+      } catch { /* 깨진 기록은 건너뜀 */ }
+    });
+    return list.sort((a, b) => b.at.localeCompare(a.at)); // 최근 추가가 위로
+  };
+
+  const addCount = (code) => {
+    const raw = String(cntDrafts[code] ?? "").trim();
+    const q = Number(raw);
+    if (!raw || Number.isNaN(q) || q <= 0) {
+      notify("추가할 수량을 1 이상의 숫자로 입력해주세요.", "err");
+      return;
+    }
+    saveAdmin(`${cntPrefixOf(code)}${uid("CNT")}`, JSON.stringify({ qty: q, at: nowStr() }));
+    setCntDrafts((p) => ({ ...p, [code]: "" }));
+    setCntOpen((p) => ({ ...p, [code]: true }));
+    notify(`${q} 추가했습니다.`, "ok");
+  };
+
+  const removeCount = (entry) => {
+    if (!window.confirm(`${entry.at} 에 추가한 ${entry.qty} 기록을 삭제할까요?`)) return;
+    saveAdmin(entry.key, "");
+    notify("기록이 삭제되었습니다.", "info");
+  };
   const commitRecv = (code) => {
     if (!Object.prototype.hasOwnProperty.call(recvDrafts, code)) return;
     const raw = String(recvDrafts[code]).trim();
@@ -14691,7 +14727,11 @@ function ShipIssueAdminView({
             {unregisteredRows.map((m) => {
               const saved = adminMap[recvKeyOf(m.code)];
               const hasRecv = saved !== undefined && saved !== "";
-              const left = hasRecv ? Number(saved) - m.total : null;
+              const cntEntries = cntEntriesOf(m.code);
+              const cntSum = cntEntries.reduce((s, e) => s + e.qty, 0);
+              const recvTotal = (hasRecv ? Number(saved) || 0 : 0) + cntSum;
+              const hasAny = hasRecv || cntEntries.length > 0;
+              const left = hasAny ? recvTotal - m.total : null;
               const leftColor = left === null ? "#3E5975" : left < 0 ? "#EF5350" : left === 0 ? "#35D08C" : "#A78BFA";
               const inputValue = Object.prototype.hasOwnProperty.call(recvDrafts, m.code)
                 ? recvDrafts[m.code]
@@ -14727,18 +14767,35 @@ function ShipIssueAdminView({
                         </div>
                       </div>
                       <div style={{ textAlign: "center" }}>
-                        <div style={{ fontSize: 10, color: "#F472B6", fontWeight: 700 }}>입고수량 (직접 입력)</div>
-                        <input
-                          type="number"
-                          min="0"
-                          inputMode="decimal"
-                          placeholder="입고 수량"
-                          value={inputValue}
-                          onChange={(e) => setRecvDrafts((p) => ({ ...p, [m.code]: e.target.value }))}
-                          onBlur={() => commitRecv(m.code)}
-                          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                          style={{ ...inputStyle, width: 104, height: 34, padding: "4px 8px", fontSize: 14, textAlign: "center", borderColor: "#F472B666" }}
-                        />
+                        <div style={{ fontSize: 10, color: "#F472B6", fontWeight: 700 }}>수량 체크 (추가)</div>
+                        <div style={{ display: "flex", gap: 4 }}>
+                          <input
+                            type="number"
+                            min="1"
+                            inputMode="decimal"
+                            placeholder="+ 수량"
+                            value={cntDrafts[m.code] ?? ""}
+                            onChange={(e) => setCntDrafts((p) => ({ ...p, [m.code]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCount(m.code); } }}
+                            style={{ ...inputStyle, width: 84, height: 34, padding: "4px 8px", fontSize: 14, textAlign: "center", borderColor: "#F472B666" }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => addCount(m.code)}
+                            style={{
+                              height: 34, padding: "0 12px", borderRadius: 8, cursor: "pointer", fontSize: 12.5, fontWeight: 800,
+                              border: "1px solid #F472B6", background: "#F472B633", color: "#F9A8D4", whiteSpace: "nowrap",
+                            }}
+                          >
+                            + 추가
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "center", minWidth: 60 }}>
+                        <div style={{ fontSize: 10, color: "#5E86A3" }}>체크 합계</div>
+                        <div style={{ fontSize: 15, fontWeight: 800, fontFamily: "IBM Plex Mono", color: "#F472B6" }}>
+                          {hasAny ? recvTotal : "-"}
+                        </div>
                       </div>
                       <div style={{ textAlign: "center", minWidth: 70 }}>
                         <div style={{ fontSize: 10, color: "#5E86A3" }}>남은 수량</div>
@@ -14751,6 +14808,75 @@ function ShipIssueAdminView({
                   <div style={{ fontSize: 10, color: "#5E86A3", marginTop: 6, fontFamily: "IBM Plex Mono" }}>
                     정발주 {m.plan} · 추가건 {m.extra}{m.lastAt ? ` · 마지막 불출 ${String(m.lastAt).slice(0, 16)}` : ""}
                   </div>
+
+                  {(cntEntries.length > 0 || hasRecv) && (
+                    <div style={{ marginTop: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setCntOpen((p) => ({ ...p, [m.code]: !p[m.code] }))}
+                        style={{
+                          width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center",
+                          padding: "6px 10px", borderRadius: 8, cursor: "pointer", fontSize: 11.5, fontWeight: 700,
+                          border: "1px solid #F472B655", background: "#F472B614", color: "#F9A8D4",
+                        }}
+                      >
+                        <span>수량 체크 이력 {cntEntries.length + (hasRecv ? 1 : 0)}건</span>
+                        <span>{cntOpen[m.code] ? "▲ 접기" : "▼ 펼치기"}</span>
+                      </button>
+
+                      {cntOpen[m.code] && (
+                        <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 4 }}>
+                          {cntEntries.map((e) => (
+                            <div
+                              key={e.key}
+                              style={{
+                                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                padding: "6px 10px", borderRadius: 8, background: "#0F2233", border: "1px solid #1F3B54",
+                              }}
+                            >
+                              <span style={{ fontSize: 11.5, color: "#9FB4C7", fontFamily: "IBM Plex Mono" }}>{e.at}</span>
+                              <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <b style={{ fontSize: 13, color: "#F472B6", fontFamily: "IBM Plex Mono" }}>+ {e.qty}</b>
+                                <button
+                                  type="button"
+                                  onClick={() => removeCount(e)}
+                                  title="이 기록 삭제"
+                                  style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 2, display: "flex" }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </span>
+                            </div>
+                          ))}
+
+                          {hasRecv && (
+                            <div
+                              style={{
+                                display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                                padding: "6px 10px", borderRadius: 8, background: "#0F2233", border: "1px dashed #274460",
+                              }}
+                            >
+                              <span style={{ fontSize: 11.5, color: "#7F97AC" }}>이전에 직접 입력한 수량</span>
+                              <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <b style={{ fontSize: 13, color: "#F472B6", fontFamily: "IBM Plex Mono" }}>{Number(saved) || 0}</b>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!window.confirm("이전에 직접 입력한 수량을 삭제할까요?")) return;
+                                    saveAdmin(recvKeyOf(m.code), "");
+                                  }}
+                                  title="삭제"
+                                  style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 2, display: "flex" }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

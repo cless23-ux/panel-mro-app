@@ -3818,15 +3818,17 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
     { id: "detail", label: "자재별 소모량 상세" },
     { id: "alert", label: "재고부족 경고" },
     { id: "recent", label: "최근 입출고 이력" },
+    { id: "rank", label: "자재 누적 사용량 순위" },
   ];
   const DASH_DEFAULT_LAYOUT = {
-    order: ["chart", "detail", "alert", "recent"],
+    order: ["chart", "detail", "alert", "recent", "rank"],
     hidden: [],
     size: {
       chart: { w: 5, h: 14 },
       detail: { w: 4, h: 14 },
       alert: { w: 3, h: 7 },
       recent: { w: 3, h: 7 },
+      rank: { w: 5, h: 14 },
     },
   };
 
@@ -4427,6 +4429,48 @@ const filteredTotalText = useMemo(() => {
     setSelectedShip(comboList[0].ship);
     setSelectedProject(comboList[0].project);
   }, [comboList]);
+    /* ---- 자재 누적 사용량 순위 ---- */
+  const [rankSearch, setRankSearch] = useState("");
+  const [rankDetailCode, setRankDetailCode] = useState(null);
+
+  const usageRankAll = useMemo(() => {
+    const map = {};
+    chartOutTxs.forEach((t) => {
+      const code = String(t.itemCode || "").trim();
+      if (!code) return;
+      if (!map[code]) {
+        map[code] = { code, name: t.itemName || code, unit: t.unit || "EA", qty: 0, plan: 0, extra: 0, count: 0, projects: {}, ships: {} };
+      }
+      const m = map[code];
+      const q = Number(t.qty) || 0;
+      const isPlan = getIssueKind(t) === "정발주";
+      m.qty += q;
+      m.count += 1;
+      if (isPlan) m.plan += q; else m.extra += q;
+
+      const proj = String(t.project || "").trim() || "프로젝트 없음";
+      if (!m.projects[proj]) m.projects[proj] = { name: proj, qty: 0, plan: 0, extra: 0 };
+      m.projects[proj].qty += q;
+      if (isPlan) m.projects[proj].plan += q; else m.projects[proj].extra += q;
+
+      const ship = String(t.shipNo || "").trim() || "미입력";
+      if (!m.ships[ship]) m.ships[ship] = { name: ship, qty: 0, plan: 0, extra: 0 };
+      m.ships[ship].qty += q;
+      if (isPlan) m.ships[ship].plan += q; else m.ships[ship].extra += q;
+    });
+    return Object.values(map).sort((a, b) => b.qty - a.qty);
+  }, [chartOutTxs]);
+
+  const rankList = useMemo(() => {
+    const q = rankSearch.trim().toLowerCase();
+    if (!q) return usageRankAll;
+    return usageRankAll.filter((r) => String(r.name).toLowerCase().includes(q) || String(r.code).toLowerCase().includes(q));
+  }, [usageRankAll, rankSearch]);
+
+  const rankDetail = useMemo(() => usageRankAll.find((r) => r.code === rankDetailCode) || null, [usageRankAll, rankDetailCode]);
+  const rankDetailProjects = useMemo(() => (rankDetail ? Object.values(rankDetail.projects).sort((a, b) => b.qty - a.qty) : []), [rankDetail]);
+  const rankDetailShips = useMemo(() => (rankDetail ? Object.values(rankDetail.ships).sort((a, b) => b.qty - a.qty) : []), [rankDetail]);
+
   const recentAll = useMemo(() => {
     const parseAt = (t) => {
       const d = new Date(String(t.at || "").replace(" ", "T"));
@@ -4840,6 +4884,66 @@ const filteredTotalText = useMemo(() => {
             </div>
           )}
         </Card>
+        {/* ⑤ 자재 누적 사용량 순위 */}
+        <Card className="dash-rank" style={{ padding: 14, ...panelStyle("rank") }} {...panelDrag("rank")}>
+          {renderChrome("rank")}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexShrink: 0, marginBottom: 8 }}>
+            <SectionLabel>자재 누적 사용량 순위 ({usageRankAll.length}종)</SectionLabel>
+          </div>
+          <div style={{ position: "relative", marginBottom: 8, flexShrink: 0 }}>
+            <Search size={13} color="#5E86A3" style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+            <input
+              value={rankSearch}
+              onChange={(e) => setRankSearch(e.target.value)}
+              placeholder="자재명 · 코드 검색"
+              style={{ ...inputStyle, height: 34, padding: "4px 12px 4px 30px", fontSize: 12.5 }}
+            />
+          </div>
+
+          {rankList.length === 0 ? (
+            <EmptyState icon={ScanLine} text="표시할 사용 내역이 없습니다." color="#5E86A3" />
+          ) : (
+            <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
+              <div style={{ position: "absolute", inset: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5, paddingRight: 4 }}>
+                {rankList.map((r, idx) => {
+                  const max = usageRankAll[0]?.qty || 1;
+                  const medal = idx === 0 ? "#F5C542" : idx === 1 ? "#B8C4D2" : idx === 2 ? "#D08A4E" : null;
+                  return (
+                    <div
+                      key={r.code}
+                      onClick={() => setRankDetailCode(r.code)}
+                      title="눌러서 프로젝트별 사용량 보기"
+                      style={{
+                        flexShrink: 0, cursor: "pointer", padding: "7px 10px", borderRadius: 8,
+                        background: "#0B1C2C", border: "1px solid #1F3B54",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                        <span style={{
+                          width: 24, height: 24, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 11, fontWeight: 800, fontFamily: "IBM Plex Mono",
+                          background: medal ? `${medal}26` : "#12293D", color: medal || "#7F97AC",
+                          border: `1px solid ${medal || "#274460"}`,
+                        }}>{rankList === usageRankAll ? idx + 1 : usageRankAll.findIndex((x) => x.code === r.code) + 1}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#E7EEF5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.name}>{r.name}</div>
+                          <div style={{ fontSize: 10, color: "#5E86A3", fontFamily: "IBM Plex Mono", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.code}</div>
+                        </div>
+                        <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: "#F5A623", fontFamily: "IBM Plex Mono" }}>{r.qty.toLocaleString()} {r.unit}</div>
+                          <div style={{ fontSize: 10, color: "#5E86A3" }}>{r.count}건</div>
+                        </div>
+                      </div>
+                      <div style={{ height: 4, borderRadius: 2, background: "#12293D", marginTop: 6, overflow: "hidden" }}>
+                        <div style={{ width: `${(r.qty / max) * 100}%`, height: "100%", background: "#3B82F6" }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </Card>
 
         {/* ④ 최근 입출고 이력 */}
         <Card className="dash-recent" style={{ padding: 14, ...panelStyle("recent") }} {...panelDrag("recent")}>
@@ -4910,7 +5014,90 @@ const filteredTotalText = useMemo(() => {
           )}
         </Card>
       </div>
+      {rankDetail && (
+        <div
+          onClick={() => setRankDetailCode(null)}
+          className="app-modal-overlay"
+          style={{ position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 16 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 660, maxHeight: "88vh", overflowY: "auto", background: "#0F2233", border: "1px solid #274460", borderRadius: 14, padding: 22 }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 14 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#38BDF8", wordBreak: "break-word" }}>{rankDetail.name}</div>
+                <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2 }}>{rankDetail.code}</div>
+              </div>
+              <button type="button" onClick={() => setRankDetailCode(null)} aria-label="닫기"
+                style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4, display: "flex" }}>
+                <X size={20} />
+              </button>
+            </div>
 
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+              {[
+                { label: "누적 사용량", value: rankDetail.qty, color: "#E7EEF5" },
+                { label: "정발주", value: rankDetail.plan, color: "#F5A623" },
+                { label: "추가건", value: rankDetail.extra, color: "#38BDF8" },
+              ].map((s) => (
+                <div key={s.label} style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 9, padding: "9px 12px", textAlign: "center" }}>
+                  <div style={{ fontSize: 10.5, color: "#5E86A3" }}>{s.label}</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: s.color, fontFamily: "IBM Plex Mono" }}>
+                    {s.value.toLocaleString()} <span style={{ fontSize: 11 }}>{rankDetail.unit}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {[
+              { title: "프로젝트별 사용량 비교", rows: rankDetailProjects },
+              { title: "호선별 사용량 비교", rows: rankDetailShips },
+            ].map((sec) => (
+              <div key={sec.title} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#C9DAE8", marginBottom: 8 }}>
+                  {sec.title} ({sec.rows.length})
+                </div>
+                <div style={{ border: "1px solid #1F3B54", borderRadius: 9, overflow: "hidden" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ background: "#0B1C2C" }}>
+                        <th style={thStyle}>구분</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>정발주</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>추가건</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>합계</th>
+                        <th style={{ ...thStyle, width: "28%" }}>비율</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sec.rows.map((p) => {
+                        const pct = rankDetail.qty ? (p.qty / rankDetail.qty) * 100 : 0;
+                        return (
+                          <tr key={p.name} style={{ borderTop: "1px solid #14283A" }}>
+                            <td style={{ ...tdStyle, color: "#E7EEF5", fontWeight: 600 }}>{p.name}</td>
+                            <td style={{ ...tdStyle, textAlign: "right", color: "#F5A623", fontFamily: "IBM Plex Mono" }}>{p.plan}</td>
+                            <td style={{ ...tdStyle, textAlign: "right", color: "#38BDF8", fontFamily: "IBM Plex Mono" }}>{p.extra}</td>
+                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 800, fontFamily: "IBM Plex Mono" }}>{p.qty} {rankDetail.unit}</td>
+                            <td style={tdStyle}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{ flex: 1, height: 6, borderRadius: 3, background: "#12293D", overflow: "hidden" }}>
+                                  <div style={{ width: `${pct}%`, height: "100%", background: "#3B82F6" }} />
+                                </div>
+                                <span style={{ fontSize: 10.5, color: "#7F97AC", fontFamily: "IBM Plex Mono", minWidth: 34, textAlign: "right" }}>{pct.toFixed(0)}%</span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
       {historyModal && (
         <TxHistoryModal type={historyModal} txs={historyModal === "out" ? cumulativeOutTxs : txs} showDeleted={historyModal === "out"} onDeleteTransactions={onDeleteTransactions} onClose={() => setHistoryModal(null)} />
       )}

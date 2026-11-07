@@ -13664,6 +13664,7 @@ function ShipIssueAdminView({
   const [recvDrafts, setRecvDrafts] = useState({});
   const [cntDrafts, setCntDrafts] = useState({});
   const [cntOpen, setCntOpen] = useState({});
+  const [unregFilter, setUnregFilter] = useState("all");
   // 미등록 자재 별도 관리창 기본: 접힘
   const [unregisteredOpen, setUnregisteredOpen] = useState(false);
   const planFileRef = useRef(null);
@@ -14039,6 +14040,24 @@ function ShipIssueAdminView({
     saveAdmin(entry.key, "");
     notify("기록이 삭제되었습니다.", "info");
   };
+  
+  /* ---- 미등록 자재 필터 (불출 미완료 / 완료 / 초과 / 미체크) ---- */
+  const unregStatusOf = (m) => {
+    const saved = adminMap[recvKeyOf(m.code)];
+    const hasRecv = saved !== undefined && saved !== "";
+    const entries = cntEntriesOf(m.code);
+    if (!hasRecv && entries.length === 0) return "none";
+    const total = (hasRecv ? Number(saved) || 0 : 0) + entries.reduce((s, e) => s + e.qty, 0);
+    const left = total - m.total;
+    return left > 0 ? "remain" : left === 0 ? "done" : "over";
+  };
+
+  const unregCounts = { all: unregisteredRows.length, remain: 0, done: 0, over: 0, none: 0 };
+  unregisteredRows.forEach((m) => { unregCounts[unregStatusOf(m)] += 1; });
+
+  const unregShown = unregFilter === "all"
+    ? unregisteredRows
+    : unregisteredRows.filter((m) => unregStatusOf(m) === unregFilter);
   const commitRecv = (code) => {
     if (!Object.prototype.hasOwnProperty.call(recvDrafts, code)) return;
     const raw = String(recvDrafts[code]).trim();
@@ -14741,8 +14760,42 @@ function ShipIssueAdminView({
             (선택한 호선/프로젝트별로 따로 저장됩니다)
           </div>
 
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+            {[
+              { id: "all", label: "전체", color: "#38BDF8" },
+              { id: "remain", label: "불출 미완료", color: "#A78BFA" },
+              { id: "done", label: "불출 완료", color: "#35D08C" },
+              { id: "over", label: "초과", color: "#EF5350" },
+              { id: "none", label: "미체크", color: "#7F97AC" },
+            ].map((f) => {
+              const on = unregFilter === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setUnregFilter(f.id)}
+                  style={{
+                    height: 30, padding: "0 12px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+                    border: `1px solid ${on ? f.color : "#1F3B54"}`,
+                    background: on ? `${f.color}22` : "#0B1C2C",
+                    color: on ? f.color : "#7F97AC",
+                  }}
+                >
+                  {f.label} ({unregCounts[f.id]})
+                </button>
+              );
+            })}
+          </div>
+
+          {unregShown.length === 0 && (
+            <div style={{ padding: "18px 10px", textAlign: "center", fontSize: 12.5, color: "#5E86A3" }}>
+              해당하는 자재가 없습니다.
+            </div>
+          )}
+
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {unregisteredRows.map((m) => {
+            {unregShown.map((m) => {
               const saved = adminMap[recvKeyOf(m.code)];
               const hasRecv = saved !== undefined && saved !== "";
               const cntEntries = cntEntriesOf(m.code);

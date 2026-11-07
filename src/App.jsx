@@ -14046,10 +14046,12 @@ function ShipIssueAdminView({
     const saved = adminMap[recvKeyOf(m.code)];
     const hasRecv = saved !== undefined && saved !== "";
     const entries = cntEntriesOf(m.code);
-    if (!hasRecv && entries.length === 0) return "none";
+    if (!hasRecv && entries.length === 0) return "none"; // 미검수
     const total = (hasRecv ? Number(saved) || 0 : 0) + entries.reduce((s, e) => s + e.qty, 0);
-    const left = total - m.total;
-    return left > 0 ? "remain" : left === 0 ? "done" : "over";
+    const order = m.order === null ? 0 : m.order;
+    if (total > order) return "over";   // 초과
+    if (total === order) return "done"; // 검수 완료
+    return "remain";                    // 검수 중 (부족)
   };
 
   const unregCounts = { all: unregisteredRows.length, remain: 0, done: 0, over: 0, none: 0 };
@@ -14756,17 +14758,17 @@ function ShipIssueAdminView({
     {unregisteredOpen && (
       <>      
           <div style={{ fontSize: 11.5, color: "#7F97AC", marginBottom: 12, lineHeight: 1.5 }}>
-            자재마스터에 없는 코드입니다. 입고수량을 직접 적어두면 불출 기록과 비교해 남은 수량을 계산합니다.
+            자재마스터에 없는 코드입니다. 입고된 수량을 추가하며, 발주 수량과 비교해 검수 상태(부족 · 완료 · 초과)를 보여줍니다.
             (선택한 호선/프로젝트별로 따로 저장됩니다)
           </div>
 
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
             {[
               { id: "all", label: "전체", color: "#38BDF8" },
-              { id: "remain", label: "불출 미완료", color: "#A78BFA" },
-              { id: "done", label: "불출 완료", color: "#35D08C" },
+              { id: "none", label: "미검수", color: "#7F97AC" },
+              { id: "remain", label: "검수 중(부족)", color: "#A78BFA" },
+              { id: "done", label: "검수 완료", color: "#35D08C" },
               { id: "over", label: "초과", color: "#EF5350" },
-              { id: "none", label: "미체크", color: "#7F97AC" },
             ].map((f) => {
               const on = unregFilter === f.id;
               return (
@@ -14802,7 +14804,7 @@ function ShipIssueAdminView({
               const cntSum = cntEntries.reduce((s, e) => s + e.qty, 0);
               const recvTotal = (hasRecv ? Number(saved) || 0 : 0) + cntSum;
               const hasAny = hasRecv || cntEntries.length > 0;
-              const left = hasAny ? recvTotal - m.total : null;
+              const left = hasAny ? (m.order === null ? 0 : m.order) - recvTotal : null;
               const leftColor = left === null ? "#3E5975" : left < 0 ? "#EF5350" : left === 0 ? "#35D08C" : "#A78BFA";
               const inputValue = Object.prototype.hasOwnProperty.call(recvDrafts, m.code)
                 ? recvDrafts[m.code]
@@ -14869,7 +14871,7 @@ function ShipIssueAdminView({
                         </div>
                       </div>
                       <div style={{ textAlign: "center", minWidth: 70 }}>
-                        <div style={{ fontSize: 10, color: "#5E86A3" }}>남은 수량</div>
+                        <div style={{ fontSize: 10, color: "#5E86A3" }}>부족 수량</div>
                         <div style={{ fontSize: 15, fontWeight: 800, fontFamily: "IBM Plex Mono", color: leftColor }}>
                           {left === null ? "-" : left < 0 ? `초과 ${Math.abs(left)}` : left}
                         </div>

@@ -1859,7 +1859,13 @@ const TAB_NEON = {
 
 function AppInner() {
   // 화면 테마: 기존 다크 모드는 그대로 유지하고, 사용자 선택 시 밝은 테마로 전환
- const [lightMode, setLightMode] = useState(true);
+  const [lightMode, setLightMode] = useState(() => {
+    try { return localStorage.getItem("panel:theme") !== "dark"; } catch { return true; }
+  });
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = lightMode ? "#2563EB" : "#0A1622";
+  }, [lightMode]);
   const toggleTheme = useCallback(() => {
     setLightMode((prev) => {
       const next = !prev;
@@ -3176,6 +3182,18 @@ function AppInner() {
         }
         .app-container.light-mode .page-header h1 { color: #FFFFFF !important; }
         .app-container.light-mode .page-header > div { color: rgba(255,255,255,.82) !important; }
+
+        /* 화면 전환 버튼 (밝은 화면일 때) */
+        .app-container.light-mode .pc-sidebar .theme-toggle {
+          background: #FFFFFF !important;
+          border: 1px solid #D6E1F0 !important;
+          color: #1E3A5F !important;
+        }
+        .app-container.light-mode .mobile-header .theme-toggle {
+          background: rgba(255,255,255,.18) !important;
+          border: 1px solid rgba(255,255,255,.45) !important;
+          color: #FFFFFF !important;
+        }
       `}</style>
 
       {/* PC 사이드바 */}
@@ -3238,7 +3256,7 @@ function AppInner() {
           <span>📱 앱 설치 / QR</span><span style={{ color: "#5E86A3", fontSize: 10 }}>공유</span>
         </button>
 
-        {false && (
+        {true && (
         <button
           className="theme-toggle"
           onClick={toggleTheme}
@@ -3306,7 +3324,7 @@ function AppInner() {
           <span style={{ fontFamily: "Rajdhani, Oswald, sans-serif", fontWeight: 700, fontSize: 18, letterSpacing: "0.06em", color: "#fff" }}>
             선박 생산부
           </span>        
-          {false && (
+          {true && (
           <button
             className="theme-toggle"
             onClick={toggleTheme}

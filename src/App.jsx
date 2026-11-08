@@ -5235,12 +5235,18 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
       setShipNo(outLocalHistory.ship[0] || "");
       setProject(outLocalHistory.project[0] || "");
       setWorker(outLocalHistory.worker[0] || "");
+      setReturnShipNo(outLocalHistory.ship[0] || "");
+      setReturnProject(outLocalHistory.project[0] || "");
+      setReturnWorker(outLocalHistory.worker[0] || "");
     } else {
       setShipNo("");
       setProject("");
       setWorker("");
+      setReturnShipNo("");
+      setReturnProject("");
+      setReturnWorker("");
     }
-  }, [outInputMode, found]);
+  }, [outInputMode, found, txMode]);
 
   // 반납용 입력값 (신규)
   const [returnQty, setReturnQty] = useState("");
@@ -5314,11 +5320,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
 
 
-  useEffect(() => {
-    if (projectOptions.length > 0 && !returnProject) {
-      setReturnProject(projectOptions[0]);
-    }
-  }, [projectOptions]);
+
 
   // 원복 여부는 원본 거래의 reason에 남긴 감사용 마커로 판단합니다.
   const isReversedOutTx = (tx) =>
@@ -5627,12 +5629,17 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
 
       notify(`${found.name} ${qtyNum}${found.unit} 반납 완료 · 재고 반영`, "ok");
 
+      // 최근기록 모드에서 다음에 자동완성으로 쓰이도록 저장
+      addOutLocalHistory("ship", returnShipNo);
+      addOutLocalHistory("project", returnProject);
+      addOutLocalHistory("worker", returnWorker);
+
       setReturnQty("");
       setReturnReason(RETURN_REASONS[0]);
       setReturnWorker("");
       setReturnNote("");
       setReturnShipNo("");
-      setReturnProject(projectOptions[0] || "");
+      setReturnProject("");
       setFound(null);
       setScan("");
     } finally {
@@ -6136,7 +6143,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                   </button>
                 </div>
 
-                {txMode === "out" && !isConsumableFound && (
+                {(txMode === "return" || !isConsumableFound) && (
                   <div className="out-info-divider out-mode-toggle-row">
                     <div>
                       <div className="out-mode-toggle-title" style={{ color: outInputMode === "local" ? "#38BDF8" : "#F5A623" }}>
@@ -6305,10 +6312,38 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <Field label="호선 (선택)">
-                      <AutocompleteInput value={returnShipNo} onChange={setReturnShipNo} options={shipOptions} placeholder="예: H-2024" />
+                      {outInputMode === "shared" ? (
+                        <StrictAutocompleteInput
+                          value={returnShipNo}
+                          onChange={setReturnShipNo}
+                          options={shipOptions}
+                          placeholder="호선 검색 후 목록에서 선택"
+                        />
+                      ) : (
+                        <AutocompleteInput
+                          value={returnShipNo}
+                          onChange={setReturnShipNo}
+                          options={outLocalHistory.ship}
+                          placeholder="호선 입력 (최근 기록에서 선택 가능)"
+                        />
+                      )}
                     </Field>
                     <Field label="프로젝트 (선택)">
-                      <Select value={returnProject || projectOptions[0] || ""} onChange={(e) => setReturnProject(e.target.value)} options={projectOptions.length ? projectOptions : ["-"]} />
+                      {outInputMode === "shared" ? (
+                        <StrictAutocompleteInput
+                          value={returnProject}
+                          onChange={setReturnProject}
+                          options={projectOptions}
+                          placeholder="프로젝트 검색 후 선택"
+                        />
+                      ) : (
+                        <AutocompleteInput
+                          value={returnProject}
+                          onChange={setReturnProject}
+                          options={outLocalHistory.project}
+                          placeholder="프로젝트 입력 (최근 기록에서 선택 가능)"
+                        />
+                      )}
                     </Field>
                   </div>
 
@@ -6328,7 +6363,21 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                   </div>
 
                   <Field label="반납자">
-                    <input style={inputStyle} value={returnWorker} onChange={(e) => setReturnWorker(e.target.value)} placeholder="이름 입력" />
+                    {outInputMode === "shared" ? (
+                      <StrictAutocompleteInput
+                        value={returnWorker}
+                        onChange={setReturnWorker}
+                        options={workerOptions}
+                        placeholder="반납자 검색 후 선택"
+                      />
+                    ) : (
+                      <AutocompleteInput
+                        value={returnWorker}
+                        onChange={setReturnWorker}
+                        options={outLocalHistory.worker}
+                        placeholder="반납자 입력 (최근 기록에서 선택 가능)"
+                      />
+                    )}
                   </Field>
 
                   <Field label="비고 (선택)">

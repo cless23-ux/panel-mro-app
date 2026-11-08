@@ -21,7 +21,10 @@ const seedItems = [
 ];
 
 function uid(p = "T") {
-  return `${p}-${Date.now().toString(36)}${Math.floor(Math.random() * 900 + 100)}`;
+  const rand = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+    : Math.random().toString(36).slice(2, 14);
+  return `${p}-${Date.now().toString(36)}${rand}`;
 }
 function csvSafe(val) {
   const s = String(val ?? "");
@@ -137,6 +140,8 @@ function isOutTxExpired(t) {
 function useStorage(key, initial) {
   const [value, setValue] = useState(initial);
   const [loaded, setLoaded] = useState(false);
+  const valueRef = useRef(initial);
+  useEffect(() => { valueRef.current = value; }, [value]);
   const tableName = key === "panel:items" ? "items" : "transactions";
 
   // items만 Supabase 1000건 제한을 피해서 전체 조회
@@ -173,25 +178,29 @@ function useStorage(key, initial) {
         if (tableName === "items") {
           data = await fetchAllItems();
         } else {
-          const result = await supabase
-            .from(tableName)
-            .select("*")
-            .eq("deleted", false);
-          data = result.data;
-          error = result.error;
+          const PAGE_SIZE = 1000;
+          const all = [];
+          let from = 0;
+          while (true) {
+            const { data: rows, error: pageError } = await supabase
+              .from(tableName)
+              .select("*")
+              .eq("deleted", false)
+              .order("at", { ascending: false })
+              .order("id", { ascending: false })
+              .range(from, from + PAGE_SIZE - 1);
+            if (pageError) { error = pageError; break; }
+            all.push(...(rows || []));
+            if (!rows || rows.length < PAGE_SIZE) break;
+            from += PAGE_SIZE;
+          }
+          data = all;
         }
 
         if (!error && data) {
           if (tableName === "transactions") {
-            setValue(prev => {
-              const map = new Map();
-              [...prev, ...data].forEach(item => {
-                if (item && item.id) map.set(item.id, item);
-              });
-              const merged = Array.from(map.values());
-              try { localStorage.setItem(key, JSON.stringify(merged)); } catch {}
-              return merged;
-            });
+            setValue(data);
+            try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
           } else {
             // 기존 화면 순서 유지 + 서버의 전체 자재를 사용
             const cached = (() => {
@@ -258,6 +267,8 @@ function useStorage(key, initial) {
   }, [load, tableName]);
 
   const save = useCallback(async (next) => {
+    const prevValue = valueRef.current;
+    valueRef.current = next;
     setValue(next);
 
     try {
@@ -265,15 +276,33 @@ function useStorage(key, initial) {
 
       if (supabase) {
         if (tableName === "items") {
-          const CHUNK_SIZE = 500;
+          // 바뀐 자재의 바뀐 칸만 저장 (다른 사람이 바꾼 재고를 덮어쓰지 않도록)
+          const prevMap = new Map((prevValue || []).map((i) => [String(i.code), i]));
+          const inserts = [];
+          const updates = [];
+          next.forEach((item) => {
+            const old = prevMap.get(String(item.code));
+            if (!old) { inserts.push(item); return; }
+            const patch = {};
+            Object.keys(item).forEach((k) => {
+              if (JSON.stringify(item[k]) !== JSON.stringify(old[k])) patch[k] = item[k];
+            });
+            if (Object.keys(patch).length > 0) updates.push({ code: item.code, patch });
+          });
 
-          for (let i = 0; i < next.length; i += CHUNK_SIZE) {
-            const chunk = next.slice(i, i + CHUNK_SIZE);
+          const CHUNK_SIZE = 500;
+          for (let i = 0; i < inserts.length; i += CHUNK_SIZE) {
             const { error } = await supabase
               .from("items")
-              .upsert(chunk, { onConflict: "code" });
-
+              .upsert(inserts.slice(i, i + CHUNK_SIZE), { onConflict: "code" });
             if (error) throw error;
+          }
+          for (let i = 0; i < updates.length; i += 20) {
+            const results = await Promise.all(
+              updates.slice(i, i + 20).map((u) => supabase.from("items").update(u.patch).eq("code", u.code))
+            );
+            const failed = results.find((r) => r.error);
+            if (failed) throw failed.error;
           }
         } else if (tableName === "transactions") {
           // 기존 거래 저장 방식 유지
@@ -1074,7 +1103,11 @@ function UrgentRequestButton({ item, requests, addRequest, notify, size = "norma
   const [requestQty, setRequestQty] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const [outFormSettings] = useOutFormSettings();
+  // 앱이 이미 불러온 설정을 사용 (버튼마다 서버 조회하지 않도록)
+  const outFormSettings = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem(OUT_FORM_SETTINGS_CACHE_KEY) || "null") || DEFAULT_OUT_FORM_SETTINGS; }
+    catch { return DEFAULT_OUT_FORM_SETTINGS; }
+  }, [open]);
   const shipOptions = outFormSettings?.ships || [];
   const projectOptions = outFormSettings?.projects || [];
   const workerOptions = outFormSettings?.workers || [];
@@ -2112,6 +2145,16 @@ function AppInner() {
     setToast({ text: msg, type });
     setTimeout(() => { setToast(null); }, 2500);
   }, []);
+
+  // 처리되지 않은 오류가 나면 사용자에게 알림
+  useEffect(() => {
+    const onRejection = (e) => {
+      console.error("처리되지 않은 오류:", e.reason);
+      notify(`오류가 발생했습니다: ${e.reason?.message || e.reason || "알 수 없는 오류"}`, "err");
+    };
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => window.removeEventListener("unhandledrejection", onRejection);
+  }, [notify]);
 
   useEffect(() => {
     window.history.pushState({ page: "app" }, "", window.location.href);
@@ -9808,7 +9851,16 @@ const masterPageNumbers = useMemo(() => {
             const key = String(p.code).trim();
             const prev = byCode.get(key);
             if (prev) {
-              const next = { ...prev, ...p };
+              // 엑셀에 실제로 있는 열만 덮어쓰기 (없는 열은 기존 값 유지)
+              const fieldMap = {
+                name: "name", spec: "spec", category: "category", unit: "unit",
+                stock: "stock", safety: "safety", manufacturer: "manufacturer",
+                memo: "memo", imageUrl: "image_url", inUse: "in_use", itemNo: "item_no",
+              };
+              const next = { ...prev };
+              Object.entries(fieldMap).forEach(([f, k]) => {
+                if (col[f] >= 0) next[k] = p[k];
+              });
               if (!p.image_url) next.image_url = prev.image_url || "";
               byCode.set(key, next);
             } else {
@@ -12290,13 +12342,13 @@ keyCode = String(keyCode)
     const newTxs = [];
     let updateCount = 0;
 
-    invoiceData.list.forEach(({ code, masterItem, docQty }) => {
-      if (masterItem && docQty > 0) {
+    invoiceData.list.forEach(({ code, masterItem, inputQty }) => {
+      if (masterItem && inputQty > 0) {
         const idx = updatedItems.findIndex((i) => i.code === code);
         if (idx !== -1) {
           updatedItems[idx] = {
             ...updatedItems[idx],
-            stock: (Number(updatedItems[idx].stock) || 0) + docQty,
+            stock: (Number(updatedItems[idx].stock) || 0) + inputQty,
           };
           updateCount++;
 
@@ -12307,7 +12359,7 @@ keyCode = String(keyCode)
             itemName: masterItem.name,
             spec: masterItem.spec || "",
             unit: masterItem.unit,
-            qty: docQty,
+            qty: inputQty,
             worker: invoicePerson,
             shipNo: materialType === "raw" ? (invoiceShip.trim() || "미지정") : undefined,
             at: nowStr(),
@@ -12324,10 +12376,10 @@ keyCode = String(keyCode)
 
     if (supabase) {
       const inboundOps = invoiceData.list
-        .filter(({ masterItem, docQty }) => masterItem && docQty > 0)
-        .map(({ masterItem, docQty }, opIndex) => ({
+        .filter(({ masterItem, inputQty }) => masterItem && inputQty > 0)
+        .map(({ masterItem, inputQty }, opIndex) => ({
           code: masterItem.code,
-          delta: Number(docQty),
+          delta: Number(inputQty),
           tx: newTxs[opIndex],
         }));
       await applyStockTransactionsAtomic(inboundOps);

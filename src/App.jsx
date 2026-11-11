@@ -8776,6 +8776,81 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
   return (
     <div>
       <Header title="소모자재 관리" subtitle="소모자재 재고 현황 · 입고 · 출고 · 부족 시 발주요청" />
+            <style>{`
+        .cons-summary { display: flex; gap: 16px; flex-wrap: wrap; padding: 0 4px; font-size: 12.5px; color: var(--text-muted); }
+        .cons-summary b { color: var(--text-primary); margin-left: 3px; font-size: 14px; }
+        .cons-summary .danger b { color: #EF5350; }
+        .cons-summary .warn b { color: #F5A623; }
+        .cons-summary .ok b { color: #35D08C; }
+
+        .cons-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
+
+        .cons-card {
+          position: relative; overflow: hidden; text-align: left;
+          display: flex; flex-direction: column; gap: 14px;
+          padding: 16px 16px 14px 22px;
+          background: var(--bg-card-grad); border: 1px solid var(--border-card); border-radius: 16px;
+          box-shadow: var(--card-shadow, none);
+          transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+        }
+        .cons-card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(0,0,0,.18); }
+        .cons-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: #35D08C; }
+        .cons-card.st-warn::before { background: #F5A623; }
+        .cons-card.st-danger::before { background: #EF5350; }
+
+        .cons-top { display: flex; gap: 14px; align-items: flex-start; }
+        .cons-img { width: 78px; height: 78px; border-radius: 12px; object-fit: cover; flex-shrink: 0; cursor: zoom-in; border: 1px solid var(--border-card); }
+        .cons-img-empty { display: flex; align-items: center; justify-content: center; background: var(--bg-input); color: var(--text-faint); cursor: default; }
+        .cons-info { min-width: 0; flex: 1; }
+        .cons-name-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+        .cons-name {
+          font-size: 15px; font-weight: 800; color: var(--text-primary); line-height: 1.35; word-break: break-word;
+          display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+        }
+        .cons-badge { flex-shrink: 0; font-size: 10.5px; font-weight: 800; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+        .cons-badge.st-ok { color: #35D08C; background: #35D08C22; }
+        .cons-badge.st-warn { color: #F5A623; background: #F5A62322; }
+        .cons-badge.st-danger { color: #EF5350; background: #EF535022; }
+        .cons-code { margin-top: 5px; font-size: 11px; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; word-break: break-all; }
+        .cons-spec { margin-top: 3px; font-size: 12.5px; color: var(--text-tertiary); line-height: 1.45; word-break: break-word; }
+        .cons-maker { margin-top: 3px; font-size: 11px; color: var(--text-faint); }
+
+        .cons-stock { padding: 12px 14px 14px; border-radius: 12px; background: var(--bg-input); border: 1px solid var(--border-card); }
+        .cons-stock-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+        .cons-qty { font-size: 28px; font-weight: 800; line-height: 1; color: #35D08C; }
+        .cons-qty span { font-size: 12.5px; font-weight: 600; margin-left: 5px; color: var(--text-muted); }
+        .cons-card.st-warn .cons-qty { color: #F5A623; }
+        .cons-card.st-danger .cons-qty { color: #EF5350; }
+        .cons-safe { font-size: 11.5px; color: var(--text-muted); }
+        .cons-bar { position: relative; height: 8px; border-radius: 4px; background: var(--bg-subtle); }
+        .cons-bar-fill { height: 100%; border-radius: 4px; background: #35D08C; }
+        .cons-card.st-warn .cons-bar-fill { background: #F5A623; }
+        .cons-card.st-danger .cons-bar-fill { background: #EF5350; }
+        .cons-bar-mark { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--text-muted); opacity: .6; }
+
+        .cons-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .cons-btn {
+          flex: 1 1 90px; height: 42px; border-radius: 10px; font-size: 13.5px; font-weight: 800; cursor: pointer;
+          display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+          border: 1px solid; transition: background .15s ease, color .15s ease;
+        }
+        .cons-btn.in { color: #35D08C; background: #35D08C1a; border-color: #35D08C66; }
+        .cons-btn.in:hover { background: #35D08C; color: #0A1622; }
+        .cons-btn.out { color: #F5A623; background: #F5A6231a; border-color: #F5A62366; }
+        .cons-btn.out:hover { background: #F5A623; color: #0A1622; }
+
+        /* 밝은 화면에서 글자가 잘 보이도록 */
+        .app-container.light-mode .cons-btn.in,
+        .app-container.light-mode .cons-badge.st-ok,
+        .app-container.light-mode .cons-card:not(.st-warn):not(.st-danger) .cons-qty { color: #0E8F5A; }
+        .app-container.light-mode .cons-btn.out,
+        .app-container.light-mode .cons-badge.st-warn,
+        .app-container.light-mode .cons-card.st-warn .cons-qty { color: #B7700A; }
+        .app-container.light-mode .cons-badge.st-danger,
+        .app-container.light-mode .cons-card.st-danger .cons-qty { color: #C62828; }
+        .app-container.light-mode .cons-btn.in:hover,
+        .app-container.light-mode .cons-btn.out:hover { color: #FFFFFF; }
+      `}</style>
       
       {/* QR 카메라 */}
       
@@ -8817,62 +8892,72 @@ function ConsumableView({ items, saveItems, txs, saveTxs, notify, urgentRequests
         </Card>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-          {visibleItems.map((item) => {
-            const st = statusOf(item);
-            return (
-              <Card key={item.code} style={{ padding: 14 }}>
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  {item.image_url ? (
-                    <img
-                      src={item.image_url}
-                      alt={item.name}
-                      onClick={() => setZoomedImage(item.image_url)}
-                      style={{ width: 54, height: 54, borderRadius: 8, objectFit: "cover", flexShrink: 0, cursor: "zoom-in" }}
-                    />
-                  ) : (
-                    <div style={{ width: 54, height: 54, borderRadius: 8, background: "#0B1C2C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <ImageIcon size={20} color="#5E86A3" />
-                    </div>
-                  )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                      <Led status={st} size={10} />
-                      <span style={{ fontWeight: 700, fontSize: 14.5, color: "#FBBF24", wordBreak: "break-word" }}>{item.name}</span>
-                    </div>
-                    <div style={{ fontSize: 11.5, color: "#7F97AC", fontFamily: "IBM Plex Mono" }}>코드: {item.code}</div>
-                    <div style={{ fontSize: 11.5, color: "#9FB4C7", marginTop: 3 }}>규격/사양: {item.spec || "-"}</div>
-                    {item.manufacturer && <div style={{ fontSize: 11, color: "#5E86A3", marginTop: 2 }}>거래처: {item.manufacturer}</div>}
-                  </div>
-                  <div style={{ textAlign: "right", fontFamily: "IBM Plex Mono", flexShrink: 0 }}>
-                    <div style={{ fontSize: 17, fontWeight: 700, color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C" }}>
-                      {item.stock} <span style={{ fontSize: 11 }}>{item.unit}</span>
-                    </div>
-                    <div style={{ fontSize: 10.5, color: "#5E86A3", marginTop: 2 }}>안전재고: {item.safety} {item.unit}</div>
-                  </div>
-                </div>
+          <>
+            <div className="cons-summary">
+              <span>전체 <b>{filteredItems.length}</b>종</span>
+              <span className="danger">부족 <b>{filteredItems.filter((i) => statusOf(i) === "danger").length}</b></span>
+              <span className="warn">주의 <b>{filteredItems.filter((i) => statusOf(i) === "warn").length}</b></span>
+              <span className="ok">정상 <b>{filteredItems.filter((i) => statusOf(i) === "ok").length}</b></span>
+            </div>
 
-                <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 12, borderTop: "1px solid #1F3B54", flexWrap: "wrap" }}>
-                  <div style={{ flex: "1 1 100px" }}>
-                    <Btn
-                      onClick={() => openInbound(item)}
-                      style={{ width: "100%", fontSize: 12.5, background: "#35D08C", border: "1px solid #35D08C", color: "#0A1622" }}
-                    >
-                      <ArrowDownToLine size={14} /> 입고
-                    </Btn>
+            <div className="cons-grid">
+              {visibleItems.map((item) => {
+                const st = statusOf(item);
+                const stock = Number(item.stock) || 0;
+                const safety = Number(item.safety) || 0;
+                const pct = safety > 0 ? Math.min(100, (stock / (safety * 2)) * 100) : 100;
+                return (
+                  <div key={item.code} className={`cons-card st-${st}`}>
+                    <div className="cons-top">
+                      {item.image_url ? (
+                        <img
+                          className="cons-img"
+                          src={item.image_url}
+                          alt={item.name}
+                          title="사진 확대"
+                          onClick={() => setZoomedImage(item.image_url)}
+                        />
+                      ) : (
+                        <div className="cons-img cons-img-empty"><ImageIcon size={22} /></div>
+                      )}
+                      <div className="cons-info">
+                        <div className="cons-name-row">
+                          <span className="cons-name" title={item.name}>{item.name}</span>
+                          <span className={`cons-badge st-${st}`}>{STATUS_META[st].label}</span>
+                        </div>
+                        <div className="cons-code">{item.code}</div>
+                        <div className="cons-spec">{item.spec || "규격 정보 없음"}</div>
+                        {item.manufacturer && <div className="cons-maker">거래처 · {item.manufacturer}</div>}
+                      </div>
+                    </div>
+
+                    <div className="cons-stock">
+                      <div className="cons-stock-head">
+                        <div className="cons-qty">{stock.toLocaleString()}<span>{item.unit}</span></div>
+                        <div className="cons-safe">안전재고 {safety.toLocaleString()} {item.unit}</div>
+                      </div>
+                      <div className="cons-bar">
+                        <div className="cons-bar-fill" style={{ width: `${pct}%` }} />
+                        <span className="cons-bar-mark" title="안전재고 기준선" />
+                      </div>
+                    </div>
+
+                    <div className="cons-actions">
+                      <button type="button" className="cons-btn in" onClick={() => openInbound(item)}>
+                        <ArrowDownToLine size={15} /> 입고
+                      </button>
+                      <button type="button" className="cons-btn out" onClick={() => openOutbound(item)}>
+                        <ArrowUpFromLine size={15} /> 출고
+                      </button>
+                      {st !== "ok" && (
+                        <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
+                      )}
+                    </div>
                   </div>
-                  <Btn
-                    onClick={() => openOutbound(item)}
-                    style={{ flex: "1 1 100px", fontSize: 12.5, background: "#F5A623", border: "1px solid #F5A623", color: "#0A1622" }}
-                  >
-                    <ArrowUpFromLine size={14} /> 출고
-                  </Btn>
-                  {st !== "ok" && (
-                    <UrgentRequestButton item={item} requests={urgentRequests} addRequest={addUrgentRequest} notify={notify} size="small" />
-                  )}
-                </div>
-              </Card>
-            );
-          })}
+                );
+              })}
+            </div>
+          </>
 
           {filteredItems.length > visibleItems.length && (
             <div style={{ display: "flex", justifyContent: "center", padding: 10 }}>

@@ -13922,15 +13922,14 @@ function ShipIssueAdminView({
     return Array.from(set).sort((a, b) => b.localeCompare(a, "ko", { numeric: true }));
   }, [rows, adminMap, shipOptions]);
 
-  // 처음엔 가장 최근에 불출한 호선을 자동 선택
+  // 처음엔 호선을 비워 둠 (선택한 호선이 목록에서 사라졌을 때만 비움)
   useEffect(() => {
-    if (ship && ships.includes(ship)) return;
-    const latest = rows.map((t) => String(t.shipNo || "").trim()).find((s) => s && ships.includes(s));
-    setShip(latest || ships[0] || "");
-  }, [ships, ship, rows]);
+    if (!ship || ships.includes(ship)) return;
+    setShip("");
+  }, [ships, ship]);
 
   const shipAllTxs = useMemo(
-    () => rows.filter((t) => String(t.shipNo || "").trim() === ship),
+    () => (ship ? rows.filter((t) => String(t.shipNo || "").trim() === ship) : []),
     [rows, ship]
   );
 
@@ -14537,7 +14536,7 @@ function ShipIssueAdminView({
         {loading ? (
           <div style={{ padding: 30, textAlign: "center", color: "#5E86A3", fontFamily: "IBM Plex Mono" }}>불러오는 중...</div>
         ) : list.length === 0 ? (
-          <EmptyState icon={ScanLine} text="조건에 해당하는 자재가 없습니다. (필터가 '전체'인지 확인해보세요)" color="#5E86A3" />
+          <EmptyState icon={ScanLine} text={ship ? "조건에 해당하는 자재가 없습니다. (필터가 '전체'인지 확인해보세요)" : "위에서 호선을 선택하거나, '불러온 발주목록 바로가기'를 눌러주세요."} color="#5E86A3" />
         ) : (
           <div style={{ maxHeight: window.innerWidth <= 768 ? "none" : "calc(100vh - 440px)", minHeight: 240, overflow: "auto" }}>
             <table>

@@ -2063,6 +2063,7 @@ function AppInner() {
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const chatLastSeenRef = useRef(null);
   const [presetItem, setPresetItem] = useState(null);
+  const [presetTxMode, setPresetTxMode] = useState("out");
   const [masterSearchPreset, setMasterSearchPreset] = useState("");
   const [toast, setToast] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -3527,7 +3528,7 @@ function AppInner() {
                         {tab === "dashboard" && <Dashboard items={items} txs={txs} loadCumulativeOutTxs={loadCumulativeOutTxs} onDeleteTransactions={deleteTransactionRecords} onSelectAlertItem={(item) => { setMasterSearchPreset(item.code); goToTab("master"); }} />}
             {tab === "in" && <InboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} materialType="sub" />}
             {tab === "rawInbound" && <RawMaterialInboundView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} supabase={typeof supabase !== 'undefined' ? supabase : null} reloadItems={reloadItems} reloadTxs={reloadTxs} initialShip={rawManagePresetShip} onOpenReturn={(payload) => { const list = Array.isArray(payload?.items) ? payload.items : []; setRawManagePresetShip(payload?.ship || list[0]?.shipNo || ""); setRawManagePresetReturnItems(list); goToTab("return"); }} />}
-            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} reloadItems={reloadItems} reloadTxs={reloadTxs} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} />}
+            {tab === "out" && <OutForm items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} presetItem={presetItem} onConsumePreset={() => setPresetItem(null)} reloadItems={reloadItems} reloadTxs={reloadTxs} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} presetTxMode={presetTxMode} />}
             {tab === "return" && <ReturnView items={items} saveItems={saveItems} txs={txs} saveTxs={saveTxs} notify={notify} outFormSettings={outFormSettings} initialShip={rawManagePresetShip} initialReturnItems={rawManagePresetReturnItems} onOpenRawInbound={() => goToTab("rawInbound")} />}
             {tab === "stock" && <StockView items={items} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} addUrgentRequest={addUrgentRequest} outFormSettings={outFormSettings} reloadItems={reloadItems} reloadTxs={reloadTxs} onSelectItem={(item) => { setPresetItem(item); goToTab("out"); }} />}
                         {tab === "master" && <MasterView items={items} txs={txs} saveItems={saveItems} notify={notify} urgentRequests={urgentRequests} resolveUrgentRequest={resolveUrgentRequest} cartItems={cartItems} addToCart={addToCart} removeFromCart={removeFromCart} clearCart={clearCart} searchPreset={masterSearchPreset} onConsumeSearchPreset={() => setMasterSearchPreset("")} />}
@@ -3555,10 +3556,24 @@ function AppInner() {
         notify(`자재마스터에서 [${m.code}] 품목을 찾을 수 없습니다.`, "err");
         return;
       }
-
+      setPresetTxMode("out");
       setPresetItem(item);
       goToTab("out");
     }}
+    onOpenReturn={(m) => {
+  const item = items.find(
+    (i) => String(i.code).trim() === String(m.code).trim()
+  );
+
+  if (!item) {
+    notify(`자재마스터에서 [${m.code}] 품목을 찾을 수 없습니다.`, "err");
+    return;
+  }
+
+  setPresetTxMode("return");
+  setPresetItem(item);
+  goToTab("out");
+}}
   />
 )}
             {tab === "chat" && <ChatMemoView onClose={() => goToTab("out")} unreadCount={chatUnreadCount} onClearUnread={clearChatUnread} />}
@@ -5298,7 +5313,21 @@ function Header({ title, subtitle }) {
 }
 
 /* ---------------- 출고/반납 (스캔) ---------------- */
-function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, presetItem, onConsumePreset, urgentRequests, addUrgentRequest, reloadItems, reloadTxs }) {
+function OutForm({
+  items,
+  saveItems,
+  txs,
+  saveTxs,
+  notify,
+  outFormSettings,
+  presetItem,
+  presetTxMode = "out",
+  onConsumePreset,
+  urgentRequests,
+  addUrgentRequest,
+  reloadItems,
+  reloadTxs
+}) {
   const [txMode, setTxMode] = useState("out"); // "out" | "return"
   const [isMobileView, setIsMobileView] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth <= 768 : false
@@ -5414,7 +5443,7 @@ function OutForm({ items, saveItems, txs, saveTxs, notify, outFormSettings, pres
   useEffect(() => {
     if (presetItem) {
       setFound(presetItem);
-      setTxMode("out");
+      setTxMode(presetTxMode);
       notify(`자재 선택됨: ${presetItem.name}`, "ok");
       scrollToInfoCard();
       if (onConsumePreset) onConsumePreset();
@@ -13901,6 +13930,7 @@ function ShipIssueAdminView({
   reloadItems,
   reloadTxs,
   onOpenOut,
+  onOpenReturn,
 }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -14735,24 +14765,96 @@ const remainOf = (m) => (
                           )}
                         </td>
                         <td style={{ fontFamily: "IBM Plex Mono", fontSize: 12, color: "#9FB4C7" }}>{m.lastAt || "-"}</td>
-                        <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            disabled={isUnregistered(m.code)}
-                            title={isUnregistered(m.code) ? "자재마스터에 없는 자재는 불출할 수 없습니다" : "불출 창 열기"}
-                            onClick={() => setIssueTarget(m)}
-                            style={{
-                              display: "inline-flex", alignItems: "center", gap: 4, padding: "5px 10px",
-                              borderRadius: 7, fontSize: 11.5, fontWeight: 700,
-                              fontFamily: "'IBM Plex Mono', monospace",
-                              border: "1px solid #F5A62388", background: "#F5A62318", color: "#F5A623",
-                              cursor: isUnregistered(m.code) ? "not-allowed" : "pointer",
-                              opacity: isUnregistered(m.code) ? 0.4 : 1,
-                            }}
-                          >
-                            <ArrowUpFromLine size={13} />불출
-                          </button>
-                        </td>
+                        <td
+  style={{ textAlign: "center" }}
+  onClick={(e) => e.stopPropagation()}
+>
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+    }}
+  >
+    {/* 기존 불출 버튼 */}
+    <div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  }}
+>
+  {/* 기존 불출 버튼 */}
+  <button
+    type="button"
+    disabled={isUnregistered(m.code)}
+    title={
+      isUnregistered(m.code)
+        ? "자재마스터에 없는 자재는 불출할 수 없습니다"
+        : "불출 창 열기"
+    }
+    onClick={() => setIssueTarget(m)}
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 4,
+      padding: "5px 10px",
+      borderRadius: 7,
+      fontSize: 11.5,
+      fontWeight: 700,
+      fontFamily: "'IBM Plex Mono', monospace",
+      border: "1px solid #F5A62388",
+      background: "#F5A62318",
+      color: "#F5A623",
+      cursor: isUnregistered(m.code) ? "not-allowed" : "pointer",
+      opacity: isUnregistered(m.code) ? 0.4 : 1,
+    }}
+  >
+    <ArrowUpFromLine size={13} />
+    불출
+  </button>
+
+  {/* 반납 버튼 */}
+  <button
+    type="button"
+    disabled={isUnregistered(m.code)}
+    title={
+      isUnregistered(m.code)
+        ? "자재마스터에 없는 자재는 반납할 수 없습니다"
+        : "반납 창 열기"
+    }
+    onClick={() => {
+      if (onOpenReturn) {
+        onOpenReturn(m);
+      }
+    }}
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 4,
+      padding: "5px 10px",
+      borderRadius: 7,
+      fontSize: 11.5,
+      fontWeight: 700,
+      fontFamily: "'IBM Plex Mono', monospace",
+      border: "1px solid #22D3EE88",
+      background: "#22D3EE18",
+      color: "#22D3EE",
+      cursor: isUnregistered(m.code) ? "not-allowed" : "pointer",
+      opacity: isUnregistered(m.code) ? 0.4 : 1,
+    }}
+  >
+    <RotateCcw size={13} />
+    반납
+  </button>
+</div>
+</div>
+</td>
                       </tr>
 
                       {isOpen && (

@@ -14622,17 +14622,24 @@ const remainOf = (m) => (
 
   const exportCSV = () => {
     if (!list.length) { notify("다운로드할 내용이 없습니다.", "err"); return; }
-    const head = ["호선", "자재코드", "자재명", "규격", "단위", "발주수량", "정발주", "추가건", "합계", "정발주 지급가능", "마지막불출", "정리확인", "추가건 사유"];
+    const head = ["호선", "자재코드", "자재명", "규격", "단위", "발주수량", "정발주", "추가건", "반납", "순불출(반납차감)", "정발주 지급가능", "마지막불출", "정리확인", "추가건 사유", "반납 내역"];
     const lines = list.map((m) => {
       const notes = m.txs
-        .filter((t) => getIssueKind(t) !== "정발주")
+        .filter((t) => t.type !== "return" && getIssueKind(t) !== "정발주")
         .map((t) => adminMap[`note:${t.id}`])
         .filter(Boolean)
         .join(" / ");
       const remain = remainOf(m);
+      // 마지막 불출일은 출고 기록 기준 (반납 날짜는 제외)
+      const lastOut = (m.txs.find((t) => t.type === "out") || {}).at || "";
+      // 반납 내역: 날짜 · 수량 · 반납자 · 사유
+      const returnDetail = m.txs
+        .filter((t) => t.type === "return")
+        .map((t) => `${String(t.at || "").replace("T", " ").slice(0, 16)} ${t.qty}${t.unit || ""} ${t.worker || ""}${t.reason ? ` (${t.reason})` : ""}`.trim())
+        .join(" / ");
       return [ship, m.code, m.name, m.spec, m.unit, m.order === null ? "" : m.order,
-        m.plan, m.extra, m.total, remain === null ? "" : remain, m.lastAt,
-        adminMap[`check:${ship}:${m.code}`] ? "완료" : "", notes]
+        m.plan, m.extra, m.returned || 0, m.total, remain === null ? "" : remain, lastOut,
+        adminMap[`check:${ship}:${m.code}`] ? "완료" : "", notes, returnDetail]
         .map((v) => `"${csvSafe(v).replace(/"/g, '""')}"`)
         .join(",");
     });
@@ -14750,6 +14757,14 @@ const remainOf = (m) => (
       <Header title="호선 불출 관리" subtitle="호선별 발주목록 대비 정발주·추가건 불출을 집계하고, 추가건 사유와 정리 여부를 관리합니다 (관리자용)" />
       <style>{`
         .si-cards-view { display: none; }
+        .si-plan-select { display: none; }
+        .si-chip-grid { display: none; }
+        @media (max-width: 768px) {
+          .si-stats { display: none !important; }
+          .si-chips-pc { display: none !important; }
+          .si-plan-select { display: block; width: 100%; }
+          .si-chip-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 100%; }
+        }
         @media (min-width: 769px) {
           .si-pick-row { display: contents; }
         }
@@ -14836,12 +14851,73 @@ const remainOf = (m) => (
               이 프로젝트의 발주목록을 불러오면 지급가능 수량이 계산됩니다
             </span>
           )}
+          {savedPlans.length > 0 && (
+            <select
+              className="si-plan-select"
+              aria-label="발주목록 바로가기"
+              value={savedPlans.find((sp) => sp.ship === ship && sp.project === project)?.key || ""}
+              onChange={(e) => {
+                const sp = savedPlans.find((x) => x.key === e.target.value);
+                if (sp) goToPlan(sp);
+              }}
+              style={{ ...inputStyle }}
+            >
+              <option value="">📋 발주목록 바로가기 ({savedPlans.length})</option>
+              {savedPlans.map((sp) => (
+                <option key={sp.key} value={sp.key}>
+                  {sp.ship} / {sp.project === "전체" ? "호선 전체" : sp.project} · {sp.count}종
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="si-chips-pc" style={{ display: "contents" }}>
           {chip("all", "전체", "#38BDF8")}
           {chip("정발주", "정발주", "#F5A623")}
           {chip("추가건", "추가건", "#38BDF8")}          
           {planItems.length > 0 && chip("미불출", `미불출 (${planSummary.notIssued})`, "#A78BFA")}
           {planItems.length > 0 && chip("목록외", `목록외 (${planSummary.outOfList})`, "#EF5350")}
           {planSummary.unregistered > 0 && chip("미등록", `미등록 (${planSummary.unregistered})`, "#F472B6")}
+          </div>
+
+          {/* 모바일 전용: 카드형 필터 (요약 겸용) */}
+          <div className="si-chip-grid">
+            {[
+              { id: "all", label: "전체", value: stats.total, unit: "건", color: "#5EC8FF" },
+              { id: "정발주", label: "정발주", value: stats.plan, unit: "건", color: "#F5A623" },
+              { id: "추가건", label: "추가건", value: stats.extra, unit: "건", color: "#38BDF8" },
+              ...(planItems.length > 0 ? [
+                { id: "미불출", label: "미불출", value: planSummary.notIssued, unit: "종", color: "#A78BFA" },
+                { id: "목록외", label: "목록외", value: planSummary.outOfList, unit: "종", color: "#EF5350" },
+              ] : []),
+              ...(planSummary.unregistered > 0 ? [
+                { id: "미등록", label: "미등록", value: planSummary.unregistered, unit: "종", color: "#F472B6" },
+              ] : []),
+            ].map((c) => {
+              const on = kindFilter === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setKindFilter(c.id);
+                    setUnregisteredOpen(c.id === "미등록");
+                  }}
+                  style={{
+                    padding: "9px 6px", borderRadius: 10, cursor: "pointer", textAlign: "center", minWidth: 0,
+                    border: `1px solid ${on ? c.color : "#1F3B54"}`,
+                    background: on ? `${c.color}22` : "#0B1C2C",
+                    boxShadow: on ? `0 0 12px -6px ${c.color}` : "none",
+                  }}
+                >
+                  <div style={{ fontSize: 10.5, color: on ? c.color : "#7F97AC", fontWeight: 700 }}>{c.label}</div>
+                  <div style={{ fontSize: 19, fontWeight: 800, color: on ? c.color : "#E7EEF5", fontFamily: "IBM Plex Mono", marginTop: 2, lineHeight: 1.1 }}>
+                    {c.value}
+                    <span style={{ fontSize: 10.5, fontWeight: 600, marginLeft: 2, color: "#7F97AC" }}>{c.unit}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
 
           <input
             style={{ ...inputStyle, flex: 1, minWidth: 180, height: 38, padding: "4px 12px", fontSize: 13 }}
@@ -14856,7 +14932,7 @@ const remainOf = (m) => (
           </div>
         </div>
         {savedPlans.length > 0 && (
-          <div style={{
+          <div className="si-pc-only" style={{
             display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
             marginTop: 12, maxHeight: 96, overflowY: "auto",
           }}>

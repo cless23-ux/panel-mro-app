@@ -13941,13 +13941,14 @@ function ShipIssueQuickReturnModal({
 
   if (!master) return null;
 
-  const ready = !submitting && Number(qty) > 0 && !!String(worker).trim();
+  const ready = !submitting && Number(qty) > 0 && !!String(worker).trim() && !!String(project).trim();
 
   const submit = async () => {
     if (submitting) return;
     const qtyNum = Number(qty);
     if (!qtyNum || qtyNum <= 0) { notify("반납 수량을 입력해주세요.", "err"); return; }
     if (qtyNum > maxQty) { notify(`불출된 수량(${maxQty}${master.unit})보다 많이 반납할 수 없습니다.`, "err"); return; }
+    if (!String(project).trim()) { notify("프로젝트를 선택해주세요.", "err"); return; }
     if (!String(worker).trim()) { notify("반납자를 선택해주세요.", "err"); return; }
 
     const msg =
@@ -14028,7 +14029,7 @@ function ShipIssueQuickReturnModal({
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
-          <Field label="프로젝트 (선택)">
+          <Field label="프로젝트">
             <StrictAutocompleteInput value={project} onChange={setProject} options={projectList} placeholder="프로젝트 검색 후 선택" />
           </Field>
           <div className="out-field-grid">
@@ -14675,8 +14676,13 @@ const remainOf = (m) => (
   const kindColor = (k) => (k === "정발주" ? "#F5A623" : k === "추가건" ? "#38BDF8" : k === "반납" ? "#22D3EE" : "#5E86A3");
 
   // 잘못 등록한 불출 원복 (재고 복구 + 집계에서 제외)
-  const cancelOut = async (t) => {
+  const cancelOut = async (t, netTotal) => {
     const qtyNum = Number(t.qty) || 0;
+    // 반납 기록이 있어 이 불출을 취소하면 순불출이 마이너스가 되는 경우 막기 (재고 이중 증가 방지)
+    if (netTotal !== undefined && netTotal - qtyNum < 0) {
+      notify("이 자재는 반납 기록이 있어 지금 불출취소를 하면 재고가 맞지 않습니다. 먼저 해당 반납을 '반납취소' 해주세요.", "err");
+      return;
+    }
     if (!window.confirm(
       `[${t.itemName}] ${qtyNum}${t.unit} 불출을 취소하시겠습니까?\n\n` +
       `재고가 ${qtyNum}${t.unit} 복구되고,\n` +
@@ -15145,7 +15151,7 @@ const remainOf = (m) => (
                                         <td style={{ textAlign: "right" }}>
                                           <button
                                             type="button"
-                                            onClick={() => (k === "반납" ? cancelReturn(t) : cancelOut(t))}
+                                            onClick={() => (k === "반납" ? cancelReturn(t) : cancelOut(t, m.total))}
                                             style={{
                                               background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
                                               padding: "4px 10px", borderRadius: 6, cursor: "pointer",
@@ -15392,7 +15398,7 @@ const remainOf = (m) => (
                               </div>
                               <button
                                 type="button"
-                                onClick={() => (k === "반납" ? cancelReturn(t) : cancelOut(t))}
+                                onClick={() => (k === "반납" ? cancelReturn(t) : cancelOut(t, m.total))}
                                 style={{
                                   flexShrink: 0, background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
                                   padding: "5px 12px", borderRadius: 7, cursor: "pointer",

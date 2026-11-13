@@ -3539,6 +3539,7 @@ function AppInner() {
             {tab === "stale" && <StaleItemsView items={items} txs={txs} notify={notify} />}
             {tab === "shipIssue" && (
   <ShipIssueAdminView
+    txs={txs}
     loadCumulativeOutTxs={loadCumulativeOutTxs}
     items={items}
     notify={notify}
@@ -13920,7 +13921,151 @@ function ShipIssueQuickOutModal({
     </div>
   );
 }
+/* ---------------- 호선 불출관리: 작은 반납 팝업 ---------------- */
+function ShipIssueQuickReturnModal({
+  target, items, ship, defaultProject, projectOptions, workerOptions,
+  notify, reloadItems, reloadTxs, onClose, onDone,
+}) {
+  const master = (items || []).find(
+    (i) => String(i.code).trim().toUpperCase() === String(target.code).trim().toUpperCase()
+  );
+  const { history, addToHistory } = useOutLocalHistory();
+  const [project, setProject] = useState(defaultProject || "");
+  const [qty, setQty] = useState("");
+  const [worker, setWorker] = useState(history.worker[0] || "");
+  const [reason, setReason] = useState(RETURN_REASONS[0]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const projectList = (projectOptions || []).filter((p) => p !== "전체");
+  const maxQty = Number(target.total) || 0; // 현재까지 순불출 수량
+
+  if (!master) return null;
+
+  const ready = !submitting && Number(qty) > 0 && !!String(worker).trim();
+
+  const submit = async () => {
+    if (submitting) return;
+    const qtyNum = Number(qty);
+    if (!qtyNum || qtyNum <= 0) { notify("반납 수량을 입력해주세요.", "err"); return; }
+    if (qtyNum > maxQty) { notify(`불출된 수량(${maxQty}${master.unit})보다 많이 반납할 수 없습니다.`, "err"); return; }
+    if (!String(worker).trim()) { notify("반납자를 선택해주세요.", "err"); return; }
+
+    const msg =
+      `다음 내용으로 반납하시겠습니까?\n\n` +
+      `자재: ${master.name}\n수량: ${qtyNum}${master.unit}\n` +
+      `호선: ${ship}\n프로젝트: ${project || "-"}\n사유: ${reason}\n반납자: ${worker}`;
+    if (!window.confirm(msg)) return;
+
+    setSubmitting(true);
+    try {
+      const tx = {
+        id: uid("RET"),
+        type: "return",
+        itemCode: master.code,
+        itemName: master.name,
+        unit: master.unit,
+        qty: qtyNum,
+        shipNo: ship,
+        project: project || "",
+        reason,
+        worker: String(worker).trim(),
+        note: "",
+        linkedOutTxId: null,
+        at: nowStr(),
+        deleted: false,
+      };
+      await applyStockTransactionsAtomic([{ code: master.code, delta: qtyNum, tx }]);
+      try {
+        await reloadItems?.();
+        await reloadTxs?.();
+      } catch (e) {
+        console.error("반납 후 새로고침 실패:", e);
+      }
+      addToHistory("worker", worker);
+      addToHistory("project", project);
+      addToHistory("ship", ship);
+      notify(`${master.name} ${qtyNum}${master.unit} 반납 완료 · 재고 반영`, "ok");
+      onDone?.();
+    } catch (e) {
+      console.error(e);
+      notify(`반납 실패: ${e?.message || e}`, "err");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      className="app-modal-overlay"
+      style={{
+        position: "fixed", inset: 0, background: "rgba(6,14,22,0.72)",
+        display: "flex", alignItems: "center", justifyContent: "center", zIndex: 400, padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", maxWidth: 400, background: "#0F2233", border: "1px solid #22D3EE55", borderRadius: 14, padding: 20 }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#22D3EE", fontWeight: 700, fontSize: 15 }}>
+            <RotateCcw size={18} /> 반납 · {ship}
+          </div>
+          <button type="button" onClick={onClose} style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4 }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "10px 12px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#38BDF8", wordBreak: "break-word" }}>{master.name}</div>
+          <div style={{ fontSize: 11, color: "#7F97AC", fontFamily: "IBM Plex Mono", marginTop: 2, wordBreak: "break-all" }}>
+            {master.code}{master.spec ? ` · ${master.spec}` : ""}
+          </div>
+          <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 12, fontFamily: "IBM Plex Mono", flexWrap: "wrap" }}>
+            <span style={{ color: "#9FB4C7" }}>현재고 <b style={{ color: "#35D08C" }}>{master.stock} {master.unit}</b></span>
+            <span style={{ color: "#9FB4C7" }}>반납 가능 <b style={{ color: "#22D3EE" }}>{maxQty} {master.unit}</b></span>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+          <Field label="프로젝트 (선택)">
+            <StrictAutocompleteInput value={project} onChange={setProject} options={projectList} placeholder="프로젝트 검색 후 선택" />
+          </Field>
+          <div className="out-field-grid">
+            <Field label={`반납수량 (${master.unit})`}>
+              <input
+                style={{ ...inputStyle, fontWeight: "bold", color: "#22D3EE" }}
+                type="number" min="1" max={maxQty} value={qty} autoFocus
+                onChange={(e) => setQty(e.target.value)} placeholder="수량 입력"
+              />
+            </Field>
+            <Field label="반납 사유">
+              <Select value={reason} onChange={(e) => setReason(e.target.value)} options={RETURN_REASONS} />
+            </Field>
+          </div>
+          <Field label="반납자">
+            <StrictAutocompleteInput value={worker} onChange={setWorker} options={workerOptions || []} placeholder="반납자 검색 후 선택" />
+          </Field>
+        </div>
+
+        <Btn
+          onClick={submit}
+          disabled={!ready}
+          style={{
+            width: "100%", fontWeight: "bold",
+            background: ready ? "#22D3EE" : "#1F3B54",
+            border: `1px solid ${ready ? "#22D3EE" : "#1F3B54"}`,
+            color: ready ? "#0A1622" : "#5E86A3",
+          }}
+        >
+          <RotateCcw size={16} />{submitting ? "처리 중..." : "반납 확정"}
+        </Btn>
+      </div>
+    </div>
+  );
+}
 function ShipIssueAdminView({
+  txs = [],
   loadCumulativeOutTxs,
   items = [],
   notify,
@@ -13949,6 +14094,7 @@ function ShipIssueAdminView({
   const [unregisteredOpen, setUnregisteredOpen] = useState(false);
   const planFileRef = useRef(null);
   const [issueTarget, setIssueTarget] = useState(null);
+  const [returnTarget, setReturnTarget] = useState(null);
   
 
   // 폴링으로 함수 주소가 계속 바뀌어도 반복 조회되지 않도록 ref 사용
@@ -13979,6 +14125,15 @@ function ShipIssueAdminView({
   }, [notify]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  // 출고 기록 + 반납 기록을 합친 목록
+  const combinedRows = useMemo(() => {
+    const ids = new Set(rows.map((t) => t.id));
+    const returns = (txs || []).filter(
+      (t) => t.type === "return" && t.deleted !== true && !ids.has(t.id)
+    );
+    return [...rows, ...returns];
+  }, [rows, txs]);
 
   const saveAdmin = async (key, value) => {
     setAdminMap((p) => {
@@ -14011,10 +14166,10 @@ function ShipIssueAdminView({
       if (s && s !== "미입력" && s !== "소모자재") set.add(s);
     };
     (shipOptions || []).forEach(add);
-    rows.forEach((t) => add(t.shipNo));
+    combinedRows.forEach((t) => add(t.shipNo));
     Object.keys(adminMap).forEach((k) => { if (k.startsWith("plan:")) add(k.slice(5).split("::")[0]); });
     return Array.from(set).sort((a, b) => b.localeCompare(a, "ko", { numeric: true }));
-  }, [rows, adminMap, shipOptions]);
+  }, [combinedRows, adminMap, shipOptions]);
 
   // 처음엔 호선을 비워 둠 (선택한 호선이 목록에서 사라졌을 때만 비움)
   useEffect(() => {
@@ -14023,8 +14178,8 @@ function ShipIssueAdminView({
   }, [ships, ship]);
 
   const shipAllTxs = useMemo(
-    () => (ship ? rows.filter((t) => String(t.shipNo || "").trim() === ship) : []),
-    [rows, ship]
+    () => (ship ? combinedRows.filter((t) => String(t.shipNo || "").trim() === ship) : []),
+    [combinedRows, ship]
   );
 
   // 프로젝트 목록: 불출설정 등록 프로젝트 + 이 호선에서 불출된 프로젝트 + 발주목록을 올린 프로젝트
@@ -14225,7 +14380,7 @@ function ShipIssueAdminView({
       map[normCode(p.code)] = {
         code: p.code, name: p.name || p.code, spec: p.spec || "", unit: "EA",
         order: Number(p.qty) || 0, hasPlan: true,
-        plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [],
+        plan: 0, extra: 0, returned: 0, etc: 0, total: 0, lastAt: "", txs: [],
       };
     });
 
@@ -14517,7 +14672,72 @@ const remainOf = (m) => (
     );
   };
 
-  const kindColor = (k) => (k === "정발주" ? "#F5A623" : k === "추가건" ? "#38BDF8" : "#5E86A3");
+  const kindColor = (k) => (k === "정발주" ? "#F5A623" : k === "추가건" ? "#38BDF8" : k === "반납" ? "#22D3EE" : "#5E86A3");
+
+  // 잘못 등록한 불출 원복 (재고 복구 + 집계에서 제외)
+  const cancelOut = async (t) => {
+    const qtyNum = Number(t.qty) || 0;
+    if (!window.confirm(
+      `[${t.itemName}] ${qtyNum}${t.unit} 불출을 원복하시겠습니까?\n\n` +
+      `재고가 ${qtyNum}${t.unit} 복구되고,\n` +
+      `이 불출 건은 호선 불출 집계에서 제외됩니다.`
+    )) return;
+
+    try {
+      const marker = `MRO_REVERSED_OUT:${String(t.id)}`;
+      const base = String(t.reason || "").trim();
+      const nextReason = base.includes(marker) ? base : `${base}${base ? " | " : ""}${marker}`;
+
+      await applyStockTransactionsAtomic([
+        { code: t.itemCode, delta: qtyNum, txUpdate: { ...t, reason: nextReason } },
+      ]);
+      try {
+        await reloadItems?.();
+        await reloadTxs?.();
+      } catch (e) {
+        console.error("원복 후 새로고침 실패:", e);
+      }
+      notify(`불출이 원복되어 재고 ${qtyNum}${t.unit}가 복구되었습니다.`, "info");
+      loadAll();
+    } catch (e) {
+      console.error("불출 원복 오류:", e);
+      notify(`불출 원복 실패: ${e?.message || e}`, "err");
+    }
+  };
+
+  // 잘못 등록한 반납 취소 (재고에서 다시 차감 + 반납 기록 삭제)
+  const cancelReturn = async (t) => {
+    const master = (items || []).find(
+      (i) => String(i.code).trim().toUpperCase() === String(t.itemCode).trim().toUpperCase()
+    );
+    const curStock = Number(master?.stock) || 0;
+    const qtyNum = Number(t.qty) || 0;
+
+    if (curStock < qtyNum) {
+      notify(`현재고(${curStock}${t.unit})가 반납수량(${qtyNum}${t.unit})보다 적어 취소할 수 없습니다.`, "err");
+      return;
+    }
+    if (!window.confirm(
+      `[${t.itemName}] ${qtyNum}${t.unit} 반납을 취소하시겠습니까?\n\n` +
+      `재고가 ${curStock}${t.unit} → ${curStock - qtyNum}${t.unit} 로 다시 차감되고,\n` +
+      `이 반납 기록은 삭제됩니다.`
+    )) return;
+
+    try {
+      await applyStockTransactionsAtomic([{ code: t.itemCode, delta: -qtyNum, txDeleteId: t.id }]);
+      try {
+        await reloadItems?.();
+        await reloadTxs?.();
+      } catch (e) {
+        console.error("반납취소 후 새로고침 실패:", e);
+      }
+      notify(`반납이 취소되어 재고 ${qtyNum}${t.unit}가 다시 차감되었습니다.`, "info");
+      loadAll();
+    } catch (e) {
+      console.error("반납 취소 오류:", e);
+      notify(`반납 취소 실패: ${e?.message || e}`, "err");
+    }
+  };
 
   return (
     <div>
@@ -14538,6 +14758,22 @@ const remainOf = (m) => (
           .si-stats > div { padding: 10px 12px !important; }
         }
       `}</style>
+      {returnTarget && (
+        <ShipIssueQuickReturnModal
+          target={returnTarget}
+          items={items}
+          ship={ship}
+          defaultProject={project === "전체" ? "" : project}
+          projectOptions={projectOptions}
+          workerOptions={workerOptions}
+          notify={notify}
+          reloadItems={reloadItems}
+          reloadTxs={reloadTxs}
+          onClose={() => setReturnTarget(null)}
+          onDone={() => { setReturnTarget(null); loadAll(); }}
+        />
+      )}
+
       <datalist id="issue-reasons">
         <option value="파손" />
         <option value="설계변경" />
@@ -14745,7 +14981,14 @@ const remainOf = (m) => (
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700, color: heavy ? "#EF5350" : "#38BDF8" }}>
                           {m.extra} {m.unit}{heavy ? " ⚠" : ""}
                         </td>                       
-                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{m.total} {m.unit}</td>
+                        <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>
+                          {m.total} {m.unit}
+                          {m.returned > 0 && (
+                            <div style={{ fontSize: 10, fontWeight: 600, color: "#22D3EE", marginTop: 1 }}>
+                              반납 {m.returned} {m.unit}
+                            </div>
+                          )}
+                        </td>
                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>
                           {remain === null ? (
                             <span style={{ color: "#3E5975" }}>-</span>
@@ -14759,7 +15002,7 @@ const remainOf = (m) => (
                                 <span style={{ color: "#A78BFA" }}>{remain} {m.unit}</span>
                               )}
                               <div style={{ fontSize: 9.5, fontWeight: 400, color: "#5E86A3", marginTop: 1 }}>
-                                발주 {m.order} − 추가 {tot.extra} − 정발주 {tot.plan}
+                                발주 {m.order} − 불출 {m.plan + m.extra} + 반납 {m.returned || 0}
                               </div>
                             </>
                           )}
@@ -14828,9 +15071,7 @@ const remainOf = (m) => (
         : "반납 창 열기"
     }
     onClick={() => {
-      if (onOpenReturn) {
-        onOpenReturn(m);
-      }
+      setReturnTarget(m);
     }}
     style={{
       display: "inline-flex",
@@ -14882,12 +15123,40 @@ const remainOf = (m) => (
                                         <td style={{ fontFamily: "IBM Plex Mono", fontSize: 11.5, color: "#7F97AC" }}>
                                           {t.at}{t.deleted ? " (기록보관)" : ""}
                                         </td>
-                                        <td style={{ fontWeight: 700, color: kindColor(k) }}>{k}</td>
+                                        <td style={{ fontWeight: 700, color: kindColor(k) }}>
+                                          {k}
+                                          {k !== "반납" && (
+                                            <button
+                                              type="button"
+                                              onClick={() => cancelOut(t)}
+                                              title="잘못 등록한 불출 원복"
+                                              style={{
+                                                marginLeft: 8, background: "#123626", border: "1px solid #2ECC71",
+                                                color: "#2ECC71", padding: "2px 8px", borderRadius: 6,
+                                                cursor: "pointer", fontSize: 11, fontWeight: 700,
+                                              }}
+                                            >
+                                              원복
+                                            </button>
+                                          )}
+                                        </td>
                                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{t.qty} {t.unit}</td>
                                         <td>{t.project || "-"}</td>
                                         <td>{t.worker || "-"}</td>
                                         <td>
-                                          {k === "정발주" ? (
+                                          {k === "반납" ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => cancelReturn(t)}
+                                              style={{
+                                                background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
+                                                padding: "4px 10px", borderRadius: 6, cursor: "pointer",
+                                                fontSize: 11.5, fontWeight: 700,
+                                              }}
+                                            >
+                                              반납 취소
+                                            </button>
+                                          ) : k === "정발주" ? (
                                             <span style={{ color: "#3E5975" }}>-</span>
                                           ) : (
                                             <input
@@ -15063,10 +15332,26 @@ const remainOf = (m) => (
                   </div>
                   {remain !== null && (
                     <div style={{ fontSize: 10, color: "#5E86A3", marginTop: 3, fontFamily: "IBM Plex Mono" }}>
-                      발주 {m.order} − 추가 {m.extra} − 정발주 {m.plan}
+                      발주 {m.order} − 불출 {m.plan + m.extra} + 반납 {m.returned || 0}
                     </div>
                   )}
                 </div>
+
+                {/* 반납 버튼 */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isUnregistered(m.code)) notify("자재마스터에 없는 자재는 반납할 수 없습니다.", "err");
+                    else setReturnTarget(m);
+                  }}
+                  style={{
+                    width: "100%", marginTop: 8, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
+                    border: "1px solid #22D3EE88", background: "#22D3EE18", color: "#22D3EE",
+                    fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}
+                >
+                  <RotateCcw size={14} /> 반납
+                </button>
 
                 {/* 마지막 불출 + 펼치기 */}
                 <button
@@ -15089,7 +15374,7 @@ const remainOf = (m) => (
                       <div style={{ fontSize: 12, color: "#5E86A3" }}>아직 불출 기록이 없습니다.</div>
                     ) : (
                       m.txs.map((t) => {
-                        const k = getIssueKind(t);
+                        const k = t.type === "return" ? "반납" : getIssueKind(t);
                         const key = `note:${t.id}`;
                         const value = Object.prototype.hasOwnProperty.call(noteDrafts, t.id)
                           ? noteDrafts[t.id]
@@ -15097,13 +15382,41 @@ const remainOf = (m) => (
                         return (
                           <div key={t.id} style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "8px 10px" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                              <span style={{ fontSize: 11.5, fontWeight: 700, color: kindColor(k) }}>{k}</span>
+                              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ fontSize: 11.5, fontWeight: 700, color: kindColor(k) }}>{k}</span>
+                                {k !== "반납" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => cancelOut(t)}
+                                    style={{
+                                      background: "#123626", border: "1px solid #2ECC71", color: "#2ECC71",
+                                      padding: "2px 10px", borderRadius: 6, cursor: "pointer",
+                                      fontSize: 11, fontWeight: 700,
+                                    }}
+                                  >
+                                    원복
+                                  </button>
+                                )}
+                              </span>
                               <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13 }}>{t.qty} {t.unit}</span>
                             </div>
                             <div style={{ fontSize: 10.5, color: "#7F97AC", marginTop: 3, lineHeight: 1.45 }}>
                               {String(t.at).replace("T", " ").slice(0, 16)}{t.deleted ? " (기록보관)" : ""} · {t.project || "-"} · {t.worker || "-"}
                             </div>
-                            {k !== "정발주" && (
+                            {k === "반납" && (
+                              <button
+                                type="button"
+                                onClick={() => cancelReturn(t)}
+                                style={{
+                                  width: "100%", marginTop: 6, padding: "7px 10px", borderRadius: 7, cursor: "pointer",
+                                  background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
+                                  fontSize: 12, fontWeight: 700,
+                                }}
+                              >
+                                반납 취소
+                              </button>
+                            )}
+                            {k !== "정발주" && k !== "반납" && (
                               <input
                                 list="issue-reasons"
                                 style={{ ...inputStyle, height: 36, marginTop: 6, padding: "4px 10px", fontSize: 15 }}

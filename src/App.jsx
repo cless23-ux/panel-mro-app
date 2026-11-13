@@ -15257,6 +15257,35 @@ const remainOf = (m) => (
     </div>
   </div>
 
+  {/* 반납 바로가기 (불출 버튼 오른쪽) */}
+<button
+  type="button"
+  title="반납 입력"
+  aria-label="반납 입력"
+  onClick={(e) => {
+    e.stopPropagation();
+    if (!isUnregistered(m.code)) setReturnTarget(m);
+    else notify("자재마스터에 없는 자재는 반납할 수 없습니다.", "err");
+  }}
+  style={{
+    order: 1,
+    flexShrink: 0,
+    width: 34,
+    height: 34,
+    padding: 0,
+    borderRadius: 9,
+    border: "1px solid #22D3EE88",
+    background: "#22D3EE18",
+    color: "#22D3EE",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  }}
+>
+  <RotateCcw size={17} />
+</button>
+
   {/* 불출정보 바로가기 */}
 <button
   type="button"
@@ -15322,22 +15351,6 @@ const remainOf = (m) => (
                   )}
                 </div>
 
-                {/* 반납 버튼 */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (isUnregistered(m.code)) notify("자재마스터에 없는 자재는 반납할 수 없습니다.", "err");
-                    else setReturnTarget(m);
-                  }}
-                  style={{
-                    width: "100%", marginTop: 8, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
-                    border: "1px solid #22D3EE88", background: "#22D3EE18", color: "#22D3EE",
-                    fontSize: 12.5, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  }}
-                >
-                  <RotateCcw size={14} /> 반납
-                </button>
-
                 {/* 마지막 불출 + 펼치기 */}
                 <button
                   type="button"
@@ -15368,23 +15381,26 @@ const remainOf = (m) => (
                           <div key={t.id} style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "8px 10px" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                               <span style={{ fontSize: 11.5, fontWeight: 700, color: kindColor(k) }}>{k}</span>
-                              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13 }}>{t.qty} {t.unit}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => (k === "반납" ? cancelReturn(t) : cancelOut(t))}
-                                  style={{
-                                    background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
-                                    padding: "3px 10px", borderRadius: 6, cursor: "pointer",
-                                    fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {k === "반납" ? "반납취소" : "불출취소"}
-                                </button>
+                              <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 800, fontSize: 14, color: kindColor(k) }}>
+                                {k === "반납" ? "-" : ""}{t.qty} {t.unit}
                               </span>
                             </div>
-                            <div style={{ fontSize: 10.5, color: "#7F97AC", marginTop: 3, lineHeight: 1.45 }}>
-                              {String(t.at).replace("T", " ").slice(0, 16)}{t.deleted ? " (기록보관)" : ""} · {t.project || "-"} · {t.worker || "-"}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 8, marginTop: 5 }}>
+                              <div style={{ fontSize: 10.5, color: "#7F97AC", lineHeight: 1.6, minWidth: 0 }}>
+                                <div>{String(t.at).replace("T", " ").slice(0, 16)}{t.deleted ? " (기록보관)" : ""}</div>
+                                <div style={{ color: "#9FB4C7" }}>{t.project || "-"} · {t.worker || "-"}</div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => (k === "반납" ? cancelReturn(t) : cancelOut(t))}
+                                style={{
+                                  flexShrink: 0, background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
+                                  padding: "5px 12px", borderRadius: 7, cursor: "pointer",
+                                  fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
+                                }}
+                              >
+                                {k === "반납" ? "반납취소" : "불출취소"}
+                              </button>
                             </div>
 
                             {k !== "정발주" && k !== "반납" && (

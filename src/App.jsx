@@ -14678,7 +14678,7 @@ const remainOf = (m) => (
   const cancelOut = async (t) => {
     const qtyNum = Number(t.qty) || 0;
     if (!window.confirm(
-      `[${t.itemName}] ${qtyNum}${t.unit} 불출을 원복하시겠습니까?\n\n` +
+      `[${t.itemName}] ${qtyNum}${t.unit} 불출을 취소하시겠습니까?\n\n` +
       `재고가 ${qtyNum}${t.unit} 복구되고,\n` +
       `이 불출 건은 호선 불출 집계에서 제외됩니다.`
     )) return;
@@ -14697,11 +14697,11 @@ const remainOf = (m) => (
       } catch (e) {
         console.error("원복 후 새로고침 실패:", e);
       }
-      notify(`불출이 원복되어 재고 ${qtyNum}${t.unit}가 복구되었습니다.`, "info");
+      notify(`불출이 취소되어 재고 ${qtyNum}${t.unit}가 복구되었습니다.`, "info");
       loadAll();
     } catch (e) {
       console.error("불출 원복 오류:", e);
-      notify(`불출 원복 실패: ${e?.message || e}`, "err");
+      notify(`불출 취소 실패: ${e?.message || e}`, "err");
     }
   };
 
@@ -15108,7 +15108,7 @@ const remainOf = (m) => (
                                 <thead>
                                   <tr style={{ color: "#5E86A3", fontSize: 11 }}>
                                     <th>일시</th><th>구분</th><th style={{ textAlign: "right" }}>수량</th>
-                                    <th>프로젝트</th><th>불출자</th><th style={{ minWidth: 260 }}>사유 메모 (정발주 외)</th>
+                                    <th>프로젝트</th><th>불출자</th><th style={{ minWidth: 260 }}>사유 메모 (정발주 외)</th><th style={{ width: 110, textAlign: "right" }}>처리</th>
                                   </tr>
                                 </thead>
                                 <tbody>
@@ -15123,40 +15123,12 @@ const remainOf = (m) => (
                                         <td style={{ fontFamily: "IBM Plex Mono", fontSize: 11.5, color: "#7F97AC" }}>
                                           {t.at}{t.deleted ? " (기록보관)" : ""}
                                         </td>
-                                        <td style={{ fontWeight: 700, color: kindColor(k) }}>
-                                          {k}
-                                          {k !== "반납" && (
-                                            <button
-                                              type="button"
-                                              onClick={() => cancelOut(t)}
-                                              title="잘못 등록한 불출 원복"
-                                              style={{
-                                                marginLeft: 8, background: "#123626", border: "1px solid #2ECC71",
-                                                color: "#2ECC71", padding: "2px 8px", borderRadius: 6,
-                                                cursor: "pointer", fontSize: 11, fontWeight: 700,
-                                              }}
-                                            >
-                                              원복
-                                            </button>
-                                          )}
-                                        </td>
+                                        <td style={{ fontWeight: 700, color: kindColor(k) }}>{k}</td>
                                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{t.qty} {t.unit}</td>
                                         <td>{t.project || "-"}</td>
                                         <td>{t.worker || "-"}</td>
                                         <td>
-                                          {k === "반납" ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => cancelReturn(t)}
-                                              style={{
-                                                background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
-                                                padding: "4px 10px", borderRadius: 6, cursor: "pointer",
-                                                fontSize: 11.5, fontWeight: 700,
-                                              }}
-                                            >
-                                              반납 취소
-                                            </button>
-                                          ) : k === "정발주" ? (
+                                          {k === "정발주" || k === "반납" ? (
                                             <span style={{ color: "#3E5975" }}>-</span>
                                           ) : (
                                             <input
@@ -15169,6 +15141,19 @@ const remainOf = (m) => (
                                               onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
                                             />
                                           )}
+                                        </td>
+                                        <td style={{ textAlign: "right" }}>
+                                          <button
+                                            type="button"
+                                            onClick={() => (k === "반납" ? cancelReturn(t) : cancelOut(t))}
+                                            style={{
+                                              background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
+                                              padding: "4px 10px", borderRadius: 6, cursor: "pointer",
+                                              fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
+                                            }}
+                                          >
+                                            {k === "반납" ? "반납취소" : "불출취소"}
+                                          </button>
                                         </td>
                                       </tr>
                                     );
@@ -15382,40 +15367,26 @@ const remainOf = (m) => (
                         return (
                           <div key={t.id} style={{ background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 8, padding: "8px 10px" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 11.5, fontWeight: 700, color: kindColor(k) }}>{k}</span>
                               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <span style={{ fontSize: 11.5, fontWeight: 700, color: kindColor(k) }}>{k}</span>
-                                {k !== "반납" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => cancelOut(t)}
-                                    style={{
-                                      background: "#123626", border: "1px solid #2ECC71", color: "#2ECC71",
-                                      padding: "2px 10px", borderRadius: 6, cursor: "pointer",
-                                      fontSize: 11, fontWeight: 700,
-                                    }}
-                                  >
-                                    원복
-                                  </button>
-                                )}
+                                <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13 }}>{t.qty} {t.unit}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => (k === "반납" ? cancelReturn(t) : cancelOut(t))}
+                                  style={{
+                                    background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
+                                    padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+                                    fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {k === "반납" ? "반납취소" : "불출취소"}
+                                </button>
                               </span>
-                              <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13 }}>{t.qty} {t.unit}</span>
                             </div>
                             <div style={{ fontSize: 10.5, color: "#7F97AC", marginTop: 3, lineHeight: 1.45 }}>
                               {String(t.at).replace("T", " ").slice(0, 16)}{t.deleted ? " (기록보관)" : ""} · {t.project || "-"} · {t.worker || "-"}
                             </div>
-                            {k === "반납" && (
-                              <button
-                                type="button"
-                                onClick={() => cancelReturn(t)}
-                                style={{
-                                  width: "100%", marginTop: 6, padding: "7px 10px", borderRadius: 7, cursor: "pointer",
-                                  background: "#3A1C1C", border: "1px solid #EF5350", color: "#EF5350",
-                                  fontSize: 12, fontWeight: 700,
-                                }}
-                              >
-                                반납 취소
-                              </button>
-                            )}
+
                             {k !== "정발주" && k !== "반납" && (
                               <input
                                 list="issue-reasons"

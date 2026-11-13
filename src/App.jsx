@@ -14778,7 +14778,7 @@ const remainOf = (m) => (
                                     return (
                                       <tr key={t.id}>
                                         <td style={{ fontFamily: "IBM Plex Mono", fontSize: 11.5, color: "#7F97AC" }}>
-                                          {t.at}{t.deleted ? " (보관)" : ""}
+                                          {t.at}{t.deleted ? " (기록보관)" : ""}
                                         </td>
                                         <td style={{ fontWeight: 700, color: kindColor(k) }}>{k}</td>
                                         <td style={{ textAlign: "right", fontFamily: "IBM Plex Mono", fontWeight: 700 }}>{t.qty} {t.unit}</td>
@@ -14999,7 +14999,7 @@ const remainOf = (m) => (
                               <span style={{ fontFamily: "IBM Plex Mono", fontWeight: 700, fontSize: 13 }}>{t.qty} {t.unit}</span>
                             </div>
                             <div style={{ fontSize: 10.5, color: "#7F97AC", marginTop: 3, lineHeight: 1.45 }}>
-                              {String(t.at).replace("T", " ").slice(0, 16)}{t.deleted ? " (보관)" : ""} · {t.project || "-"} · {t.worker || "-"}
+                              {String(t.at).replace("T", " ").slice(0, 16)}{t.deleted ? " (기록보관)" : ""} · {t.project || "-"} · {t.worker || "-"}
                             </div>
                             {k !== "정발주" && (
                               <input

@@ -2472,7 +2472,7 @@ function AppInner() {
         /* 화면 색 전환: 서서히 바뀌게 */
         ::view-transition-old(root),
         ::view-transition-new(root) {
-          animation-duration: 0.5s;
+          animation-duration: 0.8s;
           animation-timing-function: ease-in-out;
         }
         .app-container.theme-fading,

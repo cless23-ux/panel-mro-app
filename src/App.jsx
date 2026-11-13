@@ -3322,6 +3322,73 @@ function AppInner() {
           border: 1px solid #D6E1F0 !important;
           color: #1E3A5F !important;
         }
+        /* ===== 눈 편한 라이트: 흰색을 눌러서 밝기 낮춤 ===== */
+        .app-container.light-mode {
+          --bg-page: #E8ECF1;
+          --bg-card-grad: #F4F6F9;
+          --bg-card-flat: #F4F6F9;
+          --border-card: #D2DAE5;
+          --bg-input: #ECF0F5;
+          --border-input: #C3CDDB;
+          --bg-subtle: #E3E9F1;
+          --border-subtle: #CDD6E3;
+          --text-primary: #1B2B42;
+          --border-sidebar: #D5DCE7;
+          --table-hover: #E6ECF4;
+          --card-shadow: 0 1px 2px rgba(15,42,77,.06), 0 4px 14px rgba(15,42,77,.05);
+        }
+        .app-container.light-mode { background: #E8ECF1 !important; }
+
+        /* 왼쪽 메뉴 */
+        .app-container.light-mode .pc-sidebar {
+          background: linear-gradient(180deg, #EEF1F6 0%, #E3E9F1 100%) !important;
+          border-right: 1px solid #D2DAE5 !important;
+          box-shadow: none !important;
+        }
+        .app-container.light-mode .pc-sidebar > button:not([style*="linear-gradient"]),
+        .app-container.light-mode .pc-sidebar .theme-toggle,
+        .app-container.light-mode .pc-sidebar .sidebar-stock-summary > div {
+          background: #F4F6F9 !important;
+          border-color: #CDD6E3 !important;
+        }
+
+        /* 모바일 하단 메뉴 */
+        .app-container.light-mode .mobile-bottom-nav {
+          background: #EEF1F6 !important;
+          border-top: 1px solid #D2DAE5 !important;
+        }
+
+        /* 본문 카드/박스 배경 */
+        .app-container.light-mode .main-content :is(
+          [style*="background: rgb(15, 34, 51)"]
+        ) { background: #F4F6F9 !important; }
+        .app-container.light-mode .main-content :is(
+          [style*="background: rgb(11, 28, 44)"],
+          [style*="background: rgb(9, 24, 39)"],
+          [style*="background: rgb(13, 24, 40)"],
+          [style*="background: rgb(10, 29, 45)"],
+          [style*="background: rgb(7, 19, 31)"],
+          [style*="background: rgb(9, 26, 41)"],
+          [style*="background: rgb(15, 32, 48)"],
+          [style*="rgb(12, 33, 51)"]
+        ) { background: #EBEFF4 !important; }
+        .app-container.light-mode .out-info-card,
+        .app-container.light-mode .raw-manage-item-card { background: #EBEFF4 !important; }
+
+        /* 표 머리글 */
+        .app-container.light-mode table th { background: #E4E9F1 !important; }
+
+        /* 파란 제목 영역/상단바: 채도·밝기 낮춤 */
+        .app-container.light-mode .page-header,
+        .app-container.light-mode .mobile-header {
+          background: var(--hero-img) right bottom / auto 100% no-repeat,
+                      linear-gradient(120deg, #223A78 0%, #2B55B5 60%, #4479C6 100%) !important;
+          box-shadow: none !important;
+        }
+
+        /* 대시보드 제목이 흐리게 보이던 부분 */
+        .app-container.light-mode .dash-fit h1 { color: #1B2B42 !important; }
+
         .app-container.light-mode .mobile-header .theme-toggle {
           background: rgba(255,255,255,.18) !important;
           border: 1px solid rgba(255,255,255,.45) !important;

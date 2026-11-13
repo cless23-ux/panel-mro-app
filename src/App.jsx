@@ -844,7 +844,14 @@ function Field({ label, children }) {
 }
 
 /* ---------------- 전체 입고/출고 상세 기록 모달 ---------------- */
-function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTransactions }) {
+function TxHistoryModal({
+  type,
+  txs,
+  returnTxs = [],
+  onClose,
+  showDeleted = false,
+  onDeleteTransactions
+}) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -875,26 +882,76 @@ function TxHistoryModal({ type, txs, onClose, showDeleted = false, onDeleteTrans
   const totalQty = useMemo(() => list.reduce((s, t) => s + (Number(t.qty) || 0), 0), [list]);
 
   const exportCSV = () => {
-    if (list.length === 0) {
-      alert("다운로드할 기록이 없습니다.");
-      return;
+  // 누적출고 엑셀일 때만 출고 + 반납을 함께 내보냅니다.
+  let exportList = list;
+
+  if (isOut) {
+    const q = search.trim().toLowerCase();
+
+    const returns = (returnTxs || [])
+      .filter((t) => t.type === "return" && t.deleted !== true)
+      .filter((t) => {
+        if (!q) return true;
+
+        return (
+          String(t.itemName || "").toLowerCase().includes(q) ||
+          String(t.itemCode || "").toLowerCase().includes(q) ||
+          String(t.worker || "").toLowerCase().includes(q) ||
+          String(t.shipNo || "").toLowerCase().includes(q)
+        );
+      })
+      .filter((t) => {
+        const day = String(t.at || "").slice(0, 10);
+
+        if (dateFrom && day < dateFrom) return false;
+        if (dateTo && day > dateTo) return false;
+
+        return true;
+      });
+
+    exportList = [...list, ...returns].sort((a, b) =>
+      String(b.at || "").localeCompare(String(a.at || ""))
+    );
+  }
+
+  if (exportList.length === 0) {
+    alert("다운로드할 기록이 없습니다.");
+    return;
+  }
+
+  const headers = isOut
+    ? ["날짜,구분,자재명,코드,수량,단위,호선,프로젝트,담당자\n"]
+    : ["날짜,자재명,코드,수량,단위,담당자\n"];
+
+  const rows = exportList.map((t) => {
+    if (isOut) {
+      const isReturnRow = t.type === "return";
+
+      return `"${csvSafe(t.at)}","${isReturnRow ? "반납" : csvSafe(getOutKind(t))}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${Number(t.qty) || 0},"${csvSafe(t.unit)}","${csvSafe(t.shipNo)}","${csvSafe(t.project)}","${csvSafe(t.worker)}"\n`;
     }
-    const headers = isOut
-      ? ["날짜,구분,자재명,코드,수량,단위,호선,프로젝트,불출자\n"]
-      : ["날짜,자재명,코드,수량,단위,담당자\n"];
-    const rows = list.map((t) => {
-      if (isOut) {
-        return `"${t.at}","${csvSafe(getOutKind(t))}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.shipNo)}","${csvSafe(t.project)}","${csvSafe(t.worker)}"\n`;
-      }
-      return `"${t.at}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${t.qty},"${t.unit}","${csvSafe(t.worker)}"\n`;
-    });
-    const blob = new Blob(["\uFEFF" + headers + rows.join("")], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    const range = dateFrom || dateTo ? `_${dateFrom || "처음"}~${dateTo || "오늘"}` : `_${nowStr().split(" ")[0]}`;
-    link.download = `MRO_${isOut ? "출고" : "입고"}기록${range}.csv`;
-    link.click();
-  };
+
+    return `"${csvSafe(t.at)}","${csvSafe(t.itemName)}","${csvSafe(t.itemCode)}",${Number(t.qty) || 0},"${csvSafe(t.unit)}","${csvSafe(t.worker)}"\n`;
+  });
+
+  const blob = new Blob(
+    ["\uFEFF" + headers + rows.join("")],
+    { type: "text/csv;charset=utf-8;" }
+  );
+
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+
+  const range = dateFrom || dateTo
+    ? `_${dateFrom || "처음"}~${dateTo || "오늘"}`
+    : `_${nowStr().split(" ")[0]}`;
+
+  link.download = `MRO_${isOut ? "출고_반납" : "입고"}기록${range}.csv`;
+  link.click();
+
+  setTimeout(() => {
+    URL.revokeObjectURL(link.href);
+  }, 1000);
+};
 
   const visibleRows = list;
   const allChecked = visibleRows.length > 0 && visibleRows.every((t) => selectedIds.includes(t.id));
@@ -5160,7 +5217,14 @@ const filteredTotalText = useMemo(() => {
       )}
       
       {historyModal && (
-        <TxHistoryModal type={historyModal} txs={historyModal === "out" ? cumulativeOutTxs : txs} showDeleted={historyModal === "out"} onDeleteTransactions={onDeleteTransactions} onClose={() => setHistoryModal(null)} />
+<TxHistoryModal
+  type={historyModal}
+  txs={historyModal === "out" ? cumulativeOutTxs : txs}
+  returnTxs={historyModal === "out" ? txs : []}
+  showDeleted={historyModal === "out"}
+  onDeleteTransactions={onDeleteTransactions}
+  onClose={() => setHistoryModal(null)}
+/>
       )}
       {shortageModal && (
         <ShortageModal
@@ -14136,26 +14200,63 @@ function ShipIssueAdminView({
     });
 
     shipTxs.forEach((t) => {
-      const k = normCode(t.itemCode);
-      if (!map[k]) {
-        const pp = planMap[k];
-        map[k] = {
-          code: t.itemCode, name: t.itemName, spec: pp?.spec || "", unit: t.unit || "EA",
-          order: pp ? (Number(pp.qty) || 0) : null, hasPlan: !!pp,
-          plan: 0, extra: 0, etc: 0, total: 0, lastAt: "", txs: [],
-        };
-      }
-      const m = map[k];
-      if (t.unit) m.unit = t.unit;
-      if ((!m.name || m.name === m.code) && t.itemName) m.name = t.itemName;
-      const q = Number(t.qty) || 0;
-      const kind = getIssueKind(t);
-      if (kind === "정발주") m.plan += q;
-      else m.extra += q;
-      m.total += q;
-      if (String(t.at) > m.lastAt) m.lastAt = String(t.at);
-      m.txs.push(t);
-    });
+  const k = normCode(t.itemCode);
+
+  if (!map[k]) {
+    const pp = planMap[k];
+
+    map[k] = {
+      code: t.itemCode,
+      name: t.itemName,
+      spec: pp?.spec || "",
+      unit: t.unit || "EA",
+      order: pp ? (Number(pp.qty) || 0) : null,
+      hasPlan: !!pp,
+      plan: 0,
+      extra: 0,
+      returned: 0,
+      etc: 0,
+      total: 0,
+      lastAt: "",
+      txs: [],
+    };
+  }
+
+  const m = map[k];
+
+  if (t.unit) m.unit = t.unit;
+  if ((!m.name || m.name === m.code) && t.itemName) {
+    m.name = t.itemName;
+  }
+
+  const q = Number(t.qty) || 0;
+
+  // 출고만 정발주/추가건으로 집계
+  if (t.type === "out") {
+    const kind = getIssueKind(t);
+
+    if (kind === "정발주") {
+      m.plan += q;
+    } else {
+      m.extra += q;
+    }
+
+    m.total += q;
+  }
+
+  // 반납은 실제 불출 합계에서 차감
+  if (t.type === "return") {
+    m.returned += q;
+    m.total = Math.max(0, m.total - q);
+  }
+
+  if (String(t.at) > m.lastAt) {
+    m.lastAt = String(t.at);
+  }
+
+  // 상세 이력에는 출고 + 반납 모두 유지
+  m.txs.push(t);
+});
 
     return Object.values(map).map((m) => ({
       ...m,
@@ -14277,16 +14378,35 @@ function ShipIssueAdminView({
       .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
   }, [registeredRows, search, kindFilter, planItems.length]);
   const stats = useMemo(() => {
-    let plan = 0, extra = 0;
-    shipTxs.forEach((t) => {
-      if (isUnregistered(t.itemCode)) return;
-      const k = getIssueKind(t);
-      if (k === "정발주") plan += 1;
-      else if (k === "추가건") extra += 1;
-    });
-    const total = shipTxs.length;
-    return { total, plan, extra, ratio: total ? Math.round((extra / total) * 100) : 0 };
-  }, [shipTxs, masterCodeSet]);
+  let plan = 0;
+  let extra = 0;
+
+  // 반납은 불출 건수에 포함하지 않음
+  const issueTxs = shipTxs.filter((t) => t.type === "out");
+
+  issueTxs.forEach((t) => {
+    if (isUnregistered(t.itemCode)) return;
+
+    const k = getIssueKind(t);
+
+    if (k === "정발주") {
+      plan += 1;
+    } else if (k === "추가건") {
+      extra += 1;
+    }
+  });
+
+  const total = issueTxs.filter(
+    (t) => !isUnregistered(t.itemCode)
+  ).length;
+
+  return {
+    total,
+    plan,
+    extra,
+    ratio: total ? Math.round((extra / total) * 100) : 0,
+  };
+}, [shipTxs, masterCodeSet]);
 
   const checkedCount = useMemo(
     () => list.filter((m) => adminMap[`check:${ship}:${m.code}`]).length,
@@ -14308,7 +14428,11 @@ function ShipIssueAdminView({
   };
 
   // 정발주 지급가능 = 발주수량 - 추가건 - 이미 불출한 정발주 (선택한 호선/프로젝트 기준)
-  const remainOf = (m) => (m.order === null ? null : m.order - m.plan - m.extra);
+  // 정발주 지급가능 = 발주수량 - 실제 순불출량
+// 반납된 수량은 실제 순불출량에서 이미 차감되어 자동 반영됨
+const remainOf = (m) => (
+  m.order === null ? null : m.order - m.total
+);
 
   const exportCSV = () => {
     if (!list.length) { notify("다운로드할 내용이 없습니다.", "err"); return; }
@@ -14646,7 +14770,7 @@ function ShipIssueAdminView({
                                 </thead>
                                 <tbody>
                                   {m.txs.map((t) => {
-                                    const k = getIssueKind(t);
+                                    const k = t.type === "return" ? "반납" : getIssueKind(t);
                                     const key = `note:${t.id}`;
                                     const value = Object.prototype.hasOwnProperty.call(noteDrafts, t.id)
                                       ? noteDrafts[t.id]

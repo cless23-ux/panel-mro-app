@@ -8,6 +8,7 @@ import {
   AlertTriangle, CheckCircle2, Search, Plus, X, Zap, Trash2, Download, Upload, QrCode, Camera, Settings as SettingsIcon, Image as ImageIcon, Star, Copy, ShoppingCart, Check, RotateCcw, MessageCircle, Save, Lock, Anchor,
   Ship, Clock, Repeat
 } from "lucide-react";
+import { flushSync } from "react-dom";
 import { supabase } from './supabaseClient';
 
 /* ---------------- 폰트 및 초기 데이터 ---------------- */
@@ -1957,11 +1958,29 @@ function AppInner() {
     if (meta) meta.content = lightMode ? "#2563EB" : "#0A1622";
   }, [lightMode]);
   const toggleTheme = useCallback(() => {
-    setLightMode((prev) => {
-      const next = !prev;
-      try { localStorage.setItem("panel:theme", next ? "light" : "dark"); } catch {}
-      return next;
-    });
+    const apply = () => {
+      setLightMode((prev) => {
+        const next = !prev;
+        try { localStorage.setItem("panel:theme", next ? "light" : "dark"); } catch {}
+        return next;
+      });
+    };
+
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+    // 1순위: 화면 전체가 서서히 겹쳐 바뀌는 방식
+    if (!reduceMotion && document.startViewTransition) {
+      document.startViewTransition(() => { flushSync(apply); });
+      return;
+    }
+
+    // 2순위: 지원하지 않는 브라우저는 색만 부드럽게 전환
+    const root = document.querySelector(".app-container");
+    if (root && !reduceMotion) {
+      root.classList.add("theme-fading");
+      setTimeout(() => root.classList.remove("theme-fading"), 500);
+    }
+    apply();
   }, []);
 
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
@@ -2449,6 +2468,19 @@ function AppInner() {
         input, select, textarea, button { max-width: 100%; }
         .mobile-safe-wrap { min-width: 0; max-width: 100%; }
         ::selection { background: #F5A62355; }
+
+        /* 화면 색 전환: 서서히 바뀌게 */
+        ::view-transition-old(root),
+        ::view-transition-new(root) {
+          animation-duration: 0.5s;
+          animation-timing-function: ease-in-out;
+        }
+        .app-container.theme-fading,
+        .app-container.theme-fading * {
+          transition:
+            background-color .4s ease, color .4s ease, border-color .4s ease,
+            fill .4s ease, stroke .4s ease, box-shadow .4s ease !important;
+        }
         table { border-collapse: collapse; width: 100%; }
         th, td { text-align: left; padding: 10px 12px; font-size: 13.5px; }
         tbody tr { border-top: 1px solid var(--border-sidebar); }

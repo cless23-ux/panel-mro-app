@@ -3389,6 +3389,97 @@ function AppInner() {
         /* 대시보드 제목이 흐리게 보이던 부분 */
         .app-container.light-mode .dash-fit h1 { color: #1B2B42 !important; }
 
+        /* ===================================================
+           PREMIUM UI POLISH (스타일만 변경 · 기능 영향 없음)
+           지우면 원래대로 돌아갑니다
+           =================================================== */
+        .app-container {
+          --card-radius: 16px;
+          --card-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 12px 30px -16px rgba(0,0,0,.55);
+          --card-transition: box-shadow .25s ease, border-color .25s ease, transform .25s ease;
+        }
+        .app-container.light-mode {
+          --card-shadow: 0 1px 2px rgba(15,42,77,.05), 0 10px 28px -14px rgba(15,42,77,.16);
+        }
+
+        /* 선택 영역, 스크롤바 */
+        ::selection { background: rgba(59,130,246,.30); }
+        * { scrollbar-width: thin; scrollbar-color: rgba(120,145,175,.35) transparent; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(120,145,175,.35); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(120,145,175,.6); background-clip: padding-box; border: 2px solid transparent; }
+
+        /* 카드: 형광 윗줄 대신 은은한 테두리 */
+        .app-container [style*="border-top: 2px solid"] {
+          border-top: 1px solid var(--border-card) !important;
+        }
+        .app-container .main-content .tab-panel > div > div[style*="border-radius"] {
+          transition: var(--card-transition);
+        }
+
+        /* 화면 제목 영역 (어두운 화면): 테두리 대신 그라데이션 라인 */
+        .app-container:not(.light-mode) .page-header {
+          position: relative;
+          border-bottom: none !important;
+          padding-bottom: 16px !important;
+        }
+        .app-container:not(.light-mode) .page-header::after {
+          content: "";
+          position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+          background: linear-gradient(90deg, #3B82F6 0%, rgba(59,130,246,.22) 38%, transparent 100%);
+        }
+        .app-container .page-header h1 { font-size: 24px !important; font-weight: 800 !important; }
+        .app-container .page-header > div { font-size: 13px !important; opacity: .9; }
+
+        /* 왼쪽 메뉴: 차분한 선택 표시 */
+        .app-container .pc-sidebar .sidebar-nav button {
+          border-radius: 10px !important;
+          transition: background .18s ease, color .18s ease, transform .18s ease !important;
+        }
+        .app-container:not(.light-mode) .pc-sidebar .sidebar-nav button[style*="3px solid rgb(245, 166, 35)"] {
+          background: linear-gradient(90deg, rgba(59,130,246,.18), rgba(59,130,246,.02)) !important;
+          border-color: rgba(59,130,246,.35) !important;
+          border-left: 3px solid #3B82F6 !important;
+          color: #8FBBFF !important;
+        }
+
+        /* 표: 정돈된 머리글, 부드러운 줄 강조 */
+        .app-container table th {
+          font-size: 12px !important; font-weight: 650 !important;
+          letter-spacing: 0 !important; text-transform: none !important;
+        }
+        .app-container tbody tr { transition: background .15s ease; }
+
+        /* 입력창: 부드러운 전환 */
+        .app-container input, .app-container select, .app-container textarea {
+          transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+        }
+
+        /* 팝업: 부드럽게 떠오르는 효과 */
+        @keyframes modalPop {
+          from { opacity: 0; transform: translateY(10px) scale(.97); }
+          to   { opacity: 1; transform: none; }
+        }
+        .app-modal-overlay { animation: tabFade .18s ease; }
+        .app-modal-overlay > div { animation: modalPop .26s cubic-bezier(.22,1,.36,1); }
+
+        /* 버튼: 눌렀을 때 살짝 들어가는 느낌 */
+        .app-container button { transition: background .16s ease, border-color .16s ease, box-shadow .16s ease, filter .16s ease, transform .12s ease; }
+        .app-container button:active:not(:disabled) { transform: scale(.975); }
+
+        /* 대시보드/카드 위에 올렸을 때 살짝 떠오르는 효과 (PC) */
+        @media (min-width: 769px) {
+          .dash-grid > div:hover { box-shadow: 0 16px 36px -16px rgba(0,0,0,.45); }
+          .app-container.light-mode .dash-grid > div:hover { box-shadow: 0 16px 36px -16px rgba(15,42,77,.22); }
+        }
+
+        /* 모바일: 하단 메뉴를 더 가볍게 */
+        @media (max-width: 768px) {
+          .mobile-bottom-nav { border-top: none !important; box-shadow: 0 -10px 30px -12px rgba(0,0,0,.35) !important; }
+          .app-container.light-mode .mobile-bottom-nav { box-shadow: 0 -10px 30px -14px rgba(15,42,77,.22) !important; }
+        }
+
         .app-container.light-mode .mobile-header .theme-toggle {
           background: rgba(255,255,255,.18) !important;
           border: 1px solid rgba(255,255,255,.45) !important;

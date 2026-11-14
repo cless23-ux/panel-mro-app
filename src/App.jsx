@@ -14779,6 +14779,78 @@ const remainOf = (m) => (
     );
   };
 
+  // 선택한 프로젝트(예: LGSP)에 쓰인 부자재만 모아 '필요수량 작성 양식' 엑셀 만들기
+  const exportNeedForm = () => {
+    if (project === "전체") {
+      notify("프로젝트를 먼저 선택해주세요. (예: LGSP)", "err");
+      return;
+    }
+    if (!window.XLSX) {
+      notify("엑셀 기능을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.", "err");
+      return;
+    }
+
+    const norm = (c) => String(c || "").trim().toUpperCase();
+    const masterMap = {};
+    (items || []).forEach((i) => { masterMap[norm(i.code)] = i; });
+
+    const map = {};
+    combinedRows.forEach((t) => {
+      if (String(t.project || "").trim() !== project) return;
+      if (getMaterialType(t.itemCode) !== "sub") return; // 부자재(코드 2-)만
+      const k = norm(t.itemCode);
+      if (!masterMap[k]) return; // 자재마스터에 없는 자재 제외
+      if (!map[k]) map[k] = { code: masterMap[k].code, used: 0, hasOut: false, ships: new Set(), lastAt: "" };
+      const q = Number(t.qty) || 0;
+      if (t.type === "return") {
+        map[k].used -= q;
+      } else if (t.type === "out") {
+        map[k].used += q;
+        map[k].hasOut = true;
+        const s = String(t.shipNo || "").trim();
+        if (s) map[k].ships.add(s);
+        if (String(t.at || "") > map[k].lastAt) map[k].lastAt = String(t.at || "");
+      }
+    });
+
+    const list = Object.values(map)
+      .filter((m) => m.hasOut)
+      .sort((a, b) => b.used - a.used);
+
+    if (list.length === 0) {
+      notify(`[${project}] 프로젝트에 사용된 부자재 기록이 없습니다.`, "err");
+      return;
+    }
+
+    const usedHeader = `${project} 누적 사용량`;
+    const data = list.map((m, idx) => {
+      const it = masterMap[norm(m.code)];
+      return {
+        "No": idx + 1,
+        "자재코드": it.code,
+        "품명": it.name,
+        "규격": it.spec || "",
+        "단위": it.unit || "EA",
+        "현재고": Number(it.stock) || 0,
+        [usedHeader]: Math.max(0, m.used),
+        "사용 호선 수": m.ships.size,
+        "마지막 불출일": String(m.lastAt).replace("T", " ").slice(0, 10),
+        "필요수량(작성)": "",
+        "비고": "",
+      };
+    });
+
+    const ws = window.XLSX.utils.json_to_sheet(data);
+    ws["!cols"] = [
+      { wch: 5 }, { wch: 26 }, { wch: 34 }, { wch: 34 }, { wch: 7 }, { wch: 9 },
+      { wch: 16 }, { wch: 11 }, { wch: 13 }, { wch: 16 }, { wch: 24 },
+    ];
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, `${project} 필요수량`);
+    window.XLSX.writeFile(wb, `MRO_${project.replace(/[\\/:*?"<>|]/g, "_")}_부자재_필요수량양식_${nowStr().split(" ")[0]}.xlsx`);
+    notify(`[${project}] 부자재 ${list.length}종 양식을 다운로드했습니다.`, "ok");
+  };
+
   const kindColor = (k) => (k === "정발주" ? "#F5A623" : k === "추가건" ? "#38BDF8" : k === "반납" ? "#22D3EE" : "#5E86A3");
 
   // 잘못 등록한 불출 원복 (재고 복구 + 집계에서 제외)
@@ -15028,6 +15100,15 @@ const remainOf = (m) => (
           <div className="si-pc-only" style={{ display: "contents" }}>
             <Btn variant="subtle" onClick={loadAll} style={{ padding: "9px 14px" }}>↻ 새로고침</Btn>
             <Btn variant="subtle" onClick={exportCSV} style={{ padding: "9px 14px" }}><Download size={14} />엑셀 다운로드</Btn>
+            <Btn
+              variant="subtle"
+              onClick={exportNeedForm}
+              disabled={project === "전체"}
+              title={project === "전체" ? "프로젝트를 먼저 선택하세요" : `${project} 부자재 필요수량 양식 다운로드`}
+              style={{ padding: "9px 14px" }}
+            >
+              <Download size={14} />{project === "전체" ? "필요수량 양식" : `${project} 필요수량 양식`}
+            </Btn>
           </div>
         </div>
         {savedPlans.length > 0 && (

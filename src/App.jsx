@@ -3739,6 +3739,22 @@ function AppInner() {
           box-shadow: 0 -8px 22px -12px rgba(15,42,77,.28) !important;
         }
 
+        /* ===== 라이트 모드: 창 바깥(바탕) 색 진하게 ===== */
+        .app-container.light-mode {
+          --bg-page: #D6DDE8;
+        }
+        .app-container.light-mode { background: #D6DDE8 !important; }
+
+        /* 왼쪽 메뉴: 바탕보다 살짝 밝게 해서 구분 */
+        .app-container.light-mode .pc-sidebar {
+          background: linear-gradient(180deg, #E4E9F1 0%, #D9E0EA 100%) !important;
+        }
+
+        /* 모바일 하단 메뉴 */
+        .app-container.light-mode .mobile-bottom-nav {
+          background: #E4E9F1 !important;
+        }
+
         .app-container.light-mode .mobile-header .theme-toggle {
           background: rgba(255,255,255,.18) !important;
           border: 1px solid rgba(255,255,255,.45) !important;

@@ -3684,6 +3684,61 @@ function AppInner() {
           }
         }
 
+        /* ===================================================
+           라이트 모드: 창/카드 구분선 또렷하게 (스타일만 변경)
+           =================================================== */
+        .app-container.light-mode {
+          --border-card: #B6C3D6;
+          --border-input: #A9B8CD;
+          --border-subtle: #B6C3D6;
+          --border-sidebar: #BAC7D9;
+          --card-shadow: 0 1px 2px rgba(15,42,77,.10), 0 8px 22px -12px rgba(15,42,77,.26);
+        }
+
+        /* 화면 곳곳에 직접 적힌 연한 테두리 → 진하게 */
+        .app-container.light-mode .main-content :is(
+          [style*="solid rgb(39, 68, 96)"], [style*="solid rgb(31, 59, 84)"],
+          [style*="solid rgb(22, 41, 60)"], [style*="solid rgb(38, 68, 95)"],
+          [style*="solid rgb(49, 87, 117)"], [style*="solid rgb(26, 49, 70)"],
+          [style*="solid rgb(20, 40, 58)"], [style*="solid rgb(24, 53, 77)"],
+          [style*="dashed rgb(39, 68, 96)"]
+        ) { border-color: #B6C3D6 !important; }
+
+        /* 왼쪽 메뉴와 본문 경계 */
+        .app-container.light-mode .pc-sidebar {
+          border-right: 1px solid #AAB9CE !important;
+          box-shadow: 4px 0 18px -10px rgba(15,42,77,.22) !important;
+        }
+        .app-container.light-mode .pc-sidebar > div:first-child { border-bottom: 1px solid #B6C3D6 !important; }
+        .app-container.light-mode .pc-sidebar > button:not([style*="linear-gradient"]),
+        .app-container.light-mode .pc-sidebar .theme-toggle,
+        .app-container.light-mode .pc-sidebar .sidebar-stock-summary > div {
+          border: 1px solid #B6C3D6 !important;
+        }
+
+        /* 표 */
+        .app-container.light-mode table th { border-bottom: 1px solid #AAB9CE !important; }
+        .app-container.light-mode tbody tr { border-top: 1px solid #CBD5E3 !important; }
+
+        /* 입력칸 / 선택칸 */
+        .app-container.light-mode input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+        .app-container.light-mode select,
+        .app-container.light-mode textarea {
+          border-color: #A9B8CD !important;
+        }
+
+        /* 팝업 */
+        .app-container.light-mode .app-modal-overlay > div {
+          border: 1px solid #A9B8CD !important;
+          box-shadow: 0 24px 60px -12px rgba(15,42,77,.45) !important;
+        }
+
+        /* 모바일 위/아래 바 */
+        .app-container.light-mode .mobile-bottom-nav {
+          border-top: 1px solid #AAB9CE !important;
+          box-shadow: 0 -8px 22px -12px rgba(15,42,77,.28) !important;
+        }
+
         .app-container.light-mode .mobile-header .theme-toggle {
           background: rgba(255,255,255,.18) !important;
           border: 1px solid rgba(255,255,255,.45) !important;

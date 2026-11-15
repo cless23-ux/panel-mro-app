@@ -3497,6 +3497,113 @@ function AppInner() {
           .outform-main-col .out-section-divider { display: none; }
         }
 
+        /* ===================================================
+           모바일 출고/반납 화면 고급화 (스타일만 변경)
+           =================================================== */
+        @media (max-width: 768px) {
+          .outform-grid { gap: 14px !important; }
+          .outform-grid .out-section-divider { display: none !important; }
+
+          /* 카드: 둥글고 떠 있는 느낌 + 위쪽 포인트 라인 */
+          .app-container .outform-grid .out-section-card {
+            --oc: #38BDF8;
+            position: relative;
+            background: var(--bg-card-grad) !important;
+            border: 1px solid var(--border-card) !important;
+            border-radius: 18px !important;
+            box-shadow: var(--card-shadow) !important;
+            padding: 20px 14px 14px !important;
+          }
+          .app-container .outform-grid .out-section-card[style*="245, 166, 35"],
+          .app-container .outform-grid .out-section-card[style*="F5A623" i] { --oc: #F5A623; }
+          .app-container .outform-grid .out-section-card[style*="34, 211, 238"],
+          .app-container .outform-grid .out-section-card[style*="22D3EE" i] { --oc: #22D3EE; }
+          .app-container .outform-grid .out-section-card::before {
+            content: "";
+            position: absolute; top: 0; left: 22px; right: 22px; height: 3px;
+            border-radius: 0 0 6px 6px;
+            background: linear-gradient(90deg, var(--oc), transparent);
+            pointer-events: none;
+          }
+
+          /* 스캔 박스: 은은한 점선 + 위쪽 빛 */
+          .app-container .outform-grid .out-section-card > div[style*="dashed"] {
+            border: 1.5px dashed rgba(127,151,172,.45) !important;
+            border: 1.5px dashed color-mix(in srgb, var(--oc) 50%, transparent) !important;
+            background:
+              radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--oc) 13%, transparent), transparent 70%),
+              var(--bg-input) !important;
+            border-radius: 16px !important;
+            padding: 22px 14px 18px !important;
+          }
+          .app-container .outform-grid .out-section-card > div[style*="dashed"] > button:not([role="switch"]) {
+            min-height: 56px;
+            font-size: 16px !important;
+          }
+
+          /* 버튼: 크고 둥글게 */
+          .app-container .outform-grid .out-section-card button[style*="padding: 12px 20px"] {
+            min-height: 50px;
+            border-radius: 14px !important;
+            font-size: 15px !important;
+            font-weight: 800 !important;
+          }
+
+          /* 입력칸: 터치하기 편한 크기 (iOS 자동 확대 방지) */
+          .app-container .outform-grid input:not([type="checkbox"]):not([type="file"]),
+          .app-container .outform-grid select {
+            height: 46px;
+            border-radius: 12px !important;
+            font-size: 16px !important;
+          }
+          .app-container .outform-form-card label > span:first-child,
+          .app-container .outform-grid .out-form-card label > span:first-child {
+            font-size: 12px !important;
+            font-weight: 700 !important;
+            letter-spacing: .02em !important;
+            color: var(--text-muted) !important;
+          }
+
+          /* 선택한 자재 정보 박스 */
+          .app-container .outform-grid .out-info-card {
+            background: var(--bg-input) !important;
+            border: 1px solid var(--border-card) !important;
+            border-radius: 14px !important;
+            padding: 12px !important;
+          }
+          .out-found-image { width: 56px; height: 56px; flex: 0 0 56px; border-radius: 12px; }
+          .out-found-name { font-size: 16px; }
+
+          /* 즐겨찾기: 옆으로 밀어서 보는 한 줄 */
+          .app-container .outform-grid .out-favorite-bar {
+            background: var(--bg-card-grad) !important;
+            border: 1px solid var(--border-card) !important;
+            border-radius: 16px !important;
+            box-shadow: var(--card-shadow);
+            padding: 10px 12px !important;
+            flex-wrap: nowrap !important;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+          }
+          .out-favorite-bar::-webkit-scrollbar { display: none; }
+          .out-favorite-bar > * { flex-shrink: 0; }
+
+          /* 이력 목록: 카드 한 장씩, 정보는 줄바꿈 */
+          .app-container .outform-grid .out-section-card div[style*="padding: 9px 14px"] {
+            padding: 12px !important;
+            border-radius: 12px !important;
+            gap: 10px 12px !important;
+            background: var(--bg-input) !important;
+            border: 1px solid var(--border-card) !important;
+          }
+          .app-container .outform-grid .out-section-card div[style*="gap: 20px"] {
+            flex-wrap: wrap;
+            width: 100%;
+            gap: 8px 18px !important;
+          }
+        }
+
         .app-container.light-mode .mobile-header .theme-toggle {
           background: rgba(255,255,255,.18) !important;
           border: 1px solid rgba(255,255,255,.45) !important;

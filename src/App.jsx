@@ -12540,6 +12540,18 @@ function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materia
   const [txPage, setTxPage] = useState(1);
   const [selectedTxIds, setSelectedTxIds] = useState([]);
 
+  // 최근 입고 이력 접기/펼치기 (선택한 상태를 이 기기에 기억)
+  const [historyOpen, setHistoryOpen] = useState(() => {
+    try { return localStorage.getItem("panel:inboundHistoryOpen") !== "0"; } catch { return true; }
+  });
+  const toggleHistory = () => {
+    setHistoryOpen((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("panel:inboundHistoryOpen", next ? "1" : "0"); } catch {}
+      return next;
+    });
+  };
+
   const totalTxPages = Math.max(1, Math.ceil(recentInTxs.length / TX_PAGE_SIZE));
 
   useEffect(() => {
@@ -14048,8 +14060,20 @@ keyCode = String(keyCode)
 
       <Card neon="#35D08C" style={{ padding: 16, marginTop: 20 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <SectionLabel>최근 등록된 입고 이력 (선택 삭제는 기록만 삭제)</SectionLabel>
-          {recentInTxs.length > 0 && (
+          <button
+            type="button"
+            onClick={toggleHistory}
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left",
+            }}
+          >
+            <SectionLabel>최근 등록된 입고 이력 ({recentInTxs.length}건)</SectionLabel>
+            <span style={{ fontSize: 11, color: "#5E86A3", fontFamily: "'IBM Plex Mono', monospace", marginBottom: 12, flexShrink: 0 }}>
+              {historyOpen ? "▲ 접기" : "▼ 펼치기"}
+            </span>
+          </button>
+          {historyOpen && recentInTxs.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#7F97AC", cursor: "pointer" }}>
                 <input type="checkbox" checked={isAllTxChecked} onChange={toggleAllTxCheck} />
@@ -14073,7 +14097,7 @@ keyCode = String(keyCode)
           )}
         </div>
 
-        {recentInTxs.length === 0 ? (
+        {!historyOpen ? null : recentInTxs.length === 0 ? (
           <EmptyState icon={ScanLine} text="최근 등록된 입고 내역이 없습니다." color="#5E86A3" />
         ) : (
           <>

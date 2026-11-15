@@ -3609,6 +3609,81 @@ function AppInner() {
           border: 1px solid var(--border-card) !important;
         }
 
+        /* ===================================================
+           모바일 재고조회 화면 (스타일만 변경)
+           =================================================== */
+        @media (max-width: 768px) {
+          /* 제목 영역 컴팩트 */
+          .tab-panel:has(.stock-card) { overflow: visible; }
+          .tab-panel:has(.stock-card) .page-header { padding: 12px 16px !important; margin-bottom: 10px !important; }
+          .tab-panel:has(.stock-card) .page-header h1 { font-size: 19px !important; }
+          .tab-panel:has(.stock-card) .page-header > div { display: none; }
+
+          /* 검색 / 분류 버튼: 위에 고정 */
+          .tab-panel:has(.stock-card) .page-header + div {
+            position: sticky; top: 0; z-index: 20;
+            padding: 10px !important; margin-bottom: 10px !important;
+            border-radius: 14px !important;
+            background: var(--bg-card-flat) !important;
+            box-shadow: 0 8px 18px -12px rgba(0,0,0,.45) !important;
+          }
+          .tab-panel:has(.stock-card) .page-header + div > div { gap: 8px !important; }
+          .tab-panel:has(.stock-card) .page-header + div input { height: 42px; font-size: 16px !important; border-radius: 12px !important; }
+
+          /* 카드 */
+          .app-container .stock-card {
+            position: relative; overflow: hidden;
+            padding: 12px 12px 12px 18px !important;
+            border-radius: 16px !important;
+            transition: transform .12s ease;
+          }
+          .app-container .stock-card:active { transform: scale(.99); }
+          .app-container .stock-card::before {
+            content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; background: #35D08C;
+          }
+          .app-container .stock-card.st-warn::before { background: #F5A623; }
+          .app-container .stock-card.st-danger::before { background: #EF5350; }
+
+          .app-container .stock-card-mobile-layout { position: relative; gap: 10px; }
+          .app-container .stock-mobile-top { gap: 12px; }
+          .app-container .stock-mobile-image { width: 64px; height: 64px; flex: 0 0 64px; border-radius: 12px; }
+          .app-container .stock-mobile-info { padding-right: 34px; }
+          .app-container .stock-mobile-name {
+            font-size: 15px; font-weight: 800; line-height: 1.3;
+            display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+          }
+          .app-container .stock-mobile-code {
+            margin-top: 3px; font-size: 10.5px; color: var(--text-muted); word-break: break-all;
+          }
+          .app-container .stock-mobile-spec {
+            margin-top: 3px; font-size: 11.5px; line-height: 1.4; color: var(--text-tertiary);
+          }
+
+          /* 즐겨찾기: 오른쪽 위 */
+          .app-container .stock-mobile-favorite {
+            position: absolute; top: -4px; right: -4px; width: 36px; height: 36px;
+          }
+
+          /* 아래 줄: 메모 + 수량 */
+          .app-container .stock-mobile-bottom {
+            border-top: 1px solid var(--border-card);
+            padding-top: 10px; gap: 12px; align-items: center;
+          }
+          .app-container .stock-mobile-note-closed {
+            height: 38px; border: none !important; border-radius: 10px;
+            background: var(--bg-input) !important;
+          }
+          .app-container .stock-mobile-note-text { font-size: 13.5px; }
+          .app-container .stock-mobile-note-empty { font-size: 12.5px; }
+          .app-container .stock-mobile-note { height: 38px; font-size: 16px; border-radius: 10px; }
+
+          .app-container .stock-mobile-quantity { font-size: 22px; line-height: 1; text-align: right; }
+          .app-container .stock-mobile-quantity span { font-size: 11px; }
+          .app-container .stock-mobile-safe {
+            margin-top: 5px; font-size: 10.5px; font-weight: 500; color: var(--text-faint);
+          }
+        }
+
         .app-container.light-mode .mobile-header .theme-toggle {
           background: rgba(255,255,255,.18) !important;
           border: 1px solid rgba(255,255,255,.45) !important;
@@ -9055,6 +9130,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
             return (
               <Card
                 key={item.code}
+                className={`stock-card st-${st}`}
                 style={{ padding: "8px 14px", cursor: "pointer" }}
                 onClick={() => handleCardClick(item)}
               >
@@ -9170,8 +9246,9 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                         <Led status={st} size={9} />
                         <span className="stock-mobile-name" title={item.name}>{item.name}</span>
                       </div>
+                      <div className="stock-mobile-code">{item.code}</div>
                       <div className="stock-mobile-spec">
-                        {item.spec ? `사양/규격: ${item.spec}` : "사양/규격: -"}
+                        {item.spec ? item.spec : "규격 정보 없음"}{item.manufacturer ? ` · ${item.manufacturer}` : ""}
                       </div>
                     </div>
                   </div>
@@ -9214,6 +9291,7 @@ function StockView({ items, saveItems, onSelectItem, notify, urgentRequests, add
                         color: st === "danger" ? "#EF5350" : st === "warn" ? "#F5A623" : "#35D08C",
                       }}>
                         {item.stock} <span>{item.unit}</span>
+                        <div className="stock-mobile-safe">안전 {item.safety} {item.unit}</div>
                       </div>
                       <button
                         type="button"

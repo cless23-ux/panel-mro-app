@@ -3528,8 +3528,8 @@ function AppInner() {
 
           /* 스캔 박스: 은은한 점선 + 위쪽 빛 */
           .app-container .outform-grid .out-section-card > div[style*="dashed"] {
-            border: 1.5px dashed rgba(127,151,172,.45) !important;
-            border: 1.5px dashed color-mix(in srgb, var(--oc) 50%, transparent) !important;
+            border: 1px solid var(--border-card) !important;
+            border: 1px solid color-mix(in srgb, var(--oc) 30%, var(--border-card)) !important;
             background:
               radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--oc) 13%, transparent), transparent 70%),
               var(--bg-input) !important;
@@ -3602,6 +3602,11 @@ function AppInner() {
             width: 100%;
             gap: 8px 18px !important;
           }
+        }
+
+        /* 출고/반납 스캔 박스 점선 제거 (PC) */
+        .app-container .outform-grid .out-section-card > div[style*="dashed"] {
+          border: 1px solid var(--border-card) !important;
         }
 
         .app-container.light-mode .mobile-header .theme-toggle {

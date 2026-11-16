@@ -6043,8 +6043,8 @@ function Header({ title, subtitle }) {
 }
 
 /* ---------------- 🎄 크리스마스 이벤트 설정 ---------------- */
-const XMAS_START = "2026-12-01"; // 시작일 (이 날부터 켜짐)
-const XMAS_END = "2026-12-31";   // 종료일 (이 날까지 켜짐)
+const XMAS_START = "2026-11-16"; // 시작일 (이 날부터 켜짐)
+const XMAS_END = "2026-12-25";   // 종료일 (이 날까지 켜짐)
 const XMAS_FORCE = null;         // true: 항상 켜기(미리보기용) / false: 항상 끄기 / null: 기간 자동
 function isXmasEvent() {
   if (XMAS_FORCE === true) return true;

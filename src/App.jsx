@@ -3755,6 +3755,106 @@ function AppInner() {
           background: #E4E9F1 !important;
         }
 
+        /* ===================================================
+           🎄 크리스마스 이벤트 (모바일 출고/반납 · 기간 한정)
+           =================================================== */
+        .xmas-banner, .xmas-snow { display: none; }
+        @keyframes xmasFall1 { from { transform: translateY(0); } to { transform: translateY(160px); } }
+        @keyframes xmasFall2 { from { transform: translateY(0); } to { transform: translateY(110px); } }
+        @keyframes xmasTwinkle { from { opacity: .45; } to { opacity: 1; } }
+
+        @media (max-width: 768px) {
+          .xmas-theme { --xc: #E53935; --snow: rgba(255,255,255,.95); }
+          .app-container.light-mode .xmas-theme { --snow: rgba(110,150,210,.9); }
+
+          /* 눈 내리는 효과 */
+          .xmas-snow { display: block; position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 6; }
+          .xmas-snow::before, .xmas-snow::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; opacity: .75; }
+          .xmas-snow::before {
+            top: -160px;
+            background-image:
+              radial-gradient(3px 3px at 20px 30px, var(--snow), transparent),
+              radial-gradient(2px 2px at 60px 90px, var(--snow), transparent),
+              radial-gradient(3px 3px at 110px 20px, var(--snow), transparent),
+              radial-gradient(2px 2px at 150px 125px, var(--snow), transparent),
+              radial-gradient(2.5px 2.5px at 185px 70px, var(--snow), transparent);
+            background-size: 200px 160px;
+            animation: xmasFall1 11s linear infinite;
+          }
+          .xmas-snow::after {
+            top: -110px;
+            background-image:
+              radial-gradient(2px 2px at 15px 20px, var(--snow), transparent),
+              radial-gradient(2.5px 2.5px at 70px 75px, var(--snow), transparent),
+              radial-gradient(2px 2px at 105px 40px, var(--snow), transparent);
+            background-size: 130px 110px;
+            animation: xmasFall2 7s linear infinite;
+          }
+
+          /* 상단 배너 (기존 제목 대신 표시) */
+          .xmas-theme > .page-header { display: none !important; }
+          .xmas-banner {
+            display: flex; align-items: center; gap: 12px; position: relative; overflow: hidden;
+            margin-bottom: 14px; padding: 22px 16px 14px; border-radius: 18px; color: #fff;
+            background: linear-gradient(120deg, #8E1B1B 0%, #C62828 45%, #1F7A4D 100%);
+            box-shadow: 0 10px 26px -12px rgba(142,27,27,.65);
+          }
+          .xmas-banner b { display: block; font-size: 19px; font-weight: 800; color: #fff; }
+          .xmas-banner small { display: block; margin-top: 3px; font-size: 11.5px; color: rgba(255,255,255,.88); }
+          .xmas-banner::before {
+            content: ""; position: absolute; top: 0; left: 0; right: 0; height: 10px;
+            background:
+              radial-gradient(circle at 9px 5px, #FFD54F 3px, transparent 4px) 0 0/72px 10px repeat-x,
+              radial-gradient(circle at 27px 5px, #7CFFB2 3px, transparent 4px) 0 0/72px 10px repeat-x,
+              radial-gradient(circle at 45px 5px, #FF8A80 3px, transparent 4px) 0 0/72px 10px repeat-x,
+              radial-gradient(circle at 63px 5px, #82B1FF 3px, transparent 4px) 0 0/72px 10px repeat-x;
+            animation: xmasTwinkle 1.5s ease-in-out infinite alternate;
+          }
+
+          /* 카드: 모드별 색 (출고=빨강, 반납=초록) + 눈 쌓인 윗부분 */
+          .xmas-theme .out-section-card[style*="245, 166, 35"] { --xc: #E53935; }
+          .xmas-theme .out-section-card[style*="34, 211, 238"] { --xc: #2E9E5B; }
+          .app-container .xmas-theme .out-section-card {
+            position: relative;
+            background: var(--bg-card-grad) !important;
+            border: 1px solid var(--xc) !important;
+            border: 1px solid color-mix(in srgb, var(--xc) 50%, var(--border-card)) !important;
+            border-radius: 18px !important;
+            padding: 22px 14px 14px !important;
+            box-shadow: 0 10px 26px -16px var(--xc) !important;
+          }
+          .app-container .xmas-theme .out-section-card::before {
+            content: ""; position: absolute; top: 0; left: 18px; right: 18px; height: 9px;
+            border-radius: 0; pointer-events: none;
+            background: radial-gradient(circle at 11px 0, #fff 7px, transparent 8px) 0 0/22px 9px repeat-x;
+            filter: drop-shadow(0 1px 1px rgba(15,42,77,.28));
+          }
+          .xmas-theme .out-section-card span[style*="59, 130, 246"] { background: var(--xc) !important; }
+
+          /* 스캔 박스와 스캔 버튼 */
+          .app-container .xmas-theme .out-section-card > div[style*="dashed"] {
+            border: 1px solid var(--xc) !important;
+            border: 1px solid color-mix(in srgb, var(--xc) 40%, var(--border-card)) !important;
+            background:
+              radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--xc) 14%, transparent), transparent 70%),
+              var(--bg-input) !important;
+            border-radius: 16px !important;
+          }
+          .xmas-theme .out-section-card > div[style*="dashed"] > button:not([role="switch"]) {
+            background: linear-gradient(135deg, #E53935, #B71C1C) !important;
+            border-color: #E53935 !important; color: #fff !important;
+            box-shadow: 0 8px 18px -8px rgba(229,57,53,.75);
+          }
+          .xmas-theme .out-section-card[style*="34, 211, 238"] > div[style*="dashed"] > button:not([role="switch"]) {
+            background: linear-gradient(135deg, #2E9E5B, #1B6B3C) !important;
+            border-color: #2E9E5B !important;
+            box-shadow: 0 8px 18px -8px rgba(46,158,91,.75);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .xmas-snow::before, .xmas-snow::after, .xmas-banner::before { animation: none !important; }
+        }
+
         .app-container.light-mode .mobile-header .theme-toggle {
           background: rgba(255,255,255,.18) !important;
           border: 1px solid rgba(255,255,255,.45) !important;
@@ -5778,6 +5878,17 @@ function Header({ title, subtitle }) {
   );
 }
 
+/* ---------------- 🎄 크리스마스 이벤트 설정 ---------------- */
+const XMAS_START = "2026-11-16"; // 시작일 (이 날부터 켜짐)
+const XMAS_END = "2026-12-31";   // 종료일 (이 날까지 켜짐)
+const XMAS_FORCE = null;         // true: 항상 켜기(미리보기용) / false: 항상 끄기 / null: 기간 자동
+function isXmasEvent() {
+  if (XMAS_FORCE === true) return true;
+  if (XMAS_FORCE === false) return false;
+  const today = nowStr().slice(0, 10);
+  return today >= XMAS_START && today <= XMAS_END;
+}
+
 /* ---------------- 출고/반납 (스캔) ---------------- */
 function OutForm({
   items,
@@ -6451,7 +6562,20 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
   });
 
   return (
-    <div>
+    <div className={isXmasEvent() ? "xmas-theme" : ""}>
+      {isXmasEvent() && (
+        <>
+          <div className="xmas-snow" aria-hidden="true" />
+          <div className="xmas-banner">
+            <span style={{ fontSize: 32, lineHeight: 1 }}>🎄</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <b>출고 / 반납</b>
+              <small>Merry Christmas 🎅 올 한 해도 수고 많으셨어요</small>
+            </div>
+            <span style={{ fontSize: 26, lineHeight: 1 }}>🎁</span>
+          </div>
+        </>
+      )}
       <Header title="출고 / 반납 (QR·바코드 스캔)" subtitle="스캔으로 빠르게 불출 또는 반납 처리" />
             {txMode === "out" && found && getMaterialType(found.code) === "consumable" && (
         <StockIssueModal

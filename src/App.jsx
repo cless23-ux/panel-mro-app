@@ -2418,7 +2418,7 @@ function AppInner() {
   }, [txsLoaded, txs]);
   const ready = itemsLoaded && txsLoaded && outFormSettingsLoaded;
   return (
-    <div className={`app-container${lightMode ? " light-mode" : ""}`} style={{
+    <div className={`app-container${lightMode ? " light-mode" : ""}${isXmasEvent() ? " xmas-on" : ""}`} style={{
       background: "var(--bg-page)", color: "var(--text-primary)", fontFamily: "Inter, sans-serif",
     }}>
       <style>{`
@@ -3853,6 +3853,62 @@ function AppInner() {
         }
         @media (prefers-reduced-motion: reduce) {
           .xmas-snow::before, .xmas-snow::after, .xmas-banner::before { animation: none !important; }
+        }
+
+        /* ===================================================
+           🎄 크리스마스 이벤트: 상단 바 + 하단 메뉴 (모바일 · 기간 한정)
+           =================================================== */
+        @keyframes xmasBulb { from { opacity: .5; } to { opacity: 1; } }
+
+        @media (max-width: 768px) {
+          /* ---- 상단 바 ---- */
+          .app-container.xmas-on header.mobile-header {
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(100deg, #6F1414 0%, #A32020 52%, #16603C 100%) !important;
+            border-bottom: none !important;
+            box-shadow: 0 6px 18px -8px rgba(111,20,20,.65) !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+          }
+          .app-container.xmas-on header.mobile-header > div:first-child > span::before {
+            content: "🎅 ";
+          }
+          /* 아래쪽 전구 줄 */
+          .app-container.xmas-on header.mobile-header::after {
+            content: "";
+            position: absolute; left: 0; right: 0; bottom: 0; height: 9px;
+            pointer-events: none;
+            background:
+              radial-gradient(circle at 9px 4px, #FFD54F 3px, transparent 4px) 0 0/72px 9px repeat-x,
+              radial-gradient(circle at 27px 4px, #7CFFB2 3px, transparent 4px) 0 0/72px 9px repeat-x,
+              radial-gradient(circle at 45px 4px, #FF8A80 3px, transparent 4px) 0 0/72px 9px repeat-x,
+              radial-gradient(circle at 63px 4px, #82B1FF 3px, transparent 4px) 0 0/72px 9px repeat-x;
+            animation: xmasBulb 1.5s ease-in-out infinite alternate;
+          }
+
+          /* ---- 하단 메뉴 ---- */
+          .app-container.xmas-on nav.mobile-bottom-nav {
+            background: linear-gradient(180deg, #17402B 0%, #102A24 100%) !important;
+            border-top: none !important;
+            box-shadow: 0 -10px 28px -12px rgba(0,0,0,.5) !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+          }
+          .app-container.light-mode.xmas-on nav.mobile-bottom-nav {
+            background: linear-gradient(180deg, #FFF8F5 0%, #FBEDE8 100%) !important;
+            box-shadow: 0 -10px 26px -14px rgba(142,27,27,.38) !important;
+          }
+          /* 위쪽 사탕 지팡이 띠 */
+          .app-container.xmas-on nav.mobile-bottom-nav::before {
+            content: "";
+            position: absolute; top: 0; left: 0; right: 0; height: 4px;
+            pointer-events: none;
+            background: repeating-linear-gradient(45deg, #E53935 0 8px, #FFFFFF 8px 16px);
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .app-container.xmas-on header.mobile-header::after { animation: none !important; }
         }
 
         .app-container.light-mode .mobile-header .theme-toggle {

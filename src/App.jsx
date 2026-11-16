@@ -1621,6 +1621,212 @@ function ChatMemoView({ onClose }) {
     </div>
   );
 }
+/* ---------------- 🌦 날씨 효과 (눈 / 비 / 뇌우) ---------------- */
+const WEATHER_LAT = 35.5384;   // 위도 (현재: 서울) ← 조선소 위치로 바꾸세요
+const WEATHER_LON = 129.3114;  // 경도
+const WEATHER_FORCE = null;    // 미리보기용: "snow" | "rain" | "storm" | "none" / 평소엔 null
+const WEATHER_REFRESH_MS = 15 * 60 * 1000;
+const WEATHER_CACHE_KEY = "panel:weatherCache";
+const WEATHER_FX_KEY = "panel:weatherFx";
+
+function weatherKindFromCode(code) {
+  const c = Number(code);
+  if ([71, 73, 75, 77, 85, 86].includes(c)) return "snow";
+  if ([95, 96, 99].includes(c)) return "storm";
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(c)) return "rain";
+  return "none";
+}
+
+function useWeather() {
+  const [weather, setWeather] = useState(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem(WEATHER_CACHE_KEY) || "null");
+      if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached;
+    } catch {}
+    return null;
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const url =
+          `https://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LAT}&longitude=${WEATHER_LON}` +
+          `&current=temperature_2m,weather_code&timezone=auto`;
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const data = await res.json();
+        const cur = data?.current;
+        if (!cur || cancelled) return;
+        const next = { code: cur.weather_code, temp: cur.temperature_2m, at: Date.now() };
+        setWeather(next);
+        try { localStorage.setItem(WEATHER_CACHE_KEY, JSON.stringify(next)); } catch {}
+      } catch {
+        /* 인터넷이 없거나 실패하면 조용히 무시 */
+      }
+    };
+    load();
+    const t = setInterval(load, WEATHER_REFRESH_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  return weather;
+}
+
+function WeatherCanvas({ kind, lightMode }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return undefined;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return undefined;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const isSnow = kind === "snow";
+    const isStorm = kind === "storm";
+    let w = 0, h = 0, raf = 0, flash = 0;
+    let nextFlash = 200 + Math.random() * 500;
+
+    const resize = () => {
+      w = window.innerWidth;
+      h = window.innerHeight;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const density = Math.min(1.6, Math.max(0.6, (w * h) / (390 * 800)));
+    const base = isSnow ? 70 : isStorm ? 170 : 120;
+    const count = Math.round(base * density);
+
+    const spawn = (anywhere) => {
+      const y = anywhere ? Math.random() * h : -20;
+      if (isSnow) {
+        const r = 1.2 + Math.random() * 2.6;
+        return { x: Math.random() * w, y, r, vy: 0.5 + r * 0.35, sway: Math.random() * 6.28, swaySpeed: 0.01 + Math.random() * 0.02, amp: 0.3 + Math.random() * 0.6 };
+      }
+      return { x: Math.random() * (w + 60), y, len: 10 + Math.random() * 14, vy: (isStorm ? 15 : 11) + Math.random() * 8, vx: isStorm ? -3.5 : -1.8 };
+    };
+
+    const parts = Array.from({ length: count }, () => spawn(true));
+
+    const draw = () => {
+      ctx.clearRect(0, 0, w, h);
+
+      if (isSnow) {
+        ctx.fillStyle = lightMode ? "rgba(255,255,255,.96)" : "rgba(255,255,255,.85)";
+        ctx.strokeStyle = "rgba(90,125,185,.55)";
+        ctx.lineWidth = 0.8;
+        for (let i = 0; i < parts.length; i++) {
+          const p = parts[i];
+          p.sway += p.swaySpeed;
+          p.x += Math.sin(p.sway) * p.amp;
+          p.y += p.vy;
+          if (p.y > h + 10) parts[i] = spawn(false);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, 6.283);
+          ctx.fill();
+          if (lightMode) ctx.stroke();
+        }
+      } else {
+        ctx.strokeStyle = lightMode ? "rgba(70,110,170,.45)" : "rgba(170,205,255,.45)";
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        for (let i = 0; i < parts.length; i++) {
+          const p = parts[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          if (p.y > h + 20 || p.x < -30) parts[i] = spawn(false);
+          ctx.moveTo(p.x, p.y);
+          ctx.lineTo(p.x + p.vx * 1.2, p.y + p.len);
+        }
+        ctx.stroke();
+
+        if (isStorm) {
+          nextFlash -= 1;
+          if (nextFlash <= 0) { flash = 1; nextFlash = 240 + Math.random() * 600; }
+          if (flash > 0) {
+            ctx.fillStyle = `rgba(255,255,255,${flash * 0.2})`;
+            ctx.fillRect(0, 0, w, h);
+            flash -= 0.08;
+          }
+        }
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", resize);
+    };
+  }, [kind, lightMode]);
+
+  return <canvas ref={ref} style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 40 }} />;
+}
+
+function WeatherFx({ lightMode }) {
+  const weather = useWeather();
+  const [enabled, setEnabled] = useState(() => {
+    try { return localStorage.getItem(WEATHER_FX_KEY) !== "0"; } catch { return true; }
+  });
+
+  const kind = WEATHER_FORCE || weatherKindFromCode(weather?.code);
+  if (!kind || kind === "none") return null;
+
+  const reduceMotion = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const meta = { snow: { icon: "❄️", label: "눈" }, rain: { icon: "🌧️", label: "비" }, storm: { icon: "⛈️", label: "뇌우" } }[kind];
+  const temp = weather && Number.isFinite(Number(weather.temp)) ? ` · ${Math.round(weather.temp)}°C` : "";
+
+  const toggle = () => {
+    setEnabled((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(WEATHER_FX_KEY, next ? "1" : "0"); } catch {}
+      return next;
+    });
+  };
+
+  return (
+    <>
+      <style>{`
+        .weather-pill { position: fixed; left: 12px; bottom: 16px; z-index: 45; }
+        @media (min-width: 769px) { .weather-pill { left: 262px; } }
+        @media (max-width: 768px) { .weather-pill { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); } }
+      `}</style>
+      {enabled && !reduceMotion && <WeatherCanvas kind={kind} lightMode={lightMode} />}
+      <button
+        type="button"
+        className="weather-pill"
+        onClick={toggle}
+        title="눌러서 날씨 효과 켜기/끄기"
+        style={{
+          padding: "6px 11px", borderRadius: 999, cursor: "pointer", fontSize: 11.5, fontWeight: 700,
+          fontFamily: "'IBM Plex Mono', monospace", whiteSpace: "nowrap",
+          border: `1px solid ${lightMode ? "#B6C3D6" : "#274460"}`,
+          background: lightMode ? "rgba(255,255,255,.92)" : "rgba(15,34,51,.85)",
+          color: lightMode ? "#1B2B42" : "#C9DAE8",
+          boxShadow: "0 6px 16px -8px rgba(0,0,0,.45)",
+          opacity: enabled ? 1 : 0.7,
+        }}
+      >
+        {meta.icon} {meta.label}{temp} · {enabled ? "효과 끄기" : "효과 켜기"}
+      </button>
+    </>
+  );
+}
+
 /* ---------------- 새 버전 알림 (배포 감지 + 업데이트 안내) ---------------- */
 const APP_BUILD_ID = typeof __BUILD_ID__ !== "undefined" ? __BUILD_ID__ : "dev";
 const UPDATE_CHECK_MS = 5 * 60 * 1000; // 5분마다 확인
@@ -4373,6 +4579,7 @@ function AppInner() {
       <PwaInstallModal open={showPwaInstall} onClose={() => setShowPwaInstall(false)} installApp={installPwa} canInstall={!!pwaInstallEvent} />
       <UpdateBanner show={updateAvailable} onUpdate={applyUpdate} onLater={dismissUpdate} />
       <ReleaseNoteModal />
+      <WeatherFx lightMode={lightMode} />
       <Toast toast={toast} />
     </div>
   );
@@ -6043,7 +6250,7 @@ function Header({ title, subtitle }) {
 }
 
 /* ---------------- 🎄 크리스마스 이벤트 설정 ---------------- */
-const XMAS_START = "2026-11-16"; // 시작일 (이 날부터 켜짐)
+const XMAS_START = "2026-12-01"; // 시작일 (이 날부터 켜짐)
 const XMAS_END = "2026-12-25";   // 종료일 (이 날까지 켜짐)
 const XMAS_FORCE = null;         // true: 항상 켜기(미리보기용) / false: 항상 끄기 / null: 기간 자동
 function isXmasEvent() {

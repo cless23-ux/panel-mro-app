@@ -3967,6 +3967,58 @@ function AppInner() {
           }
         }
 
+                /* ===== 🎄 이벤트 상단 바: 글자·버튼 밀림 정리 (모바일) ===== */
+        @media (max-width: 768px) {
+          .app-container.xmas-on header.mobile-header {
+            padding: 0 10px !important;
+            gap: 8px;
+            align-items: center;
+          }
+
+          /* 제목 앞 산타 이모지 제거 (폭 차지하던 원인) */
+          .app-container.xmas-on header.mobile-header > div:first-child > span::before {
+            content: none !important;
+          }
+
+          /* 왼쪽 묶음: 로고 + 제목 + 전환 버튼 */
+          .app-container.xmas-on header.mobile-header > div:first-child {
+            display: flex; align-items: center; gap: 6px;
+            flex: 1 1 auto; min-width: 0;
+          }
+          .app-container.xmas-on header.mobile-header > div:first-child img {
+            height: 28px !important; width: auto; flex-shrink: 0;
+          }
+          .app-container.xmas-on header.mobile-header > div:first-child > span {
+            font-size: 16px !important;
+            letter-spacing: 0.02em !important;
+            white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis;
+            min-width: 0; flex: 0 1 auto;
+          }
+          .app-container.xmas-on header.mobile-header .theme-toggle {
+            flex: 0 0 auto;
+            width: 30px; height: 30px;
+            padding: 0 !important; margin-left: 0 !important;
+            display: flex; align-items: center; justify-content: center;
+          }
+
+          /* 오른쪽 묶음: 소모 / 메모 버튼 */
+          .app-container.xmas-on header.mobile-header > div:last-child {
+            display: flex; align-items: center; gap: 5px;
+            flex: 0 0 auto;
+          }
+          .app-container.xmas-on header.mobile-header > div:last-child > button {
+            height: 32px;
+            padding: 0 9px !important;
+            font-size: 11.5px !important;
+            gap: 4px !important;
+            white-space: nowrap;
+            flex-shrink: 0;
+            align-items: center; justify-content: center;
+            border-radius: 9px !important;
+          }
+        }
+
         .app-container.light-mode .mobile-header .theme-toggle {
           background: rgba(255,255,255,.18) !important;
           border: 1px solid rgba(255,255,255,.45) !important;

@@ -2418,7 +2418,7 @@ function AppInner() {
   }, [txsLoaded, txs]);
   const ready = itemsLoaded && txsLoaded && outFormSettingsLoaded;
   return (
-    <div className={`app-container${lightMode ? " light-mode" : ""}${isXmasEvent() ? " xmas-on" : ""}`} style={{
+    <div className={`app-container${lightMode ? " light-mode" : ""}${isXmasEvent() && tab === "out" ? " xmas-on" : ""}`} style={{
       background: "var(--bg-page)", color: "var(--text-primary)", fontFamily: "Inter, sans-serif",
     }}>
       <style>{`
@@ -3909,6 +3909,62 @@ function AppInner() {
         }
         @media (prefers-reduced-motion: reduce) {
           .app-container.xmas-on header.mobile-header::after { animation: none !important; }
+        }
+
+        /* ===================================================
+           ❄️ 크리스마스 이벤트: 상단 바 = 눈 쌓인 흰색 (모바일 · 기간 한정)
+           =================================================== */
+        @media (max-width: 768px) {
+          .app-container.xmas-on header.mobile-header {
+            position: relative;
+            overflow: visible !important;
+            background:
+              radial-gradient(2px 2px at 14% 32%, #BBD3EE, transparent),
+              radial-gradient(2.5px 2.5px at 38% 66%, #C9DCF1, transparent),
+              radial-gradient(2px 2px at 61% 26%, #BBD3EE, transparent),
+              radial-gradient(2.5px 2.5px at 83% 62%, #C9DCF1, transparent),
+              radial-gradient(2px 2px at 95% 30%, #BBD3EE, transparent),
+              linear-gradient(180deg, #FFFFFF 0%, #E8F0FA 100%) !important;
+            border-bottom: none !important;
+            box-shadow: 0 6px 16px -10px rgba(40,70,120,.35) !important;
+          }
+
+          /* 아래로 소복이 쌓인 눈 */
+          .app-container.xmas-on header.mobile-header::after {
+            content: "";
+            position: absolute; left: 0; right: 0; bottom: -9px; height: 10px;
+            pointer-events: none;
+            background: radial-gradient(circle at 11px 0, #FFFFFF 10px, transparent 11px) 0 0/22px 10px repeat-x;
+            filter: drop-shadow(0 2px 2px rgba(40,70,120,.25));
+            animation: none !important;
+          }
+
+          /* 제목 글자 */
+          .app-container.xmas-on header.mobile-header > div:first-child > span {
+            color: #1B2B42 !important;
+          }
+
+          /* 밝기/어둡기 전환 버튼 */
+          .app-container.xmas-on header.mobile-header .theme-toggle {
+            background: rgba(27,43,66,.06) !important;
+            border: 1px solid rgba(27,43,66,.18) !important;
+            color: #1B2B42 !important;
+          }
+
+          /* 소모 / 메모 버튼 */
+          .app-container.xmas-on header.mobile-header > div:last-child > button {
+            box-shadow: none !important;
+          }
+          .app-container.xmas-on header.mobile-header > div:last-child > button:nth-child(1) {
+            background: #FFF3D1 !important;
+            border: 1px solid #E5B34A !important;
+            color: #7A4A00 !important;
+          }
+          .app-container.xmas-on header.mobile-header > div:last-child > button:nth-child(2) {
+            background: #E3F7FB !important;
+            border: 1px solid #5BC6DB !important;
+            color: #0B6A80 !important;
+          }
         }
 
         .app-container.light-mode .mobile-header .theme-toggle {

@@ -592,7 +592,18 @@ function useOutLocalHistory() {
     });
   }, []);
 
-  return { history, addToHistory };
+  // 불출자 목록에서 삭제된 이름은 '최근기록'에서도 걸러냄 (삭제한 이름이 다시 나타나지 않게)
+  const cachedSettingsRaw = (() => {
+    try { return localStorage.getItem(OUT_FORM_SETTINGS_CACHE_KEY) || ""; } catch { return ""; }
+  })();
+  const filteredHistory = useMemo(() => {
+    let registered = [];
+    try { registered = JSON.parse(cachedSettingsRaw || "null")?.workers || []; } catch {}
+    if (!Array.isArray(registered) || registered.length === 0) return history;
+    return { ...history, worker: (history.worker || []).filter((w) => registered.includes(w)) };
+  }, [history, cachedSettingsRaw]);
+
+  return { history: filteredHistory, addToHistory };
 }
 function useOutFormSettings() {
   const [settings, setSettings] = useState(DEFAULT_OUT_FORM_SETTINGS);
@@ -642,12 +653,14 @@ function useOutFormSettings() {
     });
     try {
       if (supabase) {
-        await supabase
+        const { error } = await supabase
           .from("out_form_settings")
           .upsert({ id: OUT_FORM_SETTINGS_ROW_ID, [category]: nextList }, { onConflict: "id" });
+        if (error) throw error;
       }
     } catch (e) {
       console.error("Out form settings save error:", e);
+      alert("목록 저장에 실패했습니다. 다른 기기에는 반영되지 않았을 수 있어요. (Supabase 권한/연결을 확인해 주세요)");
     }
   }, []);
 
@@ -1986,6 +1999,11 @@ function AppInner() {
   const [items, saveItems, itemsLoaded, reloadItems] = useStorage("panel:items", seedItems);
   const [txs, saveTxs, txsLoaded, reloadTxs] = useStorage("panel:transactions", []);
   const { updateAvailable, dismissUpdate, applyUpdate } = useAppUpdateCheck();
+
+  // 불출 입력 방식을 항상 '저장목록 선택'으로 고정 (직접 입력으로 삭제된 이름이 쓰이는 것 방지)
+  useEffect(() => {
+    try { localStorage.setItem(OUT_INPUT_MODE_KEY, "shared"); } catch {}
+  }, []);
 
   // 한글이 선명한 Pretendard 폰트 불러오기
   useEffect(() => {
@@ -6097,7 +6115,7 @@ function OutForm({
   useEffect(() => { setConsQty(""); }, [found]);
 
     const [outInputMode, setOutInputModeState] = useState(() => {
-    try { return localStorage.getItem(OUT_INPUT_MODE_KEY) || "shared"; } catch { return "shared"; }
+    return "shared";
   });
   const setOutInputMode = (mode) => {
     setOutInputModeState(mode);
@@ -7033,7 +7051,7 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
                   </button>
                 </div>
 
-                {(txMode === "return" || !isConsumableFound) && (
+                {false && (
                   <div className="out-info-divider out-mode-toggle-row">
                     <div>
                       <div className="out-mode-toggle-title" style={{ color: outInputMode === "local" ? "#38BDF8" : "#F5A623" }}>
@@ -7074,11 +7092,11 @@ const canSubmitOut = !outSubmitting && isOutFormComplete;
 
                   <div className="out-field-grid">
                     <Field label="불출자">
-                      <AutocompleteInput
+                      <StrictAutocompleteInput
                         value={consWorker}
                         onChange={setConsWorker}
                         options={workerOptions}
-                        placeholder="이름 입력 또는 선택"
+                        placeholder="불출자 검색 후 선택"
                       />
                     </Field>
                     <Field label={`출고 수량 (${found.unit})`}>
@@ -8751,7 +8769,7 @@ function StockIssueModal({ item: itemProp, outFormSettings, notify, reloadItems,
             <div className="stock-issue-fields" style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
               <div className="out-field-grid">
                 <Field label="1. 불출자">
-                  <AutocompleteInput value={worker} onChange={setWorker} options={consWorkerOptions} placeholder="이름 입력 또는 선택" />
+                  <StrictAutocompleteInput value={worker} onChange={setWorker} options={workerOptions.length ? workerOptions : consWorkerOptions} placeholder="불출자 선택" />
                 </Field>
                 <Field label={`2. 출고 수량 (${item.unit})`}>
                   <input

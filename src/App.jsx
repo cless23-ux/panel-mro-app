@@ -4695,6 +4695,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
   const DASH_ROW_H = 40;     // 세로 1칸 높이(px)
   const DASH_GAP = 10;       // 칸 사이 간격(px)
   const DASH_PANELS = [
+    { id: "board", label: "불출 진행 현황" },
     { id: "chart", label: "호선별 소모 그래프" },
     { id: "detail", label: "자재별 소모량 상세" },
     { id: "alert", label: "재고부족 경고" },
@@ -4702,9 +4703,10 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
     { id: "rank", label: "자재 누적 사용량 순위" },
   ];
   const DASH_DEFAULT_LAYOUT = {
-    order: ["chart", "detail", "alert", "recent", "rank"],
+    order: ["board", "chart", "detail", "alert", "recent", "rank"],
     hidden: [],
     size: {
+      board: { w: 12, h: 9 },
       chart: { w: 5, h: 14 },
       detail: { w: 4, h: 14 },
       alert: { w: 3, h: 7 },
@@ -4718,6 +4720,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
     try {
       const ids = DASH_PANELS.map((p) => p.id);
       const order = Array.isArray(raw?.order) ? raw.order.filter((id) => ids.includes(id)) : [];
+      if (!order.includes("board")) order.unshift("board");
       ids.forEach((id) => { if (!order.includes(id)) order.push(id); });
       const hidden = Array.isArray(raw?.hidden) ? raw.hidden.filter((id) => ids.includes(id)) : [];
       const size = {};
@@ -5371,6 +5374,72 @@ const filteredTotalText = useMemo(() => {
     if (recentPage > recentTotalPages) setRecentPage(recentTotalPages);
   }, [recentPage, recentTotalPages]);
 
+  /* ---- 불출 진행 현황 (호선별 카드) ---- */
+  const [boardDays, setBoardDays] = useState(() => {
+    try {
+      const v = Number(localStorage.getItem("panel:dashBoardDays"));
+      return [0, 3, 7, 30].includes(v) ? v : 7;
+    } catch { return 7; }
+  });
+  const changeBoardDays = (v) => {
+    setBoardDays(v);
+    try { localStorage.setItem("panel:dashBoardDays", String(v)); } catch {}
+  };
+
+  const shipBoard = useMemo(() => {
+    const parseTs = (t) => {
+      const d = new Date(String(t.at || "").replace(" ", "T"));
+      return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+    };
+    const now = new Date();
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const since = boardDays === 0 ? startToday : startToday - (boardDays - 1) * 86400000;
+
+    const outIds = new Set(chartOutTxs.map((t) => t.id));
+    const returns = (txs || []).filter((t) => t.type === "return" && t.deleted !== true && !outIds.has(t.id));
+    const all = [...chartOutTxs, ...returns];
+
+    const map = {};
+    all.forEach((t) => {
+      const ship = String(t.shipNo || "").trim();
+      if (!ship || ship === "미입력" || ship === "소모자재") return;
+      const ts = parseTs(t);
+      if (!ts || ts < since) return;
+
+      if (!map[ship]) {
+        map[ship] = { ship, outCount: 0, todayCount: 0, plan: 0, extra: 0, lastTs: 0, projects: {}, items: {}, recent: [] };
+      }
+      const m = map[ship];
+      const isReturn = t.type === "return";
+      if (ts > m.lastTs) m.lastTs = ts;
+
+      let label = "반납";
+      let color = "#22D3EE";
+      if (!isReturn) {
+        m.outCount += 1;
+        if (ts >= startToday) m.todayCount += 1;
+        if (getIssueKind(t) === "정발주") { m.plan += 1; label = "정발주"; color = "#F5A623"; }
+        else { m.extra += 1; label = "추가건"; color = "#38BDF8"; }
+        const code = String(t.itemCode || "");
+        m.items[code] = true;
+      }
+
+      const proj = String(t.project || "").trim();
+      if (proj && proj !== "미입력") m.projects[proj] = (m.projects[proj] || 0) + 1;
+
+      m.recent.push({ id: t.id, ts, label, color, name: t.itemName || t.itemCode, qty: Number(t.qty) || 0, unit: t.unit || "EA" });
+    });
+
+    return Object.values(map)
+      .map((m) => ({
+        ...m,
+        itemKinds: Object.keys(m.items).length,
+        projectList: Object.entries(m.projects).sort((a, b) => b[1] - a[1]).map(([name]) => name),
+        recent: m.recent.sort((a, b) => b.ts - a.ts).slice(0, 3),
+      }))
+      .sort((a, b) => b.lastTs - a.lastTs);
+  }, [chartOutTxs, txs, boardDays]);
+
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
 
   const totalOutSource = cumulativeOutTxs.length
@@ -5449,6 +5518,134 @@ const filteredTotalText = useMemo(() => {
       </div>
 
       <div className="dash-grid" ref={gridRef}>
+        {/* ⓪ 불출 진행 현황 (호선별 카드) */}
+        <Card className="dash-board" style={{ padding: 14, ...panelStyle("board") }} {...panelDrag("board")}>
+          {renderChrome("board")}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 10, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#E7EEF5", fontSize: 14, fontWeight: 700, flexWrap: "wrap" }}>
+              <span style={{ width: 3, height: 16, borderRadius: 3, background: "#F5A623", display: "inline-block" }} />
+              🚢 불출 진행 현황
+              <span style={{ color: "#5E86A3", fontSize: 10.5, fontWeight: 500 }}>
+                {shipBoard.length}개 호선 · 카드를 누르면 아래 그래프가 그 호선으로 바뀝니다
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[{ v: 0, l: "오늘" }, { v: 3, l: "3일" }, { v: 7, l: "7일" }, { v: 30, l: "30일" }].map((o) => {
+                const on = boardDays === o.v;
+                return (
+                  <button
+                    key={o.v}
+                    type="button"
+                    onClick={() => changeBoardDays(o.v)}
+                    style={{
+                      padding: "4px 12px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                      border: `1px solid ${on ? "#F5A623" : "#1F3B54"}`,
+                      background: on ? "#F5A62322" : "#0B1C2C",
+                      color: on ? "#F5A623" : "#7F97AC",
+                    }}
+                  >
+                    {o.l}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {shipBoard.length === 0 ? (
+            <EmptyState icon={ScanLine} text="선택한 기간에 불출된 호선이 없습니다." color="#5E86A3" />
+          ) : (
+            <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
+              <div style={{
+                position: "absolute", inset: 0, overflowY: "auto", paddingRight: 4, alignContent: "start",
+                display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(255px, 1fr))", gap: 10,
+              }}>
+                {shipBoard.map((s) => {
+                  const minutesAgo = (Date.now() - s.lastTs) / 60000;
+                  const live = minutesAgo < 60;
+                  const today = s.todayCount > 0;
+                  const selected = s.ship === selectedShip;
+                  const planPct = s.outCount ? Math.round((s.plan / s.outCount) * 100) : 0;
+                  const accent = live ? "#35D08C" : today ? "#F5A623" : "#5E86A3";
+                  return (
+                    <div
+                      key={s.ship}
+                      onClick={() => { setSelectedShip(s.ship); setSelectedProject(ALL_PROJECTS); }}
+                      title="누르면 아래 그래프가 이 호선으로 바뀝니다"
+                      style={{
+                        cursor: "pointer", padding: "10px 12px", borderRadius: 11,
+                        background: "#0B1C2C",
+                        border: `1px solid ${selected ? "#3B82F6" : live ? "#35D08C88" : "#1F3B54"}`,
+                        boxShadow: selected ? "0 0 0 1px #3B82F6" : live ? "0 0 14px -8px #35D08C" : "none",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: "#38BDF8" }}>{s.ship}</span>
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, fontWeight: 700,
+                          padding: "2px 8px", borderRadius: 999, color: accent, background: `${accent}1f`, whiteSpace: "nowrap",
+                        }}>
+                          <span style={{
+                            width: 6, height: 6, borderRadius: "50%", background: accent,
+                            animation: live ? "urgentBlink 1.4s ease-in-out infinite" : "none",
+                          }} />
+                          {live ? "방금 불출" : today ? `오늘 ${s.todayCount}건` : timeAgoStr(new Date(s.lastTs))}
+                        </span>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5, minHeight: 18 }}>
+                        {s.projectList.slice(0, 3).map((p) => (
+                          <span key={p} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 6, background: "#16324A", color: "#9FB4C7", fontWeight: 600 }}>{p}</span>
+                        ))}
+                        {s.projectList.length > 3 && (
+                          <span style={{ fontSize: 10, color: "#5E86A3" }}>+{s.projectList.length - 3}</span>
+                        )}
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
+                        {[
+                          { l: "불출", v: s.outCount, u: "건", c: "#E7EEF5" },
+                          { l: "품목", v: s.itemKinds, u: "종", c: "#E7EEF5" },
+                          { l: "오늘", v: s.todayCount, u: "건", c: s.todayCount > 0 ? "#F5A623" : "#5E86A3" },
+                        ].map((x) => (
+                          <div key={x.l} style={{ background: "#0F2233", border: "1px solid #1F3B54", borderRadius: 8, padding: "4px 6px", textAlign: "center" }}>
+                            <div style={{ fontSize: 9.5, color: "#5E86A3" }}>{x.l}</div>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: x.c, fontFamily: "IBM Plex Mono" }}>
+                              {x.v}<span style={{ fontSize: 9.5, marginLeft: 1, color: "#7F97AC" }}>{x.u}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#7F97AC", marginBottom: 3 }}>
+                          <span><b style={{ color: "#F5A623" }}>정발주 {s.plan}</b></span>
+                          <span><b style={{ color: "#38BDF8" }}>추가건 {s.extra}</b></span>
+                        </div>
+                        <div style={{ height: 6, borderRadius: 3, background: "#38BDF8", overflow: "hidden" }}>
+                          <div style={{ width: `${planPct}%`, height: "100%", background: "#F5A623" }} />
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
+                        {s.recent.map((r) => (
+                          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, minWidth: 0 }}>
+                            <span style={{
+                              flexShrink: 0, fontSize: 9.5, fontWeight: 700, padding: "1px 5px", borderRadius: 5,
+                              color: r.color, background: `${r.color}1f`,
+                            }}>{r.label}</span>
+                            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#C9DAE8" }} title={r.name}>{r.name}</span>
+                            <span style={{ flexShrink: 0, fontFamily: "IBM Plex Mono", fontWeight: 700, color: r.color }}>{r.qty}{r.unit}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </Card>
+
         {/* ① 호선별 소모 현황 (그래프) */}
         <Card className="dash-chart" style={{ padding: 14, ...panelStyle("chart") }} {...panelDrag("chart")}>
           {renderChrome("chart")}

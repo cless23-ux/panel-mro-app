@@ -13299,7 +13299,7 @@ function RawMaterialInboundView({ items, saveItems, txs, saveTxs, notify, supaba
 }
 
 /* ---------------- 입고 등록 ---------------- */
-function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, materialType = "sub", rawMode = "all" }) {
+function InboundView({ items, saveItems, txs, saveTxs, notify, supabase, reloadItems, reloadTxs, materialType = "sub", rawMode = "all" }) {
   const [selectedCode, setSelectedCode] = useState("");
   const [qty, setQty] = useState(1);
   const [person, setPerson] = useState("");

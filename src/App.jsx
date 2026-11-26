@@ -4701,6 +4701,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
     { id: "alert", label: "재고부족 경고" },
     { id: "recent", label: "최근 입출고 이력" },
     { id: "rank", label: "자재 누적 사용량 순위" },
+    { id: "progress", label: "공정률 관리" },
   ];
   const DASH_DEFAULT_LAYOUT = {
     order: ["board", "chart", "detail", "alert", "recent", "rank"],
@@ -4712,6 +4713,7 @@ function Dashboard({ items, txs, loadCumulativeOutTxs, onDeleteTransactions, onS
       alert: { w: 3, h: 7 },
       recent: { w: 3, h: 7 },
       rank: { w: 5, h: 14 },
+      progress: { w: 12, h: 13 },
     },
   };
 
@@ -5440,6 +5442,233 @@ const filteredTotalText = useMemo(() => {
       .sort((a, b) => b.lastTs - a.lastTs);
   }, [chartOutTxs, txs, boardDays]);
 
+  /* ---- 공정률 관리 (ship_issue_admin 테이블의 'prog:' 키에 저장 · 모든 기기 공유) ---- */
+  const PROG_CACHE_KEY = "panel:progressCache";
+  const PROG_STATUS = ["대기", "작업중", "납품완료", "보류"];
+  const PROG_COLOR = { "대기": "#7F97AC", "작업중": "#38BDF8", "납품완료": "#35D08C", "보류": "#F5A623" };
+  const PROG_BLANK = { id: "", ship: "", project: "", panel: "", vendor: "", due: "", status: "대기", percent: 0, memo: "" };
+
+  const [progRows, setProgRows] = useState(() => {
+    try {
+      const v = JSON.parse(localStorage.getItem(PROG_CACHE_KEY) || "[]");
+      return Array.isArray(v) ? v : [];
+    } catch { return []; }
+  });
+  const [progForm, setProgForm] = useState(null);
+  const [progFilter, setProgFilter] = useState("active");
+  const [progSearch, setProgSearch] = useState("");
+  const [progSort, setProgSort] = useState("due");
+  const [progDrafts, setProgDrafts] = useState({});
+  const progSavingRef = useRef(0);
+
+  useEffect(() => {
+    try { localStorage.setItem(PROG_CACHE_KEY, JSON.stringify(progRows)); } catch {}
+  }, [progRows]);
+
+  const loadProgress = useCallback(async () => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from("ship_issue_admin")
+        .select("key, value")
+        .like("key", "prog:%");
+      if (error) throw error;
+      if (progSavingRef.current > 0) return; // 저장 중에는 덮어쓰지 않음
+      const list = (data || [])
+        .map((r) => {
+          try { return { id: String(r.key).slice(5), ...JSON.parse(r.value) }; } catch { return null; }
+        })
+        .filter(Boolean);
+      setProgRows(list);
+    } catch (e) {
+      console.warn("공정률 조회 실패:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProgress();
+    const t = setInterval(loadProgress, 15000);
+    return () => clearInterval(t);
+  }, [loadProgress]);
+
+  const saveProgRow = async (row) => {
+    const { id, ...rest } = row;
+    const payload = { ...rest, updatedAt: nowStr() };
+    setProgRows((prev) =>
+      prev.some((r) => r.id === id)
+        ? prev.map((r) => (r.id === id ? { id, ...payload } : r))
+        : [{ id, ...payload }, ...prev]
+    );
+    if (!supabase) return;
+    progSavingRef.current += 1;
+    try {
+      const { error } = await supabase
+        .from("ship_issue_admin")
+        .upsert({ key: `prog:${id}`, value: JSON.stringify(payload), updated_at: new Date().toISOString() }, { onConflict: "key" });
+      if (error) throw error;
+    } catch (e) {
+      console.error("공정률 저장 오류:", e);
+      alert("공정률 저장에 실패했습니다. 다른 기기에는 반영되지 않았을 수 있어요.");
+    } finally {
+      progSavingRef.current -= 1;
+    }
+  };
+
+  const deleteProgRow = async (row) => {
+    if (!window.confirm(`[${row.ship || row.panel || "공정"}] 항목을 삭제할까요?`)) return;
+    setProgRows((prev) => prev.filter((r) => r.id !== row.id));
+    if (!supabase) return;
+    progSavingRef.current += 1;
+    try {
+      const { error } = await supabase.from("ship_issue_admin").delete().eq("key", `prog:${row.id}`);
+      if (error) throw error;
+    } catch (e) {
+      console.error("공정률 삭제 오류:", e);
+      alert("삭제에 실패했습니다.");
+      loadProgress();
+    } finally {
+      progSavingRef.current -= 1;
+    }
+  };
+
+  const progDday = (due) => {
+    if (!due) return null;
+    const t = new Date(`${due}T00:00:00`).getTime();
+    if (Number.isNaN(t)) return null;
+    const d = new Date();
+    const today = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    return Math.round((t - today) / 86400000);
+  };
+
+  const progDdayView = (r) => {
+    const d = progDday(r.due);
+    if (d === null) return { text: "-", sub: "", color: "#5E86A3" };
+    if (r.status === "납품완료") return { text: "완료", sub: r.due, color: "#35D08C" };
+    if (d < 0) return { text: `D+${-d}`, sub: r.due, color: "#EF5350" };
+    if (d === 0) return { text: "D-Day", sub: r.due, color: "#F5A623" };
+    if (d <= 7) return { text: `D-${d}`, sub: r.due, color: "#F5A623" };
+    return { text: `D-${d}`, sub: r.due, color: "#9FB4C7" };
+  };
+
+  const progBarColor = (r) => {
+    const p = Number(r.percent) || 0;
+    const d = progDday(r.due);
+    if (r.status === "납품완료" || p >= 100) return "#35D08C";
+    if (r.status === "보류") return "#F5A623";
+    if (d !== null && d < 0) return "#EF5350";
+    if (d !== null && d <= 7 && p < 70) return "#F5A623";
+    return "#3B82F6";
+  };
+
+  // 공정률 숫자를 바꾸면 상태도 자동 정리 (100% → 납품완료, 0% 초과 → 작업중)
+  const commitProgPercent = (row, raw) => {
+    const v = Math.min(100, Math.max(0, Math.round(Number(raw))));
+    setProgDrafts((p) => { const n = { ...p }; delete n[row.id]; return n; });
+    if (Number.isNaN(v) || v === (Number(row.percent) || 0)) return;
+    let status = row.status;
+    if (v >= 100) status = "납품완료";
+    else if (status === "납품완료") status = "작업중";
+    else if (v > 0 && status === "대기") status = "작업중";
+    saveProgRow({ ...row, percent: v, status });
+  };
+
+  const changeProgStatus = (row, status) => {
+    saveProgRow({ ...row, status, percent: status === "납품완료" ? 100 : row.percent });
+  };
+
+  const pf = (key) => (e) => setProgForm((p) => ({ ...p, [key]: e.target.value }));
+
+  const submitProgForm = async () => {
+    const f = progForm;
+    if (!String(f.ship).trim() && !String(f.panel).trim()) {
+      alert("호선/공사명 또는 판넬명을 입력해주세요.");
+      return;
+    }
+    const percent = Math.min(100, Math.max(0, Math.round(Number(f.percent) || 0)));
+    let status = f.status;
+    if (percent >= 100) status = "납품완료";
+    await saveProgRow({
+      id: f.id || uid("PRG"),
+      ship: String(f.ship).trim(),
+      project: String(f.project).trim(),
+      panel: String(f.panel).trim(),
+      vendor: String(f.vendor).trim(),
+      due: f.due || "",
+      status,
+      percent,
+      memo: String(f.memo || "").trim(),
+      createdAt: f.createdAt || nowStr(),
+    });
+    setProgForm(null);
+  };
+
+  const progStats = useMemo(() => {
+    const open = progRows.filter((r) => r.status !== "납품완료");
+    const avg = open.length
+      ? Math.round(open.reduce((s, r) => s + (Number(r.percent) || 0), 0) / open.length)
+      : 0;
+    let soon = 0;
+    let late = 0;
+    open.forEach((r) => {
+      if (r.status === "보류") return;
+      const d = progDday(r.due);
+      if (d === null) return;
+      if (d < 0) late += 1;
+      else if (d <= 7) soon += 1;
+    });
+    return {
+      total: progRows.length,
+      open: open.length,
+      working: progRows.filter((r) => r.status === "작업중").length,
+      done: progRows.length - open.length,
+      hold: progRows.filter((r) => r.status === "보류").length,
+      avg, soon, late,
+    };
+  }, [progRows]);
+
+  const progList = useMemo(() => {
+    const q = progSearch.trim().toLowerCase();
+    const list = progRows.filter((r) => {
+      if (q && ![r.ship, r.project, r.panel, r.vendor, r.memo].some((v) => String(v || "").toLowerCase().includes(q))) return false;
+      const open = r.status !== "납품완료";
+      const d = progDday(r.due);
+      if (progFilter === "active") return open;
+      if (progFilter === "late") return open && r.status !== "보류" && d !== null && d < 0;
+      if (progFilter === "soon") return open && r.status !== "보류" && d !== null && d >= 0 && d <= 7;
+      if (progFilter === "done") return !open;
+      if (progFilter === "hold") return r.status === "보류";
+      return true;
+    });
+    const dueKey = (r) => { const d = progDday(r.due); return d === null ? 99999 : d; };
+    return list.sort((a, b) => {
+      if (progSort === "percent") return (Number(a.percent) || 0) - (Number(b.percent) || 0);
+      if (progSort === "updated") return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+      const ad = a.status === "납품완료" ? 1 : 0;
+      const bd = b.status === "납품완료" ? 1 : 0;
+      if (ad !== bd) return ad - bd;
+      return dueKey(a) - dueKey(b);
+    });
+  }, [progRows, progFilter, progSearch, progSort]);
+
+  const progShipOptions = useMemo(
+    () => Array.from(new Set([
+      ...availableShips.filter((s) => s !== "등록된 호선 없음"),
+      ...progRows.map((r) => r.ship),
+    ].filter(Boolean))),
+    [availableShips, progRows]
+  );
+  const progProjectOptions = useMemo(
+    () => Array.from(new Set([
+      ...chartOutTxs.map((t) => String(t.project || "").trim()),
+      ...progRows.map((r) => r.project),
+    ].filter((p) => p && p !== "미입력"))),
+    [chartOutTxs, progRows]
+  );
+  const progVendorOptions = useMemo(
+    () => Array.from(new Set(progRows.map((r) => r.vendor).filter(Boolean))),
+    [progRows]
+  );
+
   const alertItems = items.filter((i) => statusOf(i) !== "ok").sort((a, b) => (a.stock / (a.safety || 1)) - (b.stock / (b.safety || 1)));
 
   const totalOutSource = cumulativeOutTxs.length
@@ -5495,7 +5724,7 @@ const filteredTotalText = useMemo(() => {
                   </button>
                 );
               })}
-              <Btn variant="subtle" onClick={() => saveDashLayout(DASH_DEFAULT_LAYOUT)} style={{ padding: "5px 12px", fontSize: 12 }}>
+              <Btn variant="subtle" onClick={() => saveDashLayout(normalizeLayout(null))} style={{ padding: "5px 12px", fontSize: 12 }}>
                 기본 배치
               </Btn>
             </>
@@ -6023,6 +6252,207 @@ const filteredTotalText = useMemo(() => {
           )}
         </Card>
 
+        {/* ⑥ 공정률 관리 */}
+        <Card className="dash-progress" style={{ padding: 14, ...panelStyle("progress") }} {...panelDrag("progress")}>
+          {renderChrome("progress")}
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 10, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#E7EEF5", fontSize: 14, fontWeight: 700 }}>
+              <span style={{ width: 3, height: 16, borderRadius: 3, background: "#35D08C", display: "inline-block" }} />
+              📊 공정률 관리
+              <span style={{ color: "#5E86A3", fontSize: 10.5, fontWeight: 500 }}>숫자나 ＋/－ 로 바로 수정 · 모든 기기 공유</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ position: "relative" }}>
+                <Search size={12} color="#5E86A3" style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+                <input
+                  value={progSearch}
+                  onChange={(e) => setProgSearch(e.target.value)}
+                  placeholder="호선 · 프로젝트 · 판넬 · 업체"
+                  style={{ background: "#0F2233", border: "1px solid #315775", color: "#E7EEF5", padding: "5px 10px 5px 25px", borderRadius: 7, fontSize: 12, outline: "none", width: 200 }}
+                />
+              </div>
+              <Btn onClick={() => setProgForm({ ...PROG_BLANK })} style={{ padding: "6px 12px", fontSize: 12 }}>
+                <Plus size={14} />공정 추가
+              </Btn>
+            </div>
+          </div>
+
+          {/* 요약 */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 8, marginBottom: 10, flexShrink: 0 }}>
+            {[
+              { l: "전체", v: progStats.total, u: "건", c: "#E7EEF5", f: "all" },
+              { l: "진행 평균 공정률", v: progStats.avg, u: "%", c: "#35D08C", f: "active" },
+              { l: "작업중", v: progStats.working, u: "건", c: "#38BDF8", f: "active" },
+              { l: "납기 임박 (7일)", v: progStats.soon, u: "건", c: "#F5A623", f: "soon" },
+              { l: "납기 지연", v: progStats.late, u: "건", c: progStats.late > 0 ? "#EF5350" : "#5E86A3", f: "late" },
+            ].map((s) => (
+              <div
+                key={s.l}
+                onClick={() => setProgFilter(s.f)}
+                style={{ cursor: "pointer", background: "#0B1C2C", border: "1px solid #1F3B54", borderRadius: 9, padding: "6px 10px" }}
+              >
+                <div style={{ fontSize: 10.5, color: "#5E86A3" }}>{s.l}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: s.c, fontFamily: "IBM Plex Mono", lineHeight: 1.2 }}>
+                  {s.v}<span style={{ fontSize: 11, marginLeft: 2, color: "#7F97AC" }}>{s.u}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 필터 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8, flexShrink: 0 }}>
+            {[
+              { id: "active", l: `미완료 (${progStats.open})`, c: "#38BDF8" },
+              { id: "late", l: `지연 (${progStats.late})`, c: "#EF5350" },
+              { id: "soon", l: `납기임박 (${progStats.soon})`, c: "#F5A623" },
+              { id: "done", l: `납품완료 (${progStats.done})`, c: "#35D08C" },
+              { id: "hold", l: `보류 (${progStats.hold})`, c: "#F5A623" },
+              { id: "all", l: `전체 (${progStats.total})`, c: "#9FB4C7" },
+            ].map((f) => {
+              const on = progFilter === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setProgFilter(f.id)}
+                  style={{
+                    padding: "4px 11px", borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+                    border: `1px solid ${on ? f.c : "#1F3B54"}`,
+                    background: on ? `${f.c}22` : "#0B1C2C",
+                    color: on ? f.c : "#7F97AC",
+                  }}
+                >
+                  {f.l}
+                </button>
+              );
+            })}
+            <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#7F97AC" }}>
+              정렬
+              <select
+                value={progSort}
+                onChange={(e) => setProgSort(e.target.value)}
+                style={{ background: "#0B1C2C", border: "1px solid #274460", color: "#C9DAE8", borderRadius: 6, padding: "3px 6px", fontSize: 11.5, outline: "none" }}
+              >
+                <option value="due">납기 임박순</option>
+                <option value="percent">공정률 낮은순</option>
+                <option value="updated">최근 수정순</option>
+              </select>
+            </span>
+          </div>
+
+          {/* 표 */}
+          {progList.length === 0 ? (
+            <EmptyState icon={ScanLine} text={progRows.length === 0 ? "등록된 공정이 없습니다. '+ 공정 추가'로 시작하세요." : "조건에 해당하는 공정이 없습니다."} color="#5E86A3" />
+          ) : (
+            <div style={{ position: "relative", flex: 1, minHeight: 0, border: "1px solid #1F3B54", borderRadius: 9, background: "#091827" }}>
+              <div style={{ position: "absolute", inset: 0, overflow: "auto" }}>
+                <table style={{ width: "100%", minWidth: 900 }}>
+                  <thead style={{ position: "sticky", top: 0, zIndex: 1, background: "#0B1C2C" }}>
+                    <tr style={{ color: "#5E86A3", fontSize: 11.5 }}>
+                      <th style={{ width: 40, textAlign: "center" }}>No</th>
+                      <th>호선 / 공사명</th>
+                      <th>프로젝트</th>
+                      <th>판넬 / 아이템</th>
+                      <th>작업업체</th>
+                      <th style={{ width: 92 }}>납기</th>
+                      <th style={{ width: 96 }}>상태</th>
+                      <th style={{ minWidth: 250 }}>공정률</th>
+                      <th style={{ width: 84, textAlign: "center" }}>관리</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {progList.map((r, idx) => {
+                      const pct = Number(r.percent) || 0;
+                      const dd = progDdayView(r);
+                      const barColor = progBarColor(r);
+                      const draft = Object.prototype.hasOwnProperty.call(progDrafts, r.id) ? progDrafts[r.id] : pct;
+                      const sc = PROG_COLOR[r.status] || "#7F97AC";
+                      const late = r.status !== "납품완료" && r.status !== "보류" && progDday(r.due) !== null && progDday(r.due) < 0;
+                      return (
+                        <tr key={r.id} style={{ background: late ? "rgba(239,83,80,0.07)" : undefined, opacity: r.status === "납품완료" ? 0.7 : 1 }}>
+                          <td style={{ textAlign: "center", color: "#5E86A3", fontFamily: "IBM Plex Mono", fontSize: 11 }}>{idx + 1}</td>
+                          <td style={{ fontWeight: 700, color: "#38BDF8" }}>{r.ship || "-"}</td>
+                          <td style={{ color: "#C9DAE8" }}>{r.project || "-"}</td>
+                          <td>
+                            <div style={{ color: "#E7EEF5", fontWeight: 600 }}>{r.panel || "-"}</div>
+                            {r.memo && (
+                              <div title={r.memo} style={{ fontSize: 10.5, color: "#7F97AC", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.memo}</div>
+                            )}
+                          </td>
+                          <td style={{ color: "#9FB4C7" }}>{r.vendor || "-"}</td>
+                          <td>
+                            <div style={{ fontWeight: 800, color: dd.color, fontFamily: "IBM Plex Mono", fontSize: 13 }}>{dd.text}</div>
+                            {dd.sub && <div style={{ fontSize: 10, color: "#5E86A3", fontFamily: "IBM Plex Mono" }}>{dd.sub}</div>}
+                          </td>
+                          <td>
+                            <select
+                              value={r.status}
+                              onChange={(e) => changeProgStatus(r, e.target.value)}
+                              style={{
+                                background: `${sc}1f`, color: sc, border: `1px solid ${sc}66`, borderRadius: 7,
+                                padding: "3px 6px", fontSize: 11.5, fontWeight: 700, outline: "none", cursor: "pointer",
+                              }}
+                            >
+                              {PROG_STATUS.map((s) => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() => commitProgPercent(r, pct - 5)}
+                                title="5% 줄이기"
+                                style={{ width: 22, height: 22, borderRadius: 6, border: "1px solid #274460", background: "#0B1C2C", color: "#9FB4C7", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}
+                              >－</button>
+                              <div style={{ flex: 1, minWidth: 80, height: 10, borderRadius: 5, background: "#12293D", overflow: "hidden" }}>
+                                <div style={{ width: `${pct}%`, height: "100%", background: barColor, transition: "width .25s ease" }} />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => commitProgPercent(r, pct + 5)}
+                                title="5% 올리기"
+                                style={{ width: 22, height: 22, borderRadius: 6, border: "1px solid #274460", background: "#0B1C2C", color: "#9FB4C7", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: 0 }}
+                              >＋</button>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                                <input
+                                  type="number" min="0" max="100"
+                                  value={draft}
+                                  onChange={(e) => setProgDrafts((p) => ({ ...p, [r.id]: e.target.value }))}
+                                  onBlur={(e) => commitProgPercent(r, e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                                  style={{
+                                    width: 52, height: 26, textAlign: "right", padding: "2px 6px", fontWeight: 800, fontSize: 13,
+                                    fontFamily: "IBM Plex Mono", background: "#0B1C2C", border: "1px solid #274460", borderRadius: 6, color: barColor, outline: "none",
+                                  }}
+                                />
+                                <span style={{ fontSize: 11, color: "#7F97AC" }}>%</span>
+                              </span>
+                            </div>
+                          </td>
+                          <td style={{ textAlign: "center" }}>
+                            <button
+                              type="button"
+                              onClick={() => setProgForm({ ...PROG_BLANK, ...r })}
+                              style={{ padding: "3px 8px", borderRadius: 6, border: "1px solid #315775", background: "#122B40", color: "#8FCBE8", fontSize: 11, cursor: "pointer", marginRight: 4 }}
+                            >수정</button>
+                            <button
+                              type="button"
+                              onClick={() => deleteProgRow(r)}
+                              title="삭제"
+                              style={{ background: "none", border: "none", color: "#EF5350", cursor: "pointer", padding: 3, verticalAlign: "middle" }}
+                            ><Trash2 size={14} /></button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </Card>
+
         {/* ④ 최근 입출고 이력 */}
         <Card className="dash-recent" style={{ padding: 14, ...panelStyle("recent") }} {...panelDrag("recent")}>
           {renderChrome("recent")}
@@ -6092,6 +6522,97 @@ const filteredTotalText = useMemo(() => {
           )}
         </Card>
       </div>
+      {progForm && (
+        <div
+          onClick={() => setProgForm(null)}
+          className="app-modal-overlay"
+          style={{ position: "fixed", inset: 0, background: "rgba(6,14,22,0.78)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: 16 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: "100%", maxWidth: 540, maxHeight: "92vh", overflowY: "auto", background: "#0F2233", border: "1px solid #35D08C66", borderRadius: 14, padding: 22 }}
+          >
+            <datalist id="prog-ship-list">{progShipOptions.map((v) => <option key={v} value={v} />)}</datalist>
+            <datalist id="prog-project-list">{progProjectOptions.map((v) => <option key={v} value={v} />)}</datalist>
+            <datalist id="prog-vendor-list">{progVendorOptions.map((v) => <option key={v} value={v} />)}</datalist>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#35D08C" }}>
+                📊 {progForm.id ? "공정 수정" : "공정 추가"}
+              </div>
+              <button type="button" onClick={() => setProgForm(null)} aria-label="닫기"
+                style={{ background: "none", border: "none", color: "#7F97AC", cursor: "pointer", padding: 4, display: "flex" }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label="호선 / 공사명 *">
+                <input style={inputStyle} list="prog-ship-list" value={progForm.ship} onChange={pf("ship")} placeholder="예: H3528" />
+              </Field>
+              <Field label="프로젝트">
+                <input style={inputStyle} list="prog-project-list" value={progForm.project} onChange={pf("project")} placeholder="예: LGSP" />
+              </Field>
+              <Field label="판넬 / 아이템">
+                <input style={inputStyle} value={progForm.panel} onChange={pf("panel")} placeholder="예: SPARE PART" />
+              </Field>
+              <Field label="작업업체">
+                <input style={inputStyle} list="prog-vendor-list" value={progForm.vendor} onChange={pf("vendor")} placeholder="예: 럭스코-생산" />
+              </Field>
+              <Field label="계약 납기">
+                <input style={inputStyle} type="date" value={progForm.due} onChange={pf("due")} />
+              </Field>
+              <Field label="상태">
+                <Select value={progForm.status} onChange={pf("status")} options={PROG_STATUS} />
+              </Field>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 13, color: "#9FB4C7", fontWeight: 600 }}>공정률</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="number" min="0" max="100"
+                    value={progForm.percent}
+                    onChange={pf("percent")}
+                    style={{ ...inputStyle, width: 74, padding: "6px 8px", textAlign: "right", fontWeight: 800, color: "#35D08C" }}
+                  />
+                  <span style={{ color: "#7F97AC" }}>%</span>
+                </span>
+              </div>
+              <input
+                type="range" min="0" max="100" step="5"
+                value={Math.min(100, Math.max(0, Number(progForm.percent) || 0))}
+                onChange={pf("percent")}
+                style={{ width: "100%" }}
+              />
+              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                {[0, 25, 50, 75, 100].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setProgForm((p) => ({ ...p, percent: n }))}
+                    style={{ flex: 1, padding: "4px 0", borderRadius: 6, border: "1px solid #274460", background: "#0B1C2C", color: "#9FB4C7", fontSize: 11.5, cursor: "pointer" }}
+                  >{n}%</button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+              <Field label="메모 (선택)">
+                <input style={inputStyle} value={progForm.memo || ""} onChange={pf("memo")} placeholder="예: 부품 입고 대기, 결선 완료 후 시험 예정" />
+              </Field>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+              <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setProgForm(null)}>취소</Btn>
+              <Btn style={{ flex: 2, background: "#35D08C", border: "1px solid #35D08C", color: "#0A1622" }} onClick={submitProgForm}>
+                <CheckCircle2 size={16} />저장
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
       {rankDetail && (
         <div
           onClick={() => setRankDetailCode(null)}
